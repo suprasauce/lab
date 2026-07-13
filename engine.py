@@ -66,8 +66,8 @@ class BacktestEngine:
             sel = select_strikes(spot, self.config.strike_offset)
             self.fetcher.fetch_hold_period(entry, expiry, sel.ce_strike, sel.pe_strike)
 
-            ce_entry_df = load_option_day(entry, expiry, sel.ce_strike, "call")
-            pe_entry_df = load_option_day(entry, expiry, sel.pe_strike, "put")
+            ce_entry_df = load_option_day(expiry, sel.ce_strike, "call", entry)
+            pe_entry_df = load_option_day(expiry, sel.pe_strike, "put", entry)
             ce_entry = get_price_at_time(ce_entry_df, self.config.entry_time)
             pe_entry = get_price_at_time(pe_entry_df, self.config.entry_time)
 
@@ -93,8 +93,8 @@ class BacktestEngine:
                 )
                 continue
 
-            ce_exit_df = load_option_day(expiry, expiry, sel.ce_strike, "call")
-            pe_exit_df = load_option_day(expiry, expiry, sel.pe_strike, "put")
+            ce_exit_df = load_option_day(expiry, sel.ce_strike, "call", expiry)
+            pe_exit_df = load_option_day(expiry, sel.pe_strike, "put", expiry)
             ce_exit = get_price_at_time(ce_exit_df, self.config.exit_time)
             pe_exit = get_price_at_time(pe_exit_df, self.config.exit_time)
 

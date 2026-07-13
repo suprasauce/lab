@@ -8,22 +8,26 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 IST = ZoneInfo("Asia/Kolkata")
-UTC = ZoneInfo("UTC")
 
 MARKET_OPEN = time(9, 15)
 MARKET_CLOSE = time(15, 30)
 
 
-def ist_to_utc_iso(d: date, t: time) -> str:
-    dt = datetime.combine(d, t, tzinfo=IST)
-    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+def breeze_iso_at_market_time(d: date, t: time) -> str:
+    """
+    Breeze historical endpoints expect NSE clock times in this ISO shape.
+
+    Despite the trailing "Z", sending UTC-converted values clips the returned
+    data to the morning session. Keep the market clock time intact.
+    """
+    return datetime.combine(d, t).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
-def day_session_utc_range(d: date) -> tuple[str, str]:
-    """Full NSE cash session for one day in Breeze ISO UTC."""
+def day_session_breeze_range(d: date) -> tuple[str, str]:
+    """Full NSE session for one day in the format Breeze expects."""
     return (
-        ist_to_utc_iso(d, MARKET_OPEN),
-        ist_to_utc_iso(d, MARKET_CLOSE),
+        breeze_iso_at_market_time(d, MARKET_OPEN),
+        breeze_iso_at_market_time(d, MARKET_CLOSE),
     )
 
 
@@ -59,7 +63,10 @@ def bar_end_time(bar_start: datetime, interval_minutes: int = 5) -> time:
 
 def get_price_at_time(df: pd.DataFrame, target: time) -> float | None:
     """
-    Return close of the 5min bar ending at target time (e.g. 09:30 → bar 09:25–09:30).
+    Return close of the 5min bar ending at target time.
+
+    For example, 09:30 uses the candle timestamped 09:25 if Breeze labels
+    candles by start time.
     """
     if df.empty or "close" not in df.columns:
         return None

@@ -2,11 +2,11 @@
 
 Backtest a Nifty 50 short strangle using ICICI Breeze API historical 5-minute data.
 
-## Strategy defaults
+## Strategy Defaults
 
 - Enter **45 DTE** before monthly expiry at **09:30** IST
 - Exit on expiry day at **15:30** IST
-- Strikes: **ATM ± 18** (50-point rounded ATM)
+- Strikes: **ATM +/- 6 strike steps** where each step is 50 points
 - Monthly expiry: last **Thursday** before Sep 2025, last **Tuesday** from Sep 2025
 
 ## Setup
@@ -33,7 +33,8 @@ Options: `--entry-dte`, `--entry-time`, `--exit-time`, `--strike-offset`, `--lot
 
 Results land in `results/{timestamp}/`:
 
-- `report.html` — summary, equity chart, trade tables
+- `report.html` - summary, equity chart, trade tables
+
 - `trades.csv`, `skipped.csv`, `equity_curve.csv`
 
 5-minute candles are cached under `data/5min/` for reuse and future daily MTM.

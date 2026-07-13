@@ -13,10 +13,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from breeze_client import BreezeClient
-from settings import StrategyConfig, load_credentials
 from data_fetcher import DataFetcher
 from engine import BacktestEngine
 from report import write_report
+from settings import StrategyConfig, load_credentials
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--entry-dte", type=int, default=45)
     p.add_argument("--entry-time", type=str, default="09:30", help="HH:MM IST")
     p.add_argument("--exit-time", type=str, default="15:30", help="HH:MM IST")
-    p.add_argument("--strike-offset", type=int, default=18)
+    p.add_argument("--strike-offset", type=int, default=6)
     p.add_argument("--lot-size", type=int, default=None, help="Override auto lot size")
     p.add_argument("--start-date", type=str, default=None, help="YYYY-MM-DD")
     p.add_argument("--end-date", type=str, default=None, help="YYYY-MM-DD")
@@ -64,7 +64,7 @@ def main() -> int:
     )
 
     logger.info(
-        "Backtest %s → %s | DTE=%d offset=±%d entry=%s exit=%s",
+        "Backtest %s -> %s | DTE=%d offset=+/- %d entry=%s exit=%s",
         config.start_date,
         config.end_date,
         config.entry_dte,
@@ -87,8 +87,11 @@ def main() -> int:
 
     total_pnl = sum(t.pnl for t in trades)
     win_rate = 100 * sum(1 for t in trades if t.pnl > 0) / len(trades) if trades else 0
-    print(f"\nBacktest complete → {out_dir}")
-    print(f"  Trades: {len(trades)} | Skipped: {len(skipped)} | Total PnL: ₹{total_pnl:,.0f} | Win rate: {win_rate:.1f}%")
+    print(f"\nBacktest complete -> {out_dir}")
+    print(
+        f"  Trades: {len(trades)} | Skipped: {len(skipped)} | "
+        f"Total PnL: Rs {total_pnl:,.0f} | Win rate: {win_rate:.1f}%"
+    )
     print(f"  Open {out_dir / 'report.html'} in your browser to view full results.")
     return 0
 

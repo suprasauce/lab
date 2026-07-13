@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, time
 
 import pandas as pd
 
@@ -17,9 +17,18 @@ from data_store import (
     save_nifty_day,
     save_option_day,
 )
-from utils import day_session_utc_range, expiry_to_breeze_iso, normalize_candle_df
+from utils import MARKET_CLOSE, day_session_breeze_range, expiry_to_breeze_iso, normalize_candle_df
 
 logger = logging.getLogger(__name__)
+
+
+def _has_full_session(df: pd.DataFrame) -> bool:
+    if df.empty or "datetime" not in df.columns:
+        return False
+    last_time = df["datetime"].max().time().replace(microsecond=0)
+    # Breeze usually labels 5-minute candles by start time; 15:25 is the bar
+    # ending at the configured 15:30 close.
+    return last_time >= time(MARKET_CLOSE.hour, MARKET_CLOSE.minute - 5)
 
 
 class DataFetcher:
@@ -28,8 +37,11 @@ class DataFetcher:
 
     def ensure_nifty_day(self, d: date) -> pd.DataFrame:
         if has_nifty_day(d):
-            return load_nifty_day(d)
-        from_iso, to_iso = day_session_utc_range(d)
+            cached = load_nifty_day(d)
+            if _has_full_session(cached):
+                return cached
+            logger.info("Refreshing partial Nifty cache for %s", d)
+        from_iso, to_iso = day_session_breeze_range(d)
         raw = self.client.get_historical_5min(
             from_date=from_iso,
             to_date=to_iso,
@@ -52,8 +64,11 @@ class DataFetcher:
         right: str,
     ) -> pd.DataFrame:
         if has_option_day(expiry, strike, right, d):
-            return load_option_day(expiry, strike, right, d)
-        from_iso, to_iso = day_session_utc_range(d)
+            cached = load_option_day(expiry, strike, right, d)
+            if _has_full_session(cached):
+                return cached
+            logger.info("Refreshing partial option cache %s %s %s on %s", expiry, strike, right, d)
+        from_iso, to_iso = day_session_breeze_range(d)
         raw = self.client.get_historical_5min(
             from_date=from_iso,
             to_date=to_iso,

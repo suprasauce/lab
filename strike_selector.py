@@ -1,4 +1,4 @@
-"""ATM ± offset strike selection."""
+"""ATM +/- offset strike selection."""
 
 from __future__ import annotations
 
@@ -22,9 +22,10 @@ def round_atm(spot: float, step: int = STRIKE_STEP) -> int:
 
 def select_strikes(spot: float, strike_offset: int) -> StrikeSelection:
     atm = round_atm(spot)
+    offset_points = strike_offset * STRIKE_STEP
     return StrikeSelection(
         spot=spot,
         atm_strike=atm,
-        ce_strike=atm + strike_offset,
-        pe_strike=atm - strike_offset,
+        ce_strike=atm + offset_points,
+        pe_strike=atm - offset_points,
     )
