@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 BACKTEST_ROOT = Path(__file__).resolve().parent
 DATA_DIR = BACKTEST_ROOT / "data"
+DB_PATH = DATA_DIR / "market_data.duckdb"
 RESULTS_DIR = BACKTEST_ROOT / "results"
 
 LOT_SIZE_CHANGE_DATE = date(2024, 11, 20)
@@ -29,8 +30,6 @@ class StrategyConfig:
     lot_size: int | None = None  # None = auto from entry date
     start_date: date = field(default_factory=lambda: date.today() - timedelta(days=365))
     end_date: date = field(default_factory=lambda: date.today())
-    slippage_per_leg: float = 0.0
-    brokerage_per_trade: float = 0.0
 
     def resolve_lot_size(self, entry_date: date) -> int:
         return self.lot_size if self.lot_size is not None else lot_size_for_date(entry_date)

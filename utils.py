@@ -61,6 +61,11 @@ def bar_end_time(bar_start: datetime, interval_minutes: int = 5) -> time:
     return end.time().replace(microsecond=0)
 
 
+def bar_start_for_end_time(d: date, target: time, interval_minutes: int = 5) -> datetime:
+    """Return the candle timestamp for a bar ending at target time."""
+    return datetime.combine(d, target) - timedelta(minutes=interval_minutes)
+
+
 def get_price_at_time(df: pd.DataFrame, target: time) -> float | None:
     """
     Return close of the 5min bar ending at target time.
