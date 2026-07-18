@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 
 from backtest.engine import BacktestEngine
-from settings import StrategyConfig
+from common.settings import StrategyConfig
 
 
 class FakeStrategy:

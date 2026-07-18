@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from nse_calendar import (
+from common.nse_calendar import (
     entry_date_for_expiry,
     is_trading_day,
     iter_monthly_expiries,

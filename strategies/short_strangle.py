@@ -6,8 +6,8 @@ from datetime import date
 
 import pandas as pd
 
-from nse_calendar import entry_date_for_expiry
-from strike_selector import select_strikes
+from common.nse_calendar import entry_date_for_expiry
+from common.strike_selector import select_strikes
 
 
 class ShortStrangleStrategy:

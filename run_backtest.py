@@ -14,10 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from backtest.engine import BacktestEngine
 from breeze_client import BreezeClient
+from common.settings import StrategyConfig, load_credentials
 from market_data.data import MarketData
 from market_data.store import DuckDBMarketDataStore
 from reporting.report import write_report
-from settings import StrategyConfig, load_credentials
 from strategies.short_strangle import ShortStrangleStrategy
 
 logging.basicConfig(

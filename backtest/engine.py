@@ -6,7 +6,7 @@ import logging
 
 import pandas as pd
 
-from nse_calendar import iter_monthly_expiries
+from common.nse_calendar import iter_monthly_expiries
 
 logger = logging.getLogger(__name__)
 

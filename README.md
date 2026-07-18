@@ -16,6 +16,8 @@ Backtest strategies using ICICI Breeze API historical 5-minute data with on-dema
 - `strategies/short_strangle.py` implements the current monthly short strangle.
 - `backtest/engine.py` iterates expiries and calls `strategy.run(config, expiry, data)`.
 - `reporting/report.py` writes trades and skipped expiries as CSV files and simple HTML tables.
+- `common/` contains shared settings, calendar helpers, candle utilities, and strike selection.
+- `tests/` contains the test suite.
 
 The engine stays deliberately small. It iterates expiries and combines the tables returned by the strategy. The current strategy computes its own entry and exit dates from the expiry, fetches only the exact candles it needs, returns one row per option leg in `trades`, and returns untraded expiries separately in `skipped_expiries`.
 
@@ -88,5 +90,5 @@ Results land in `results/{timestamp}/`:
 ## Tests
 
 ```bash
-python -m pytest test_calendar.py -v
+python -m pytest
 ```

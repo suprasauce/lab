@@ -8,8 +8,8 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from settings import DB_PATH
-from utils import bar_start_for_end_time
+from common.settings import DB_PATH
+from common.utils import bar_start_for_end_time
 
 
 class DuckDBMarketDataStore:

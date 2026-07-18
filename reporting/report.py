@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from settings import RESULTS_DIR
+from common.settings import RESULTS_DIR
 
 
 def write_report(results: dict[str, pd.DataFrame], strategy_name: str = "backtest", run_dir: Path | None = None) -> Path:
