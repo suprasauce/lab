@@ -14,6 +14,7 @@ from backend.services.backtest_service import (
     parse_time,
     run_backtest_for_strategy,
 )
+from backend.services.metrics_service import metric_cards
 from backend.services.result_service import (
     dataframe_columns,
     dataframe_records,
@@ -46,10 +47,9 @@ def strategy_page(request: Request, strategy_id: str):
         form=_default_form(),
         error=None,
         run=None,
-        trades_columns=[],
-        trades_rows=[],
-        skipped_columns=[],
-        skipped_rows=[],
+        metric_cards=[],
+        metrics={},
+        equity_curve=[],
     )
 
 
@@ -100,15 +100,12 @@ def run_strategy(
             form=form,
             error=str(exc),
             run=None,
-            trades_columns=[],
-            trades_rows=[],
-            skipped_columns=[],
-            skipped_rows=[],
+            metric_cards=[],
+            metrics={},
+            equity_curve=[],
         )
 
     run = load_run(run_id)
-    trades = results["trades"]
-    skipped = results["skipped_expiries"]
     return _render(
         "strategy_detail.html",
         request=request,
@@ -116,10 +113,9 @@ def run_strategy(
         form=form,
         error=None,
         run=run["metadata"],
-        trades_columns=dataframe_columns(trades),
-        trades_rows=dataframe_records(trades),
-        skipped_columns=dataframe_columns(skipped),
-        skipped_rows=dataframe_records(skipped),
+        metric_cards=metric_cards(run["metrics"]),
+        metrics=run["metrics"],
+        equity_curve=run["equity_curve"],
     )
 
 
@@ -137,8 +133,37 @@ def run_page(request: Request, run_id: str):
         form=run["metadata"],
         error=None,
         run=run["metadata"],
+        metric_cards=metric_cards(run["metrics"]),
+        metrics=run["metrics"],
+        equity_curve=run["equity_curve"],
+    )
+
+
+@router.get("/backtests/{run_id}/trades", response_class=HTMLResponse)
+def detailed_trades_page(request: Request, run_id: str):
+    try:
+        run = load_run(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _render(
+        "detailed_trades.html",
+        request=request,
+        run=run["metadata"],
         trades_columns=dataframe_columns(run["trades"]),
         trades_rows=dataframe_records(run["trades"]),
+    )
+
+
+@router.get("/backtests/{run_id}/skipped-expiries", response_class=HTMLResponse)
+def skipped_expiries_page(request: Request, run_id: str):
+    try:
+        run = load_run(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _render(
+        "skipped_expiries.html",
+        request=request,
+        run=run["metadata"],
         skipped_columns=dataframe_columns(run["skipped_expiries"]),
         skipped_rows=dataframe_records(run["skipped_expiries"]),
     )

@@ -8,12 +8,13 @@ import pandas as pd
 
 from backend.common.nse_calendar import entry_date_for_expiry
 from backend.common.strike_selector import select_strikes
+from backend.services import market_data_service
 
 
 class ShortStrangleStrategy:
     name = "nifty_short_strangle"
 
-    def run(self, config, expiry: date, data) -> dict[str, pd.DataFrame]:
+    def run(self, config, expiry: date) -> dict[str, pd.DataFrame]:
         entry_date = entry_date_for_expiry(expiry, config.entry_dte)
         exit_date = expiry
         base = _base_row(config, expiry, entry_date, exit_date)
@@ -21,7 +22,7 @@ class ShortStrangleStrategy:
         if entry_date >= expiry:
             return _skipped(base, "entry_on_or_after_expiry")
 
-        spot_candle = data.get_underlying_candle(
+        spot_candle = market_data_service.get_underlying_candle(
             symbol="NIFTY",
             exchange="NSE",
             candle_date=entry_date,
@@ -40,7 +41,7 @@ class ShortStrangleStrategy:
         )
 
         ce_entry = _close(
-            data.get_option_candle(
+            market_data_service.get_option_candle(
                 symbol="NIFTY",
                 exchange="NFO",
                 expiry=expiry,
@@ -51,7 +52,7 @@ class ShortStrangleStrategy:
             )
         )
         pe_entry = _close(
-            data.get_option_candle(
+            market_data_service.get_option_candle(
                 symbol="NIFTY",
                 exchange="NFO",
                 expiry=expiry,
@@ -62,7 +63,7 @@ class ShortStrangleStrategy:
             )
         )
         ce_exit = _close(
-            data.get_option_candle(
+            market_data_service.get_option_candle(
                 symbol="NIFTY",
                 exchange="NFO",
                 expiry=expiry,
@@ -73,7 +74,7 @@ class ShortStrangleStrategy:
             )
         )
         pe_exit = _close(
-            data.get_option_candle(
+            market_data_service.get_option_candle(
                 symbol="NIFTY",
                 exchange="NFO",
                 expiry=expiry,

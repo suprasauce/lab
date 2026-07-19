@@ -81,6 +81,8 @@ Open `http://127.0.0.1:8000` to select a strategy, run a backtest, view trades, 
 Results land in `results/{timestamp}/`:
 
 - `metadata.json`
+- `metrics.json`
+- `equity_curve.json`
 - `trades.csv`
 - `skipped_expiries.csv`
 - `daily_mtm.csv`

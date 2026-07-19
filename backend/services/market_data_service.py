@@ -14,9 +14,10 @@ if TYPE_CHECKING:
     from backend.client.breeze_client import BreezeClient
 
 logger = logging.getLogger(__name__)
+_service: _MarketDataService | None = None
 
 
-class MarketDataService:
+class _MarketDataService:
     def __init__(self, client: "BreezeClient", dao: MarketDataDao):
         self.client = client
         self.dao = dao
@@ -143,7 +144,50 @@ class MarketDataService:
         )
 
 
-def create_market_data_service() -> MarketDataService:
+def get_underlying_candle(
+    *,
+    symbol: str,
+    exchange: str,
+    candle_date: date,
+    candle_time: time,
+) -> dict | None:
+    return _get_market_data_service().get_underlying_candle(
+        symbol=symbol,
+        exchange=exchange,
+        candle_date=candle_date,
+        candle_time=candle_time,
+    )
+
+
+def get_option_candle(
+    *,
+    symbol: str,
+    exchange: str,
+    expiry: date,
+    strike: int,
+    right: str,
+    candle_date: date,
+    candle_time: time,
+) -> dict | None:
+    return _get_market_data_service().get_option_candle(
+        symbol=symbol,
+        exchange=exchange,
+        expiry=expiry,
+        strike=strike,
+        right=right,
+        candle_date=candle_date,
+        candle_time=candle_time,
+    )
+
+
+def _get_market_data_service() -> _MarketDataService:
+    global _service
+    if _service is None:
+        _service = _create_market_data_service()
+    return _service
+
+
+def _create_market_data_service() -> _MarketDataService:
     from backend.client.breeze_client import BreezeClient
 
-    return MarketDataService(BreezeClient(load_credentials()), MarketDataDao())
+    return _MarketDataService(BreezeClient(load_credentials()), MarketDataDao())

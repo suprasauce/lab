@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% set title = "Skipped Expiries " ~ run.run_id %}
+{% block content %}
+  <section class="panel">
+    <h1>Skipped Expiries</h1>
+    <div class="meta">
+      <span>Run: <a href="/backtests/{{ run.run_id }}">{{ run.run_id }}</a></span>
+      <span>{{ run.start_date }} to {{ run.end_date }}</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    {% set trades_columns = skipped_columns %}
+    {% set trades_rows = skipped_rows %}
+    {% set link_trade_ids = false %}
+    {% include "table.html" with context %}
+  </section>
+{% endblock %}

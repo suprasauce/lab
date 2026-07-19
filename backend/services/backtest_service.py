@@ -8,7 +8,7 @@ import pandas as pd
 
 from backend.common.nse_calendar import iter_monthly_expiries
 from backend.config.settings import StrategyConfig
-from backend.services.market_data_service import create_market_data_service
+from backend.services.metrics_service import build_backtest_metrics, build_equity_curve
 from backend.services.mtm_service import build_daily_mtm
 from backend.services.result_service import save_run
 from backend.strategies.short_strangle import ShortStrangleStrategy
@@ -55,10 +55,15 @@ def run_backtest_for_strategy(
         start_date=start_date,
         end_date=end_date,
     )
-    market_data = create_market_data_service()
     strategy = ShortStrangleStrategy()
-    results = run_backtest(strategy, config, market_data)
-    results["daily_mtm"] = build_daily_mtm(results["trades"], market_data)
+    results = run_backtest(strategy, config)
+    results["daily_mtm"] = build_daily_mtm(results["trades"])
+    results["metrics"] = build_backtest_metrics(
+        trades=results["trades"],
+        skipped_expiries=results["skipped_expiries"],
+        daily_mtm=results["daily_mtm"],
+    )
+    results["equity_curve"] = build_equity_curve(results["trades"])
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     metadata = {
@@ -89,12 +94,12 @@ def parse_time(value: str) -> time:
     return datetime.strptime(value, "%H:%M").time()
 
 
-def run_backtest(strategy, config: StrategyConfig, market_data) -> dict[str, pd.DataFrame]:
+def run_backtest(strategy, config: StrategyConfig) -> dict[str, pd.DataFrame]:
     trades: list[pd.DataFrame] = []
     skipped_expiries: list[pd.DataFrame] = []
 
     for expiry in iter_monthly_expiries(config.start_date, config.end_date):
-        result = strategy.run(config, expiry, market_data)
+        result = strategy.run(config, expiry)
         trades.append(result["trades"])
         skipped_expiries.append(result["skipped_expiries"])
 

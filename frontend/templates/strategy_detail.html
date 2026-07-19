@@ -39,24 +39,80 @@
       <h2>Run {{ run.run_id }}</h2>
       <div class="meta">
         <span>{{ run.start_date }} to {{ run.end_date }}</span>
-        <span>Trade rows: {{ run.trade_rows }}</span>
-        <span>Skipped expiries: {{ run.skipped_expiries }}</span>
+        <span>Entry DTE: {{ run.entry_dte }}</span>
+        <span>Strike offset: {{ run.strike_offset }}</span>
         <span>Daily MTM rows: {{ run.daily_mtm_rows }}</span>
+      </div>
+      <div class="actions">
+        <a class="button" href="/backtests/{{ run.run_id }}/trades" target="_blank" rel="noopener noreferrer">Detailed Trades</a>
+        <a class="button" href="/backtests/{{ run.run_id }}/skipped-expiries" target="_blank" rel="noopener noreferrer">Skipped Expiries</a>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Trades</h2>
-      {% set link_trade_ids = true %}
-      {% include "table.html" with context %}
+      <h2>Metrics</h2>
+      {% if metric_cards %}
+        <div class="metrics-grid">
+          {% for metric in metric_cards %}
+            <div class="metric">
+              <span>{{ metric.label }}</span>
+              <strong>{{ metric.value }}</strong>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">No metrics.</p>
+      {% endif %}
     </section>
 
     <section class="panel">
-      <h2>Skipped Expiries</h2>
-      {% set trades_columns = skipped_columns %}
-      {% set trades_rows = skipped_rows %}
-      {% set link_trade_ids = false %}
-      {% include "table.html" with context %}
+      <h2>Equity Curve</h2>
+      {% if equity_curve %}
+        <div class="chart">
+          <svg id="equity-chart" viewBox="0 0 960 320" role="img" aria-label="Equity curve"></svg>
+        </div>
+        <script>
+          (() => {
+            const curve = {{ equity_curve | tojson }};
+            const svg = document.getElementById("equity-chart");
+            const width = 960;
+            const height = 320;
+            const pad = { left: 56, right: 18, top: 20, bottom: 42 };
+            if (!curve.length) return;
+
+            const dates = curve.map((point) => point.date);
+            const values = curve.map((point) => Number(point.equity));
+            const minY = Math.min(0, ...values);
+            const maxY = Math.max(0, ...values);
+            const spanY = maxY - minY || 1;
+            const xFor = (date) => {
+              const index = dates.indexOf(date);
+              const usable = width - pad.left - pad.right;
+              return pad.left + (dates.length === 1 ? usable / 2 : (index / (dates.length - 1)) * usable);
+            };
+            const yFor = (value) => pad.top + ((maxY - value) / spanY) * (height - pad.top - pad.bottom);
+            const pointsFor = (points) => points.map((point) => `${xFor(point.date)},${yFor(Number(point.equity))}`).join(" ");
+            const line = (points) => {
+              if (!points.length) return "";
+              return `<polyline points="${pointsFor(points)}" fill="none" stroke="#0f766e" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />`;
+            };
+            const axisY = yFor(0);
+            const firstDate = dates[0] || "";
+            const lastDate = dates[dates.length - 1] || "";
+            svg.innerHTML = `
+              <line x1="${pad.left}" y1="${axisY}" x2="${width - pad.right}" y2="${axisY}" stroke="#d9dee7" />
+              <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#d9dee7" />
+              ${line(curve)}
+              <text x="${pad.left}" y="16" fill="#6b7280" font-size="12">${maxY.toFixed(0)}</text>
+              <text x="${pad.left}" y="${height - pad.bottom + 18}" fill="#6b7280" font-size="12">${minY.toFixed(0)}</text>
+              <text x="${pad.left}" y="${height - 12}" fill="#6b7280" font-size="12">${firstDate}</text>
+              <text x="${width - pad.right}" y="${height - 12}" fill="#6b7280" font-size="12" text-anchor="end">${lastDate}</text>
+            `;
+          })();
+        </script>
+      {% else %}
+        <p class="empty">No equity curve.</p>
+      {% endif %}
     </section>
   {% endif %}
 {% endblock %}

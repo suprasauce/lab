@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% set title = "Detailed Trades " ~ run.run_id %}
+{% block content %}
+  <section class="panel">
+    <h1>Detailed Trades</h1>
+    <div class="meta">
+      <span>Run: <a href="/backtests/{{ run.run_id }}">{{ run.run_id }}</a></span>
+      <span>{{ run.start_date }} to {{ run.end_date }}</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    {% set link_trade_ids = true %}
+    {% include "table.html" with context %}
+  </section>
+{% endblock %}
