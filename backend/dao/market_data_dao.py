@@ -8,11 +8,11 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from common.settings import DB_PATH
-from common.utils import bar_start_for_end_time
+from backend.config.settings import DB_PATH
+from backend.common.utils import bar_start_for_end_time
 
 
-class DuckDBMarketDataStore:
+class MarketDataDao:
     def __init__(self, path: Path = DB_PATH):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)

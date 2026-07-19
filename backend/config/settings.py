@@ -9,7 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-BACKTEST_ROOT = Path(__file__).resolve().parent.parent
+BACKTEST_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BACKTEST_ROOT / "data"
 DB_PATH = DATA_DIR / "market_data.duckdb"
 RESULTS_DIR = BACKTEST_ROOT / "results"

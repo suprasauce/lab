@@ -2,8 +2,8 @@ from datetime import date
 
 import pandas as pd
 
-from backtest.engine import BacktestEngine
-from common.settings import StrategyConfig
+from backend.config.settings import StrategyConfig
+from backend.services.backtest_service import run_backtest
 
 
 class FakeStrategy:
@@ -22,7 +22,7 @@ def test_engine_runs_strategy_once_per_expiry():
     config = StrategyConfig(start_date=date(2026, 1, 1), end_date=date(2026, 2, 28))
     strategy = FakeStrategy()
 
-    results = BacktestEngine(data=object()).run(strategy, config)
+    results = run_backtest(strategy, config, object())
 
     assert len(results["trades"]) == 2
     assert results["trades"]["expiry_date"].tolist() == ["2026-01-27", "2026-02-24"]

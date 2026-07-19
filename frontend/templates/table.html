@@ -1,0 +1,30 @@
+{% if trades_rows %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          {% for column in trades_columns %}
+            <th>{{ column }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in trades_rows %}
+          <tr>
+            {% for column in trades_columns %}
+              <td>
+                {% if column == "trade_id" and link_trade_ids and run and row[column] %}
+                  <a href="/backtests/{{ run.run_id }}/trades/{{ row[column] }}/mtm" target="_blank">{{ row[column] }}</a>
+                {% else %}
+                  {{ row[column] }}
+                {% endif %}
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="empty">No rows.</p>
+{% endif %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% set title = "MTM " ~ trade_id %}
+{% block content %}
+  <section class="panel">
+    <h1>Daily MTM</h1>
+    <p>{{ trade_id }}</p>
+    <div class="meta">
+      <span>Run: <a href="/backtests/{{ run.run_id }}">{{ run.run_id }}</a></span>
+      <span>{{ run.start_date }} to {{ run.end_date }}</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Trade Legs</h2>
+    {% set trades_columns = trades_columns %}
+    {% set trades_rows = trades_rows %}
+    {% set link_trade_ids = false %}
+    {% include "table.html" with context %}
+  </section>
+
+  <section class="panel">
+    <h2>Daily MTM Rows</h2>
+    {% set trades_columns = mtm_columns %}
+    {% set trades_rows = mtm_rows %}
+    {% set link_trade_ids = false %}
+    {% include "table.html" with context %}
+  </section>
+{% endblock %}

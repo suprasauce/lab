@@ -6,7 +6,7 @@ from datetime import date, datetime, time
 
 import pandas as pd
 
-from common.nse_calendar import trading_days_between
+from backend.common.nse_calendar import trading_days_between
 
 DAILY_MTM_TIME = time(15, 30)
 

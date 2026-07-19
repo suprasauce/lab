@@ -11,16 +11,16 @@ Backtest strategies using ICICI Breeze API historical 5-minute data with on-dema
 
 ## Architecture
 
-- `market_data/store.py` stores 5-minute candles in `data/market_data.duckdb`.
-- `market_data/data.py` checks DuckDB for requested candles, fetches full missing days from Breeze, and returns one candle dict at a time.
-- `strategies/short_strangle.py` implements the current monthly short strangle.
-- `backtest/engine.py` iterates expiries and calls `strategy.run(config, expiry, data)`.
-- `analytics/mtm.py` derives daily MTM from completed trade rows and cached market data.
-- `reporting/report.py` writes trades and skipped expiries as CSV files and simple HTML tables.
-- `common/` contains shared settings, calendar helpers, candle utilities, and strike selection.
+- `backend/controllers/` contains FastAPI page routes.
+- `backend/services/` contains API use cases: running backtests, loading results, fetching market data, and building MTM.
+- `backend/dao/market_data_dao.py` stores and loads 5-minute candles in `data/market_data.duckdb`.
+- `backend/client/breeze_client.py` wraps the Breeze SDK.
+- `backend/strategies/` contains strategy rules.
+- `backend/common/` contains shared calendar, candle, and strike-selection helpers.
+- `frontend/templates/` contains the HTML templates.
 - `tests/` contains the test suite.
 
-The engine stays deliberately small. It iterates expiries and combines the tables returned by the strategy. The current strategy computes its own entry and exit dates from the expiry, fetches only the exact candles it needs, returns one row per option leg in `trades`, and returns untraded expiries separately in `skipped_expiries`. Daily MTM is derived after the backtest from the trade rows.
+The web controller handles HTTP/form input, services orchestrate the use case, the DAO owns DuckDB SQL, the client owns Breeze API calls, and strategies hold the trading rules.
 
 DuckDB tables:
 
@@ -30,7 +30,6 @@ DuckDB tables:
 ## Setup
 
 ```bash
-cd backtest
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
@@ -69,20 +68,19 @@ BREEZE_SESSION_TOKEN=<copied_apisession_value>
 
 The session token expires, so refresh it whenever Breeze returns `Session key is expired`.
 
-## Run
+## UI
 
 ```bash
-python run_backtest.py --start-date 2024-01-01 --end-date 2025-12-31
+python -m uvicorn backend.app:app --reload
 ```
 
-Options: `--entry-dte`, `--entry-time`, `--exit-time`, `--strike-offset`, `--lot-size`
+Open `http://127.0.0.1:8000` to select a strategy, run a backtest, view trades, and open a trade's daily MTM table.
 
 ## Output
 
 Results land in `results/{timestamp}/`:
 
-- `report.html` - trades, skipped-expiries, and daily MTM tables
-
+- `metadata.json`
 - `trades.csv`
 - `skipped_expiries.csv`
 - `daily_mtm.csv`

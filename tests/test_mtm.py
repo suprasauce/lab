@@ -2,7 +2,7 @@ from datetime import date, time
 
 import pandas as pd
 
-from analytics.mtm import build_daily_mtm
+from backend.services.mtm_service import build_daily_mtm
 
 
 class FakeData:

@@ -5,8 +5,8 @@ from datetime import date
 
 import pandas as pd
 
-from common.strike_selector import select_strikes
-from common.utils import IST, day_session_breeze_range, get_price_at_time
+from backend.common.strike_selector import select_strikes
+from backend.common.utils import IST, day_session_breeze_range, get_price_at_time
 
 
 def test_select_strikes():

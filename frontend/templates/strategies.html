@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% set title = "Strategies" %}
+{% block content %}
+  <section class="panel">
+    <h1>Strategies</h1>
+    <p>Select a strategy to configure and run a backtest.</p>
+    <div class="strategy-list">
+      {% for strategy in strategies %}
+        <a class="strategy-link" href="/strategies/{{ strategy.id }}">
+          <strong>{{ strategy.name }}</strong>
+          <span>{{ strategy.description }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

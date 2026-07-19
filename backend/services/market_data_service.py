@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import logging
 from datetime import date, time
+from typing import TYPE_CHECKING
 
-from breeze_client import BreezeClient
-from market_data.store import DuckDBMarketDataStore
-from common.utils import day_session_breeze_range, expiry_to_breeze_iso, normalize_candle_df
+from backend.config.settings import load_credentials
+from backend.dao.market_data_dao import MarketDataDao
+from backend.common.utils import day_session_breeze_range, expiry_to_breeze_iso, normalize_candle_df
+
+if TYPE_CHECKING:
+    from backend.client.breeze_client import BreezeClient
 
 logger = logging.getLogger(__name__)
 
 
-class MarketData:
-    def __init__(self, client: BreezeClient, store: DuckDBMarketDataStore):
+class MarketDataService:
+    def __init__(self, client: "BreezeClient", dao: MarketDataDao):
         self.client = client
-        self.store = store
+        self.dao = dao
 
     def get_underlying_candle(
         self,
@@ -25,7 +29,7 @@ class MarketData:
         candle_date: date,
         candle_time: time,
     ) -> dict | None:
-        candle = self.store.load_underlying_candle(
+        candle = self.dao.load_underlying_candle(
             symbol=symbol,
             exchange=exchange,
             candle_date=candle_date,
@@ -35,7 +39,7 @@ class MarketData:
             return candle
 
         self._fetch_underlying_day(symbol=symbol, exchange=exchange, candle_date=candle_date)
-        return self.store.load_underlying_candle(
+        return self.dao.load_underlying_candle(
             symbol=symbol,
             exchange=exchange,
             candle_date=candle_date,
@@ -54,7 +58,7 @@ class MarketData:
         candle_time: time,
     ) -> dict | None:
         right = right.lower()
-        candle = self.store.load_derivative_candle(
+        candle = self.dao.load_derivative_candle(
             underlying_symbol=symbol,
             exchange=exchange,
             instrument_type="option",
@@ -75,7 +79,7 @@ class MarketData:
             right=right,
             candle_date=candle_date,
         )
-        return self.store.load_derivative_candle(
+        return self.dao.load_derivative_candle(
             underlying_symbol=symbol,
             exchange=exchange,
             instrument_type="option",
@@ -100,7 +104,7 @@ class MarketData:
         if df.empty:
             logger.warning("No underlying data %s %s on %s", exchange, symbol, candle_date)
             return
-        self.store.save_underlying_5m(symbol=symbol, exchange=exchange, df=df)
+        self.dao.save_underlying_5m(symbol=symbol, exchange=exchange, df=df)
 
     def _fetch_option_day(
         self,
@@ -128,7 +132,7 @@ class MarketData:
         if df.empty:
             logger.debug("No option data %s %s %s on %s", expiry, strike, right, candle_date)
             return
-        self.store.save_derivative_5m(
+        self.dao.save_derivative_5m(
             underlying_symbol=symbol,
             exchange=exchange,
             instrument_type="option",
@@ -137,3 +141,9 @@ class MarketData:
             right=right,
             df=df,
         )
+
+
+def create_market_data_service() -> MarketDataService:
+    from backend.client.breeze_client import BreezeClient
+
+    return MarketDataService(BreezeClient(load_credentials()), MarketDataDao())

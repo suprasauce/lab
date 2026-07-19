@@ -8,7 +8,7 @@ from typing import Any
 
 from breeze_connect import BreezeConnect
 
-from common.settings import BreezeCredentials
+from backend.config.settings import BreezeCredentials
 
 logger = logging.getLogger(__name__)
 
