@@ -12,6 +12,7 @@ from pathlib import Path
 # Allow running as script from repo root or backtest folder
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from analytics.mtm import build_daily_mtm
 from backtest.engine import BacktestEngine
 from breeze_client import BreezeClient
 from common.settings import StrategyConfig, load_credentials
@@ -83,12 +84,17 @@ def main() -> int:
     strategy = ShortStrangleStrategy()
     engine = BacktestEngine(market_data)
     results = engine.run(strategy, config)
+    results["daily_mtm"] = build_daily_mtm(results["trades"], market_data)
     out_dir = write_report(results, strategy_name=strategy.name)
 
     trades = results["trades"]
     skipped_expiries = results["skipped_expiries"]
+    daily_mtm = results["daily_mtm"]
     print(f"\nBacktest complete -> {out_dir}")
-    print(f"  Trade rows: {len(trades)} | Skipped expiries: {len(skipped_expiries)}")
+    print(
+        f"  Trade rows: {len(trades)} | Skipped expiries: {len(skipped_expiries)} | "
+        f"Daily MTM rows: {len(daily_mtm)}"
+    )
     print(f"  Open {out_dir / 'report.html'} in your browser to view full results.")
     return 0
 

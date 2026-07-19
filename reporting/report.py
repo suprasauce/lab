@@ -17,10 +17,13 @@ def write_report(results: dict[str, pd.DataFrame], strategy_name: str = "backtes
 
     trades = results["trades"]
     skipped_expiries = results["skipped_expiries"]
+    daily_mtm = results.get("daily_mtm", pd.DataFrame())
     if not trades.empty:
         trades.to_csv(out / "trades.csv", index=False)
     if not skipped_expiries.empty:
         skipped_expiries.to_csv(out / "skipped_expiries.csv", index=False)
+    if not daily_mtm.empty:
+        daily_mtm.to_csv(out / "daily_mtm.csv", index=False)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -41,6 +44,7 @@ def write_report(results: dict[str, pd.DataFrame], strategy_name: str = "backtes
   <p>Run: {run_id}</p>
   <div class="section"><h2>Trades</h2>{_df_to_html_table(trades)}</div>
   <div class="section"><h2>Skipped Expiries</h2>{_df_to_html_table(skipped_expiries)}</div>
+  <div class="section"><h2>Daily MTM</h2>{_df_to_html_table(daily_mtm)}</div>
 </body>
 </html>
 """
