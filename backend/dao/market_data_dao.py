@@ -60,6 +60,22 @@ class MarketDataDao:
                 )
                 """
             )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS missing_5m_data (
+                    symbol TEXT NOT NULL,
+                    exchange TEXT NOT NULL,
+                    instrument_type TEXT NOT NULL,
+                    expiry DATE,
+                    strike INTEGER,
+                    option_right TEXT,
+                    data_date DATE NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL
+                )
+                """
+            )
 
     def load_underlying_5m(self, *, symbol: str, exchange: str, start: date, end: date) -> pd.DataFrame:
         with self._connect() as con:
@@ -227,6 +243,90 @@ class MarketDataDao:
                     datetime, open, high, low, close, volume, open_interest, created_at, updated_at
                 FROM incoming_derivatives
                 """
+            )
+
+    def is_day_marked_missing(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        instrument_type: str,
+        data_date: date,
+        expiry: date | None = None,
+        strike: int | None = None,
+        right: str | None = None,
+    ) -> bool:
+        with self._connect() as con:
+            df = con.execute(
+                """
+                SELECT 1
+                FROM missing_5m_data
+                WHERE symbol = ?
+                  AND exchange = ?
+                  AND instrument_type = ?
+                  AND data_date = ?
+                  AND expiry IS NOT DISTINCT FROM ?
+                  AND strike IS NOT DISTINCT FROM ?
+                  AND option_right IS NOT DISTINCT FROM ?
+                LIMIT 1
+                """,
+                [
+                    symbol,
+                    exchange,
+                    instrument_type,
+                    data_date,
+                    expiry,
+                    strike,
+                    None if right is None else right.lower(),
+                ],
+            ).df()
+        return not df.empty
+
+    def mark_day_missing(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        instrument_type: str,
+        data_date: date,
+        reason: str,
+        expiry: date | None = None,
+        strike: int | None = None,
+        right: str | None = None,
+    ) -> None:
+        now = datetime.now()
+        option_right = None if right is None else right.lower()
+        with self._connect() as con:
+            con.execute(
+                """
+                DELETE FROM missing_5m_data
+                WHERE symbol = ?
+                  AND exchange = ?
+                  AND instrument_type = ?
+                  AND data_date = ?
+                  AND expiry IS NOT DISTINCT FROM ?
+                  AND strike IS NOT DISTINCT FROM ?
+                  AND option_right IS NOT DISTINCT FROM ?
+                """,
+                [symbol, exchange, instrument_type, data_date, expiry, strike, option_right],
+            )
+            con.execute(
+                """
+                INSERT INTO missing_5m_data
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    symbol,
+                    exchange,
+                    instrument_type,
+                    expiry,
+                    strike,
+                    option_right,
+                    data_date,
+                    reason,
+                    now,
+                    now,
+                ],
             )
 
 

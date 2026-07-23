@@ -14,6 +14,14 @@ if TYPE_CHECKING:
     from backend.client.breeze_client import BreezeClient
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
+    )
+    logger.addHandler(handler)
+logger.propagate = False
 _service: _MarketDataService | None = None
 
 
@@ -30,6 +38,13 @@ class _MarketDataService:
         candle_date: date,
         candle_time: time,
     ) -> dict | None:
+        logger.info(
+            "Market data request underlying symbol=%s exchange=%s date=%s time=%s",
+            symbol,
+            exchange,
+            candle_date,
+            candle_time,
+        )
         candle = self.dao.load_underlying_candle(
             symbol=symbol,
             exchange=exchange,
@@ -37,15 +52,73 @@ class _MarketDataService:
             candle_time=candle_time,
         )
         if candle is not None:
+            logger.info(
+                "DuckDB hit underlying symbol=%s exchange=%s date=%s time=%s",
+                symbol,
+                exchange,
+                candle_date,
+                candle_time,
+            )
             return candle
 
+        logger.info(
+            "DuckDB miss underlying symbol=%s exchange=%s date=%s time=%s",
+            symbol,
+            exchange,
+            candle_date,
+            candle_time,
+        )
+        if self.dao.is_day_marked_missing(
+            symbol=symbol,
+            exchange=exchange,
+            instrument_type="underlying",
+            data_date=candle_date,
+        ):
+            logger.warning(
+                "Missing marker hit underlying symbol=%s exchange=%s date=%s",
+                symbol,
+                exchange,
+                candle_date,
+            )
+            return None
+
         self._fetch_underlying_day(symbol=symbol, exchange=exchange, candle_date=candle_date)
-        return self.dao.load_underlying_candle(
+        candle = self.dao.load_underlying_candle(
             symbol=symbol,
             exchange=exchange,
             candle_date=candle_date,
             candle_time=candle_time,
         )
+        if candle is not None:
+            logger.info(
+                "Resolved underlying from Breeze cache symbol=%s exchange=%s date=%s time=%s",
+                symbol,
+                exchange,
+                candle_date,
+                candle_time,
+            )
+        else:
+            logger.warning(
+                "Still missing underlying after Breeze fetch symbol=%s exchange=%s date=%s time=%s",
+                symbol,
+                exchange,
+                candle_date,
+                candle_time,
+            )
+            self.dao.mark_day_missing(
+                symbol=symbol,
+                exchange=exchange,
+                instrument_type="underlying",
+                data_date=candle_date,
+                reason="requested_candle_missing_after_fetch",
+            )
+            logger.info(
+                "Marked day missing underlying symbol=%s exchange=%s date=%s reason=requested_candle_missing_after_fetch",
+                symbol,
+                exchange,
+                candle_date,
+            )
+        return candle
 
     def get_option_candle(
         self,
@@ -59,6 +132,16 @@ class _MarketDataService:
         candle_time: time,
     ) -> dict | None:
         right = right.lower()
+        logger.info(
+            "Market data request option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            candle_date,
+            candle_time,
+        )
         candle = self.dao.load_derivative_candle(
             underlying_symbol=symbol,
             exchange=exchange,
@@ -70,7 +153,47 @@ class _MarketDataService:
             candle_time=candle_time,
         )
         if candle is not None:
+            logger.info(
+                "DuckDB hit option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
+                symbol,
+                exchange,
+                expiry,
+                strike,
+                right,
+                candle_date,
+                candle_time,
+            )
             return candle
+
+        logger.info(
+            "DuckDB miss option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            candle_date,
+            candle_time,
+        )
+        if self.dao.is_day_marked_missing(
+            symbol=symbol,
+            exchange=exchange,
+            instrument_type="option",
+            expiry=expiry,
+            strike=strike,
+            right=right,
+            data_date=candle_date,
+        ):
+            logger.warning(
+                "Missing marker hit option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
+                symbol,
+                exchange,
+                expiry,
+                strike,
+                right,
+                candle_date,
+            )
+            return None
 
         self._fetch_option_day(
             symbol=symbol,
@@ -80,7 +203,7 @@ class _MarketDataService:
             right=right,
             candle_date=candle_date,
         )
-        return self.dao.load_derivative_candle(
+        candle = self.dao.load_derivative_candle(
             underlying_symbol=symbol,
             exchange=exchange,
             instrument_type="option",
@@ -90,9 +213,56 @@ class _MarketDataService:
             candle_date=candle_date,
             candle_time=candle_time,
         )
+        if candle is not None:
+            logger.info(
+                "Resolved option from Breeze cache symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
+                symbol,
+                exchange,
+                expiry,
+                strike,
+                right,
+                candle_date,
+                candle_time,
+            )
+        else:
+            logger.warning(
+                "Still missing option after Breeze fetch symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
+                symbol,
+                exchange,
+                expiry,
+                strike,
+                right,
+                candle_date,
+                candle_time,
+            )
+            self.dao.mark_day_missing(
+                symbol=symbol,
+                exchange=exchange,
+                instrument_type="option",
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                data_date=candle_date,
+                reason="requested_candle_missing_after_fetch",
+            )
+            logger.info(
+                "Marked day missing option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s reason=requested_candle_missing_after_fetch",
+                symbol,
+                exchange,
+                expiry,
+                strike,
+                right,
+                candle_date,
+            )
+        return candle
 
     def _fetch_underlying_day(self, *, symbol: str, exchange: str, candle_date: date) -> None:
-        logger.info("Fetching underlying %s %s on %s", exchange, symbol, candle_date)
+        logger.info(
+            "Breeze fetch underlying day start symbol=%s exchange=%s date=%s",
+            symbol,
+            exchange,
+            candle_date,
+        )
         from_iso, to_iso = day_session_breeze_range(candle_date)
         raw = self.client.get_historical_5min(
             from_date=from_iso,
@@ -102,10 +272,37 @@ class _MarketDataService:
             product_type="cash",
         )
         df = normalize_candle_df(raw)
+        logger.info(
+            "Breeze returned underlying rows=%s symbol=%s exchange=%s date=%s",
+            len(df),
+            symbol,
+            exchange,
+            candle_date,
+        )
         if df.empty:
             logger.warning("No underlying data %s %s on %s", exchange, symbol, candle_date)
+            self.dao.mark_day_missing(
+                symbol=symbol,
+                exchange=exchange,
+                instrument_type="underlying",
+                data_date=candle_date,
+                reason="provider_no_rows",
+            )
+            logger.info(
+                "Marked day missing underlying symbol=%s exchange=%s date=%s reason=provider_no_rows",
+                symbol,
+                exchange,
+                candle_date,
+            )
             return
         self.dao.save_underlying_5m(symbol=symbol, exchange=exchange, df=df)
+        logger.info(
+            "DuckDB saved underlying rows=%s symbol=%s exchange=%s date=%s",
+            len(df),
+            symbol,
+            exchange,
+            candle_date,
+        )
 
     def _fetch_option_day(
         self,
@@ -117,7 +314,15 @@ class _MarketDataService:
         right: str,
         candle_date: date,
     ) -> None:
-        logger.info("Fetching option %s %s %s %s on %s", expiry, strike, right, symbol, candle_date)
+        logger.info(
+            "Breeze fetch option day start symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            candle_date,
+        )
         from_iso, to_iso = day_session_breeze_range(candle_date)
         raw = self.client.get_historical_5min(
             from_date=from_iso,
@@ -130,8 +335,37 @@ class _MarketDataService:
             strike_price=str(strike),
         )
         df = normalize_candle_df(raw)
+        logger.info(
+            "Breeze returned option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
+            len(df),
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            candle_date,
+        )
         if df.empty:
-            logger.debug("No option data %s %s %s on %s", expiry, strike, right, candle_date)
+            logger.warning("No option data %s %s %s on %s", expiry, strike, right, candle_date)
+            self.dao.mark_day_missing(
+                symbol=symbol,
+                exchange=exchange,
+                instrument_type="option",
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                data_date=candle_date,
+                reason="provider_no_rows",
+            )
+            logger.info(
+                "Marked day missing option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s reason=provider_no_rows",
+                symbol,
+                exchange,
+                expiry,
+                strike,
+                right,
+                candle_date,
+            )
             return
         self.dao.save_derivative_5m(
             underlying_symbol=symbol,
@@ -141,6 +375,16 @@ class _MarketDataService:
             strike=strike,
             right=right,
             df=df,
+        )
+        logger.info(
+            "DuckDB saved option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
+            len(df),
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            candle_date,
         )
 
 
@@ -190,4 +434,10 @@ def _get_market_data_service() -> _MarketDataService:
 def _create_market_data_service() -> _MarketDataService:
     from backend.client.breeze_client import BreezeClient
 
-    return _MarketDataService(BreezeClient(load_credentials()), MarketDataDao())
+    logger.info("Market data init start")
+    dao = MarketDataDao()
+    logger.info("DuckDB ready")
+    client = BreezeClient(load_credentials())
+    logger.info("Breeze session ready")
+    logger.info("Market data init complete")
+    return _MarketDataService(client, dao)
