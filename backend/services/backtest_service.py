@@ -8,7 +8,11 @@ import pandas as pd
 
 from backend.common.nse_calendar import iter_monthly_expiries
 from backend.config.settings import StrategyConfig
-from backend.services.metrics_service import build_backtest_metrics, build_equity_curve
+from backend.services.metrics_service import (
+    build_backtest_metrics,
+    build_equity_curve,
+    build_trade_metrics,
+)
 from backend.services.mtm_service import build_daily_mtm
 from backend.services.result_service import save_run
 from backend.strategies.short_strangle import ShortStrangleStrategy
@@ -64,6 +68,10 @@ def run_backtest_for_strategy(
         daily_mtm=results["daily_mtm"],
     )
     results["equity_curve"] = build_equity_curve(results["trades"])
+    results["trade_metrics"] = build_trade_metrics(
+        trades=results["trades"],
+        daily_mtm=results["daily_mtm"],
+    )
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     metadata = {

@@ -57,6 +57,16 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
                 "skipped_expiries": 0,
             },
             "equity_curve": [{"date": "2026-01-27", "equity": 100.0}],
+            "trade_metrics": [
+                {
+                    "trade_id": "trade-1",
+                    "expiry_date": "2026-01-27",
+                    "premium_received": 100.0,
+                    "maxMtm": 50.0,
+                    "minMtm": -10.0,
+                    "mtmVolatilityPctOfPremium": 7.35,
+                }
+            ],
         }
 
     monkeypatch.setattr(web_controller, "run_backtest_for_strategy", fake_run_backtest_for_strategy)
@@ -79,10 +89,14 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert response.status_code == 200
     assert "Metrics" in response.text
     assert "Equity Curve" in response.text
+    assert "Trade MTM Volatility" in response.text
+    assert "mtmVolatilityPctOfPremium" in response.text
+    assert "maxMtm" in response.text
+    assert "minMtm" in response.text
     assert "Total PnL" in response.text
     assert 'href="/backtests/run-1/trades" target="_blank"' in response.text
     assert 'href="/backtests/run-1/skipped-expiries" target="_blank"' in response.text
-    assert "trade-1" not in response.text
+    assert "/backtests/run-1/trades/trade-1/mtm" in response.text
 
     response = client.get("/backtests/run-1/trades")
     assert response.status_code == 200

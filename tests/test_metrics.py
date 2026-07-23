@@ -1,6 +1,10 @@
 import pandas as pd
 
-from backend.services.metrics_service import build_backtest_metrics, build_equity_curve
+from backend.services.metrics_service import (
+    build_backtest_metrics,
+    build_equity_curve,
+    build_trade_metrics,
+)
 
 
 def test_build_backtest_metrics_derives_pnl_and_mtm():
@@ -72,3 +76,43 @@ def test_build_equity_curve_returns_realized_curve():
         {"date": "2026-01-03", "equity": 1500.0},
         {"date": "2026-01-05", "equity": 750.0},
     ]
+
+
+def test_build_trade_metrics_mtm_volatility_pct_of_premium():
+    trades = pd.DataFrame(
+        [
+            {"trade_id": "trade-1", "expiry_date": "2026-01-27", "entry_price": 100, "lot_size": 10},
+            {"trade_id": "trade-1", "expiry_date": "2026-01-27", "entry_price": 50, "lot_size": 10},
+        ]
+    )
+    daily_mtm = pd.DataFrame(
+        [
+            {"trade_id": "trade-1", "mtm_date": "2026-01-01", "mtm": 0},
+            {"trade_id": "trade-1", "mtm_date": "2026-01-02", "mtm": 150},
+            {"trade_id": "trade-1", "mtm_date": "2026-01-03", "mtm": -150},
+        ]
+    )
+
+    metrics = build_trade_metrics(trades=trades, daily_mtm=daily_mtm)
+
+    assert metrics == [
+        {
+            "trade_id": "trade-1",
+            "expiry_date": "2026-01-27",
+            "premium_received": 1500.0,
+            "maxMtm": 150.0,
+            "minMtm": -150.0,
+            "mtmVolatilityPctOfPremium": 15.0,
+        }
+    ]
+
+
+def test_build_trade_metrics_handles_missing_or_short_data():
+    trades = pd.DataFrame(
+        [{"trade_id": "trade-1", "expiry_date": "2026-01-27", "entry_price": 0, "lot_size": 10}]
+    )
+    one_mtm = pd.DataFrame([{"trade_id": "trade-1", "mtm_date": "2026-01-01", "mtm": 0}])
+
+    metrics = build_trade_metrics(trades=trades, daily_mtm=one_mtm)
+
+    assert metrics[0]["mtmVolatilityPctOfPremium"] is None

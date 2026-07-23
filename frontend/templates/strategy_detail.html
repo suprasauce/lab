@@ -114,5 +114,89 @@
         <p class="empty">No equity curve.</p>
       {% endif %}
     </section>
+
+    <section class="panel">
+      <h2>Trade MTM Volatility</h2>
+      {% if trade_metrics %}
+        <div class="chart">
+          <svg id="volatility-chart" viewBox="0 0 960 320" role="img" aria-label="MTM volatility percent of premium chart"></svg>
+        </div>
+        <script>
+          (() => {
+            const rows = {{ trade_metrics | tojson }};
+            const points = rows
+              .filter((row) => row.mtmVolatilityPctOfPremium !== null && row.mtmVolatilityPctOfPremium !== "")
+              .map((row) => ({
+                label: row.expiry_date || row.trade_id,
+                value: Number(row.mtmVolatilityPctOfPremium),
+              }));
+            const svg = document.getElementById("volatility-chart");
+            const width = 960;
+            const height = 320;
+            const pad = { left: 56, right: 18, top: 20, bottom: 48 };
+            if (!points.length) return;
+
+            const maxY = Math.max(1, ...points.map((point) => point.value));
+            const usableWidth = width - pad.left - pad.right;
+            const usableHeight = height - pad.top - pad.bottom;
+            const barGap = 14;
+            const barWidth = Math.max(8, (usableWidth - barGap * (points.length - 1)) / points.length);
+            const yFor = (value) => pad.top + ((maxY - value) / maxY) * usableHeight;
+            const bars = points.map((point, index) => {
+              const x = pad.left + index * (barWidth + barGap);
+              const y = yFor(point.value);
+              const h = height - pad.bottom - y;
+              const labelX = x + barWidth / 2;
+              const source = rows.find((row) => (row.expiry_date || row.trade_id) === point.label) || {};
+              return `
+                <rect x="${x}" y="${y}" width="${barWidth}" height="${h}" fill="#0f766e" rx="3">
+                  <title>${point.label}
+Volatility: ${point.value.toFixed(2)}%
+Max MTM: ${source.maxMtm ?? ""}
+Min MTM: ${source.minMtm ?? ""}</title>
+                </rect>
+                <text x="${labelX}" y="${y - 6}" fill="#374151" font-size="12" text-anchor="middle">${point.value.toFixed(2)}%</text>
+                <text x="${labelX}" y="${height - 18}" fill="#6b7280" font-size="11" text-anchor="middle">${point.label}</text>
+              `;
+            }).join("");
+            svg.innerHTML = `
+              <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" stroke="#d9dee7" />
+              <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#d9dee7" />
+              ${bars}
+              <text x="${pad.left}" y="16" fill="#6b7280" font-size="12">${maxY.toFixed(2)}%</text>
+              <text x="${pad.left}" y="${height - pad.bottom + 18}" fill="#6b7280" font-size="12">0%</text>
+            `;
+          })();
+        </script>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>trade_id</th>
+                <th>expiry_date</th>
+                <th>premium_received</th>
+                <th>maxMtm</th>
+                <th>minMtm</th>
+                <th>mtmVolatilityPctOfPremium</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in trade_metrics %}
+                <tr>
+                  <td><a href="/backtests/{{ run.run_id }}/trades/{{ row.trade_id }}/mtm" target="_blank">{{ row.trade_id }}</a></td>
+                  <td>{{ row.expiry_date }}</td>
+                  <td>{{ row.premium_received if row.premium_received is not none else "" }}</td>
+                  <td>{{ row.maxMtm if row.maxMtm is not none else "" }}</td>
+                  <td>{{ row.minMtm if row.minMtm is not none else "" }}</td>
+                  <td>{{ row.mtmVolatilityPctOfPremium if row.mtmVolatilityPctOfPremium is not none else "" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="empty">No trade volatility metrics.</p>
+      {% endif %}
+    </section>
   {% endif %}
 {% endblock %}

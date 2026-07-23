@@ -83,6 +83,7 @@ Results land in `results/{timestamp}/`:
 - `metadata.json`
 - `metrics.json`
 - `equity_curve.json`
+- `trade_metrics.json`
 - `trades.csv`
 - `skipped_expiries.csv`
 - `daily_mtm.csv`

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -52,6 +53,33 @@ def build_equity_curve(trades: pd.DataFrame) -> list[dict[str, Any]]:
     return _equity_curve(realized)
 
 
+def build_trade_metrics(*, trades: pd.DataFrame, daily_mtm: pd.DataFrame) -> list[dict[str, Any]]:
+    if trades.empty:
+        return []
+
+    premiums = _premium_by_trade(trades)
+    trade_mtm = _trade_daily_mtm(daily_mtm)
+    rows = []
+    for _, trade in _trade_summary(trades).iterrows():
+        trade_id = str(trade["trade_id"])
+        premium = premiums.get(trade_id)
+        mtm_rows = trade_mtm[trade_mtm["trade_id"] == trade_id]
+        rows.append(
+            {
+                "trade_id": trade_id,
+                "expiry_date": str(trade["expiry_date"]),
+                "premium_received": None if premium is None else _round(premium),
+                "maxMtm": _max_mtm(mtm_rows),
+                "minMtm": _min_mtm(mtm_rows),
+                "mtmVolatilityPctOfPremium": _mtm_volatility_pct_of_premium(
+                    mtm_rows=mtm_rows,
+                    premium_received=premium,
+                ),
+            }
+        )
+    return rows
+
+
 def metric_cards(metrics: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {"label": "Total PnL", "value": metrics.get("total_pnl", 0.0)},
@@ -79,6 +107,71 @@ def _expiry_pnl(trades: pd.DataFrame) -> pd.DataFrame:
         .sum()
         .rename(columns={"leg_pnl": "pnl"})
     )
+
+
+def _premium_by_trade(trades: pd.DataFrame) -> dict[str, float]:
+    if trades.empty:
+        return {}
+    rows = trades.copy()
+    rows["premium"] = pd.to_numeric(rows["entry_price"], errors="coerce") * pd.to_numeric(
+        rows["lot_size"], errors="coerce"
+    )
+    premium = rows.groupby("trade_id")["premium"].sum()
+    return {str(trade_id): float(value) for trade_id, value in premium.items()}
+
+
+def _trade_summary(trades: pd.DataFrame) -> pd.DataFrame:
+    return (
+        trades[["trade_id", "expiry_date"]]
+        .drop_duplicates()
+        .sort_values(["expiry_date", "trade_id"])
+    )
+
+
+def _trade_daily_mtm(daily_mtm: pd.DataFrame) -> pd.DataFrame:
+    if daily_mtm.empty:
+        return pd.DataFrame(columns=["trade_id", "mtm_date", "mtm"])
+    rows = daily_mtm.copy()
+    rows["mtm"] = pd.to_numeric(rows["mtm"], errors="coerce").fillna(0.0)
+    return (
+        rows.groupby(["trade_id", "mtm_date"], as_index=False)["mtm"]
+        .sum()
+        .sort_values(["trade_id", "mtm_date"])
+    )
+
+
+def _mtm_volatility_pct_of_premium(
+    *,
+    mtm_rows: pd.DataFrame,
+    premium_received: float | None,
+) -> float | None:
+    if premium_received is None or pd.isna(premium_received) or abs(premium_received) == 0:
+        return None
+    if len(mtm_rows) < 2:
+        return 0.0
+
+    mtm_values = pd.to_numeric(
+        mtm_rows.sort_values("mtm_date")["mtm"],
+        errors="coerce",
+    ).dropna()
+    if len(mtm_values) < 2:
+        return 0.0
+
+    daily_changes = mtm_values.diff().dropna()
+    normalized = (daily_changes / abs(float(premium_received))) * 100
+    return _round(np.std(normalized.to_numpy(), ddof=0))
+
+
+def _max_mtm(mtm_rows: pd.DataFrame) -> float | None:
+    if mtm_rows.empty:
+        return None
+    return _round(pd.to_numeric(mtm_rows["mtm"], errors="coerce").max())
+
+
+def _min_mtm(mtm_rows: pd.DataFrame) -> float | None:
+    if mtm_rows.empty:
+        return None
+    return _round(pd.to_numeric(mtm_rows["mtm"], errors="coerce").min())
 
 
 def _realized_pnl_by_exit_date(trades: pd.DataFrame) -> pd.DataFrame:

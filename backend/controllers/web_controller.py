@@ -50,6 +50,7 @@ def strategy_page(request: Request, strategy_id: str):
         metric_cards=[],
         metrics={},
         equity_curve=[],
+        trade_metrics=[],
     )
 
 
@@ -103,6 +104,7 @@ def run_strategy(
             metric_cards=[],
             metrics={},
             equity_curve=[],
+            trade_metrics=[],
         )
 
     run = load_run(run_id)
@@ -116,6 +118,7 @@ def run_strategy(
         metric_cards=metric_cards(run["metrics"]),
         metrics=run["metrics"],
         equity_curve=run["equity_curve"],
+        trade_metrics=run["trade_metrics"],
     )
 
 
@@ -136,6 +139,7 @@ def run_page(request: Request, run_id: str):
         metric_cards=metric_cards(run["metrics"]),
         metrics=run["metrics"],
         equity_curve=run["equity_curve"],
+        trade_metrics=run["trade_metrics"],
     )
 
 
