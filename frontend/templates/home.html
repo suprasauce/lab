@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% set title = "Home" %}
+{% block content %}
+  <section class="panel">
+    <h1>Backtests</h1>
+    <p>Saved backtest runs and quick access to a new run.</p>
+    {% if strategies %}
+      <div class="meta">
+        <span>Default strategy: {{ strategies[0].name }}</span>
+      </div>
+    {% endif %}
+    <div class="actions">
+      <a class="button" href="/backtests/new">New Backtest</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Existing Backtests</h2>
+    {% if runs %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>run_id</th>
+              <th>strategy</th>
+              <th>date_range</th>
+              <th>created_at</th>
+              <th>total_pnl</th>
+              <th>win_rate</th>
+              <th>traded</th>
+              <th>skipped</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for run in runs %}
+              <tr>
+                <td><a href="/backtests/{{ run.run_id }}">{{ run.run_id }}</a></td>
+                <td>{{ run.strategy_name }}</td>
+                <td>{{ run.start_date }} to {{ run.end_date }}</td>
+                <td>{{ run.created_at }}</td>
+                <td>{{ run.total_pnl }}</td>
+                <td>{{ run.win_rate }}</td>
+                <td>{{ run.traded_expiries }}</td>
+                <td>{{ run.skipped_expiries }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty">No saved backtests yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

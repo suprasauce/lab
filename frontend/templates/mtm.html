@@ -11,6 +11,14 @@
   </section>
 
   <section class="panel">
+    <h2>Trade Information</h2>
+    {% set trades_columns = trades_columns %}
+    {% set trades_rows = trades_rows %}
+    {% set link_trade_ids = false %}
+    {% include "table.html" with context %}
+  </section>
+
+  <section class="panel">
     <h2>MTM Curve</h2>
     {% if mtm_rows %}
       <div class="chart">
@@ -63,14 +71,6 @@
     {% else %}
       <p class="empty">No MTM curve.</p>
     {% endif %}
-  </section>
-
-  <section class="panel">
-    <h2>Trade Legs</h2>
-    {% set trades_columns = trades_columns %}
-    {% set trades_rows = trades_rows %}
-    {% set link_trade_ids = false %}
-    {% include "table.html" with context %}
   </section>
 
   <section class="panel">

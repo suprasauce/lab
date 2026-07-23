@@ -18,6 +18,7 @@ from backend.services.metrics_service import metric_cards
 from backend.services.result_service import (
     dataframe_columns,
     dataframe_records,
+    list_runs,
     load_run,
     load_trade_mtm,
 )
@@ -30,8 +31,13 @@ templates = Environment(
 
 
 @router.get("/", response_class=HTMLResponse)
-def strategies_page(request: Request):
-    return _render("strategies.html", request=request, strategies=list_strategies())
+def home_page(request: Request):
+    return _render("home.html", request=request, runs=list_runs(), strategies=list_strategies())
+
+
+@router.get("/backtests/new")
+def new_backtest():
+    return RedirectResponse(url="/strategies/nifty_short_strangle")
 
 
 @router.get("/strategies/{strategy_id}", response_class=HTMLResponse)
@@ -100,26 +106,9 @@ def run_strategy(
             strategy=strategy,
             form=form,
             error=str(exc),
-            run=None,
-            metric_cards=[],
-            metrics={},
-            equity_curve=[],
-            trade_metrics=[],
         )
 
-    run = load_run(run_id)
-    return _render(
-        "strategy_detail.html",
-        request=request,
-        strategy=strategy,
-        form=form,
-        error=None,
-        run=run["metadata"],
-        metric_cards=metric_cards(run["metrics"]),
-        metrics=run["metrics"],
-        equity_curve=run["equity_curve"],
-        trade_metrics=run["trade_metrics"],
-    )
+    return RedirectResponse(url=f"/backtests/{run_id}", status_code=303)
 
 
 @router.get("/backtests/{run_id}", response_class=HTMLResponse)
@@ -130,17 +119,29 @@ def run_page(request: Request, run_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     strategy = get_strategy(run["metadata"].get("strategy_id", "nifty_short_strangle"))
     return _render(
-        "strategy_detail.html",
+        "backtest_results.html",
         request=request,
         strategy=strategy,
-        form=run["metadata"],
-        error=None,
         run=run["metadata"],
         metric_cards=metric_cards(run["metrics"]),
         metrics=run["metrics"],
         equity_curve=run["equity_curve"],
         trade_metrics=run["trade_metrics"],
+        trades_columns=dataframe_columns(run["trades"]),
+        trades_rows=dataframe_records(run["trades"]),
+        skipped_columns=dataframe_columns(run["skipped_expiries"]),
+        skipped_rows=dataframe_records(run["skipped_expiries"]),
     )
+
+
+@router.get("/compare", response_class=HTMLResponse)
+def compare_page(request: Request):
+    return _render("placeholder.html", request=request, title="Compare Backtests")
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request):
+    return _render("placeholder.html", request=request, title="Settings")
 
 
 @router.get("/backtests/{run_id}/trades", response_class=HTMLResponse)

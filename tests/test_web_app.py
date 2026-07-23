@@ -10,10 +10,18 @@ def test_strategy_pages_render():
 
     response = client.get("/")
     assert response.status_code == 200
+    assert "Backtests" in response.text
     assert "Nifty Short Strangle" in response.text
+    assert "New Backtest" in response.text
 
     response = client.get("/strategies/nifty_short_strangle")
     assert response.status_code == 200
+    assert "Backtest Configuration" in response.text
+    assert "Basic Settings" in response.text
+    assert "Entry Rules" in response.text
+    assert "Exit Rules" in response.text
+    assert "Strike Selection" in response.text
+    assert "Filters" in response.text
     assert "Run Backtest" in response.text
 
 
@@ -87,15 +95,17 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     )
 
     assert response.status_code == 200
+    assert "Backtest Results" in response.text
+    assert "Summary" in response.text
+    assert "Trades" in response.text
+    assert "Regime Analysis" in response.text
+    assert "Analytics" in response.text
     assert "Metrics" in response.text
     assert "Equity Curve" in response.text
-    assert "Trade MTM Volatility" in response.text
     assert "mtmVolatilityPctOfPremium" in response.text
     assert "maxMtm" in response.text
     assert "minMtm" in response.text
     assert "Total PnL" in response.text
-    assert 'href="/backtests/run-1/trades" target="_blank"' in response.text
-    assert 'href="/backtests/run-1/skipped-expiries" target="_blank"' in response.text
     assert "/backtests/run-1/trades/trade-1/mtm" in response.text
 
     response = client.get("/backtests/run-1/trades")
@@ -127,6 +137,16 @@ def test_trade_mtm_page_renders_curve(monkeypatch):
     response = client.get("/backtests/run-1/trades/trade-1/mtm")
 
     assert response.status_code == 200
+    assert "Trade Information" in response.text
     assert "MTM Curve" in response.text
     assert "mtm-chart" in response.text
     assert "Daily MTM Rows" in response.text
+
+
+def test_placeholder_pages_render():
+    client = TestClient(app)
+
+    assert client.get("/compare").status_code == 200
+    assert "Compare Backtests" in client.get("/compare").text
+    assert client.get("/settings").status_code == 200
+    assert "Settings" in client.get("/settings").text

@@ -29,11 +29,25 @@
       background: var(--panel);
       border-bottom: 1px solid var(--line);
       padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
     }
     header a {
       color: var(--text);
       text-decoration: none;
       font-weight: 700;
+    }
+    nav {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    nav a {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
     }
     main {
       max-width: 1280px;
@@ -67,7 +81,22 @@
     .strategy-link strong { display: block; margin-bottom: 6px; }
     form {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 16px;
+    }
+    fieldset {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin: 0;
+    }
+    legend {
+      color: var(--text);
+      font-weight: 800;
+      padding: 0 6px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 14px;
       align-items: end;
     }
@@ -144,6 +173,21 @@
       flex-wrap: wrap;
       margin-top: 14px;
     }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+    .tab {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      background: #fff;
+      text-decoration: none;
+      font-weight: 700;
+    }
     .chart {
       width: 100%;
       min-height: 320px;
@@ -180,7 +224,15 @@
   </style>
 </head>
 <body>
-  <header><a href="/">Backtest UI</a></header>
+  <header>
+    <a href="/">Backtest UI</a>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/backtests/new">New Backtest</a>
+      <a href="/compare">Compare</a>
+      <a href="/settings">Settings</a>
+    </nav>
+  </header>
   <main>{% block content %}{% endblock %}</main>
 </body>
 </html>

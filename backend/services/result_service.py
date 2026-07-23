@@ -47,6 +47,31 @@ def load_run(run_id: str) -> dict:
     }
 
 
+def list_runs() -> list[dict]:
+    if not RESULTS_DIR.exists():
+        return []
+    runs = []
+    for run_dir in RESULTS_DIR.iterdir():
+        if not run_dir.is_dir():
+            continue
+        metadata = _read_metadata(run_dir)
+        metrics = _read_json(run_dir / "metrics.json")
+        runs.append(
+            {
+                "run_id": metadata.get("run_id", run_dir.name),
+                "strategy_name": metadata.get("strategy_name", metadata.get("strategy_id", "")),
+                "start_date": metadata.get("start_date", ""),
+                "end_date": metadata.get("end_date", ""),
+                "created_at": metadata.get("created_at", ""),
+                "total_pnl": metrics.get("total_pnl", ""),
+                "win_rate": metrics.get("win_rate", ""),
+                "traded_expiries": metrics.get("traded_expiries", ""),
+                "skipped_expiries": metrics.get("skipped_expiries", ""),
+            }
+        )
+    return sorted(runs, key=lambda row: row.get("created_at") or row.get("run_id"), reverse=True)
+
+
 def load_trade_mtm(run_id: str, trade_id: str) -> dict:
     run = load_run(run_id)
     trades = run["trades"]
