@@ -26,6 +26,7 @@ class StrategyConfig:
     entry_dte: int = 45
     entry_time: time = time(9, 30)
     exit_time: time = time(15, 30)
+    total_stop_loss_multiplier: float | None = None
     strike_offset: int = 6
     lot_size: int | None = None  # None = auto from entry date
     start_date: date = field(default_factory=lambda: date.today() - timedelta(days=365))

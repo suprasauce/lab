@@ -45,6 +45,7 @@ def run_backtest_for_strategy(
     entry_dte: int,
     entry_time: time,
     exit_time: time,
+    total_stop_loss_multiplier: float | None,
     strike_offset: int,
     lot_size: int | None,
 ) -> tuple[str, dict[str, pd.DataFrame]]:
@@ -55,6 +56,7 @@ def run_backtest_for_strategy(
         entry_dte=entry_dte,
         entry_time=entry_time,
         exit_time=exit_time,
+        total_stop_loss_multiplier=total_stop_loss_multiplier,
         strike_offset=strike_offset,
         lot_size=lot_size,
         start_date=start_date,
@@ -89,6 +91,7 @@ def run_backtest_for_strategy(
         "entry_dte": entry_dte,
         "entry_time": entry_time.strftime("%H:%M"),
         "exit_time": exit_time.strftime("%H:%M"),
+        "total_stop_loss_multiplier": total_stop_loss_multiplier,
         "strike_offset": strike_offset,
         "lot_size": lot_size,
         "trade_rows": len(results["trades"]),

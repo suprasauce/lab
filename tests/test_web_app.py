@@ -20,6 +20,7 @@ def test_strategy_pages_render():
     assert "Basic Settings" in response.text
     assert "Entry Rules" in response.text
     assert "Exit Rules" in response.text
+    assert "Total Stop Loss Multiplier" in response.text
     assert "Strike Selection" in response.text
     assert "Filters" in response.text
     assert "Run Backtest" in response.text
@@ -98,6 +99,7 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
             "entry_dte": "45",
             "entry_time": "09:30",
             "exit_time": "15:30",
+            "total_stop_loss_multiplier": "",
             "strike_offset": "6",
             "lot_size": "",
         },
@@ -115,6 +117,10 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert "minMtm" in response.text
     assert "India VIX" in response.text
     assert "vixCurve" in response.text
+    assert "chart.umd.min.js" in response.text
+    assert '<canvas id="regime-equity-chart"' in response.text
+    assert '<canvas id="regime-volatility-chart"' in response.text
+    assert '<canvas id="regime-vix-chart"' in response.text
     assert "Total PnL" in response.text
     assert "/backtests/run-1/trades/trade-1/mtm" in response.text
     assert 'rowspan="2" class="merged-trade-id"' in response.text
@@ -153,6 +159,8 @@ def test_trade_mtm_page_renders_curve(monkeypatch):
     assert "Trade Information" in response.text
     assert "MTM Curve" in response.text
     assert "mtm-chart" in response.text
+    assert "chart.umd.min.js" in response.text
+    assert '<canvas id="mtm-chart"' in response.text
     assert "Daily MTM Rows" in response.text
 
 

@@ -6,6 +6,7 @@ import logging
 from datetime import date, time
 from typing import TYPE_CHECKING
 
+from backend.common.nse_calendar import trading_days_between
 from backend.config.settings import load_credentials
 from backend.dao.market_data_dao import MarketDataDao
 from backend.common.utils import day_session_breeze_range, expiry_to_breeze_iso, normalize_candle_df
@@ -256,6 +257,79 @@ class _MarketDataService:
             )
         return candle
 
+    def get_option_5m_range(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        expiry: date,
+        strike: int,
+        right: str,
+        start: date,
+        end: date,
+    ):
+        right = right.lower()
+        logger.info(
+            "Market data request option range symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            start,
+            end,
+        )
+        for candle_date in trading_days_between(start, end):
+            day_df = self.dao.load_derivative_5m(
+                underlying_symbol=symbol,
+                exchange=exchange,
+                instrument_type="option",
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                start=candle_date,
+                end=candle_date,
+            )
+            if not day_df.empty:
+                continue
+            if self.dao.is_day_marked_missing(
+                symbol=symbol,
+                exchange=exchange,
+                instrument_type="option",
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                data_date=candle_date,
+            ):
+                logger.warning(
+                    "Missing marker hit option range symbol=%s expiry=%s strike=%s right=%s date=%s",
+                    symbol,
+                    expiry,
+                    strike,
+                    right,
+                    candle_date,
+                )
+                continue
+            self._fetch_option_day(
+                symbol=symbol,
+                exchange=exchange,
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                candle_date=candle_date,
+            )
+
+        return self.dao.load_derivative_5m(
+            underlying_symbol=symbol,
+            exchange=exchange,
+            instrument_type="option",
+            expiry=expiry,
+            strike=strike,
+            right=right,
+            start=start,
+            end=end,
+        )
+
     def _fetch_underlying_day(self, *, symbol: str, exchange: str, candle_date: date) -> None:
         logger.info(
             "Breeze fetch underlying day start symbol=%s exchange=%s date=%s",
@@ -421,6 +495,27 @@ def get_option_candle(
         right=right,
         candle_date=candle_date,
         candle_time=candle_time,
+    )
+
+
+def get_option_5m_range(
+    *,
+    symbol: str,
+    exchange: str,
+    expiry: date,
+    strike: int,
+    right: str,
+    start: date,
+    end: date,
+):
+    return _get_market_data_service().get_option_5m_range(
+        symbol=symbol,
+        exchange=exchange,
+        expiry=expiry,
+        strike=strike,
+        right=right,
+        start=start,
+        end=end,
     )
 
 

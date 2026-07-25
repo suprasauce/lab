@@ -70,6 +70,7 @@ def run_strategy(
     entry_dte: int = Form(...),
     entry_time: str = Form(...),
     exit_time: str = Form(...),
+    total_stop_loss_multiplier: str = Form(""),
     strike_offset: int = Form(...),
     lot_size: str = Form(""),
 ):
@@ -79,12 +80,18 @@ def run_strategy(
         "entry_dte": entry_dte,
         "entry_time": entry_time,
         "exit_time": exit_time,
+        "total_stop_loss_multiplier": total_stop_loss_multiplier,
         "strike_offset": strike_offset,
         "lot_size": lot_size,
     }
     try:
         strategy = get_strategy(strategy_id)
         lot_size_value = int(lot_size) if lot_size.strip() else None
+        stop_loss_value = (
+            float(total_stop_loss_multiplier)
+            if total_stop_loss_multiplier.strip()
+            else None
+        )
         run_id, results = run_backtest_for_strategy(
             strategy_id=strategy_id,
             start_date=parse_date(start_date),
@@ -92,6 +99,7 @@ def run_strategy(
             entry_dte=entry_dte,
             entry_time=parse_time(entry_time),
             exit_time=parse_time(exit_time),
+            total_stop_loss_multiplier=stop_loss_value,
             strike_offset=strike_offset,
             lot_size=lot_size_value,
         )
@@ -211,6 +219,7 @@ def _default_form() -> dict:
         "entry_dte": 45,
         "entry_time": "09:30",
         "exit_time": "15:30",
+        "total_stop_loss_multiplier": "",
         "strike_offset": 6,
         "lot_size": "",
     }

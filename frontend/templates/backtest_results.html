@@ -36,13 +36,13 @@
   <section id="regime-analysis" class="panel">
     <h2>Regime Analysis</h2>
     <div class="chart">
-      <svg id="regime-equity-chart" viewBox="0 0 960 260" role="img" aria-label="Regime equity curve"></svg>
+      <canvas id="regime-equity-chart" aria-label="Regime equity curve"></canvas>
     </div>
     <div class="chart">
-      <svg id="regime-volatility-chart" viewBox="0 0 960 260" role="img" aria-label="MTM volatility by trade"></svg>
+      <canvas id="regime-volatility-chart" aria-label="MTM volatility by trade"></canvas>
     </div>
     <div class="chart">
-      <svg id="regime-vix-chart" viewBox="0 0 960 260" role="img" aria-label="India VIX"></svg>
+      <canvas id="regime-vix-chart" aria-label="India VIX"></canvas>
     </div>
   </section>
 
@@ -53,6 +53,7 @@
     {% include "table.html" with context %}
   </section>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script>
     (() => {
       const equity = {{ equity_curve | tojson }};
@@ -64,87 +65,122 @@
         ...vixCurve.map((point) => point.date).filter(Boolean),
       ])].sort();
 
-      function drawLineChart(id, rows, valueKey, label) {
-        const svg = document.getElementById(id);
-        if (!svg) return;
-        const width = 960;
-        const height = Number(svg.viewBox.baseVal.height || 320);
-        const pad = { left: 56, right: 18, top: 20, bottom: 42 };
-        if (!rows.length) {
-          svg.innerHTML = `<text x="${pad.left}" y="40" fill="#6b7280" font-size="12">No ${label} data.</text>`;
-          return;
-        }
-        const dates = dateAxis.length ? dateAxis : rows.map((row) => row.date);
-        const values = rows.map((row) => Number(row[valueKey]));
-        const minY = Math.min(0, ...values);
-        const maxY = Math.max(0, ...values);
-        const spanY = maxY - minY || 1;
-        const usable = width - pad.left - pad.right;
-        const xFor = (date) => {
-          const index = dates.indexOf(date);
-          return pad.left + (dates.length === 1 ? usable / 2 : (index / (dates.length - 1)) * usable);
-        };
-        const yFor = (value) => pad.top + ((maxY - value) / spanY) * (height - pad.top - pad.bottom);
-        const points = rows.map((row) => `${xFor(row.date)},${yFor(Number(row[valueKey]))}`).join(" ");
-        const axisY = yFor(0);
-        svg.innerHTML = `
-          <line x1="${pad.left}" y1="${axisY}" x2="${width - pad.right}" y2="${axisY}" stroke="#d9dee7" />
-          <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#d9dee7" />
-          <polyline points="${points}" fill="none" stroke="#0f766e" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
-          <text x="${pad.left}" y="16" fill="#6b7280" font-size="12">${label}: ${maxY.toFixed(2)}</text>
-          <text x="${pad.left}" y="${height - 12}" fill="#6b7280" font-size="12">${dates[0] || ""}</text>
-          <text x="${width - pad.right}" y="${height - 12}" fill="#6b7280" font-size="12" text-anchor="end">${dates[dates.length - 1] || ""}</text>
-        `;
+      if (!window.Chart) {
+        document.querySelectorAll(".chart").forEach((chart) => {
+          chart.innerHTML = '<p class="empty chart-empty">Chart library could not be loaded.</p>';
+        });
+        return;
       }
 
-      function drawBarChart(id, rows) {
-        const svg = document.getElementById(id);
-        if (!svg) return;
-        const width = 960;
-        const height = Number(svg.viewBox.baseVal.height || 260);
-        const pad = { left: 56, right: 18, top: 20, bottom: 42 };
-        const points = rows
-          .filter((row) => row.mtmVolatilityPctOfPremium !== null && row.mtmVolatilityPctOfPremium !== "")
-          .map((row) => ({ date: row.expiry_date, value: Number(row.mtmVolatilityPctOfPremium), source: row }));
-        if (!points.length) {
-          svg.innerHTML = `<text x="${pad.left}" y="40" fill="#6b7280" font-size="12">No volatility data.</text>`;
-          return;
-        }
-        const dates = dateAxis.length ? dateAxis : points.map((point) => point.date);
-        const maxY = Math.max(1, ...points.map((point) => point.value));
-        const usable = width - pad.left - pad.right;
-        const barWidth = Math.max(8, Math.min(34, usable / Math.max(dates.length, 1) * 0.45));
-        const xFor = (date) => {
-          const index = dates.indexOf(date);
-          return pad.left + (dates.length === 1 ? usable / 2 : (index / (dates.length - 1)) * usable);
-        };
-        const yFor = (value) => pad.top + ((maxY - value) / maxY) * (height - pad.top - pad.bottom);
-        const bars = points.map((point) => {
-          const x = xFor(point.date) - barWidth / 2;
-          const y = yFor(point.value);
-          const h = height - pad.bottom - y;
-          return `
-            <rect x="${x}" y="${y}" width="${barWidth}" height="${h}" fill="#0f766e" rx="3">
-              <title>${point.date}
-Volatility: ${point.value.toFixed(2)}%
-Max MTM: ${point.source.maxMtm ?? ""}
-Min MTM: ${point.source.minMtm ?? ""}</title>
-            </rect>
-          `;
-        }).join("");
-        svg.innerHTML = `
-          <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" stroke="#d9dee7" />
-          <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#d9dee7" />
-          ${bars}
-          <text x="${pad.left}" y="16" fill="#6b7280" font-size="12">MTM volatility: ${maxY.toFixed(2)}%</text>
-          <text x="${pad.left}" y="${height - 12}" fill="#6b7280" font-size="12">${dates[0] || ""}</text>
-          <text x="${width - pad.right}" y="${height - 12}" fill="#6b7280" font-size="12" text-anchor="end">${dates[dates.length - 1] || ""}</text>
-        `;
+      Chart.defaults.font.family = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      Chart.defaults.color = "#6b7280";
+
+      function alignedData(rows, dateKey, valueKey) {
+        const byDate = new Map(rows.map((row) => [row[dateKey], Number(row[valueKey])]));
+        return dateAxis.map((date) => byDate.has(date) ? byDate.get(date) : null);
       }
 
-      drawLineChart("regime-equity-chart", equity, "equity", "Equity");
-      drawBarChart("regime-volatility-chart", tradeMetrics);
-      drawLineChart("regime-vix-chart", vixCurve, "vix", "India VIX");
+      function baseOptions(title, valueSuffix = "") {
+        return {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { display: false },
+            title: {
+              display: true,
+              text: title,
+              align: "start",
+              color: "#111827",
+              font: { size: 14, weight: "700" },
+              padding: { bottom: 12 },
+            },
+            tooltip: {
+              callbacks: {
+                label: (context) => `${context.dataset.label}: ${Number(context.parsed.y).toFixed(2)}${valueSuffix}`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+            },
+            y: {
+              border: { display: false },
+              grid: { color: "#eef2f7" },
+              ticks: {
+                callback: (value) => `${value}${valueSuffix}`,
+              },
+            },
+          },
+        };
+      }
+
+      function drawLineChart(id, rows, dateKey, valueKey, label, color, valueSuffix = "") {
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        if (!rows.length || !dateAxis.length) {
+          canvas.parentElement.innerHTML = `<p class="empty chart-empty">No ${label} data.</p>`;
+          return;
+        }
+        new Chart(canvas, {
+          type: "line",
+          data: {
+            labels: dateAxis,
+            datasets: [{
+              label,
+              data: alignedData(rows, dateKey, valueKey),
+              borderColor: color,
+              backgroundColor: color,
+              borderWidth: 2,
+              pointRadius: 3,
+              pointHoverRadius: 5,
+              tension: 0.25,
+              spanGaps: true,
+            }],
+          },
+          options: baseOptions(label, valueSuffix),
+        });
+      }
+
+      function drawVolatilityChart(id, rows) {
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        const points = rows.filter((row) => row.mtmVolatilityPctOfPremium !== null && row.mtmVolatilityPctOfPremium !== "");
+        if (!points.length || !dateAxis.length) {
+          canvas.parentElement.innerHTML = '<p class="empty chart-empty">No volatility data.</p>';
+          return;
+        }
+        const byDate = new Map(points.map((row) => [row.expiry_date, row]));
+        const options = baseOptions("MTM Volatility (% of Premium)", "%");
+        options.plugins.tooltip.callbacks.label = (context) => {
+          const row = byDate.get(context.label);
+          return [
+            `Volatility: ${Number(context.parsed.y).toFixed(2)}%`,
+            `Max MTM: ${row?.maxMtm ?? ""}`,
+            `Min MTM: ${row?.minMtm ?? ""}`,
+          ];
+        };
+        new Chart(canvas, {
+          type: "bar",
+          data: {
+            labels: dateAxis,
+            datasets: [{
+              label: "MTM Volatility",
+              data: dateAxis.map((date) => byDate.has(date) ? Number(byDate.get(date).mtmVolatilityPctOfPremium) : null),
+              backgroundColor: "#0f766e",
+              borderRadius: 4,
+              maxBarThickness: 36,
+            }],
+          },
+          options,
+        });
+      }
+
+      drawLineChart("regime-equity-chart", equity, "date", "equity", "Equity", "#2563eb");
+      drawVolatilityChart("regime-volatility-chart", tradeMetrics);
+      drawLineChart("regime-vix-chart", vixCurve, "date", "vix", "India VIX", "#b45309");
     })();
   </script>
 {% endblock %}

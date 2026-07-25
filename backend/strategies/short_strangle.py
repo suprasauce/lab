@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 
 from backend.common.nse_calendar import entry_date_for_expiry
 from backend.common.strike_selector import select_strikes
+from backend.common.utils import bar_end_time
 from backend.services import market_data_service
 
 
@@ -62,28 +63,6 @@ class ShortStrangleStrategy:
                 candle_time=config.entry_time,
             )
         )
-        ce_exit = _close(
-            market_data_service.get_option_candle(
-                symbol="NIFTY",
-                exchange="NFO",
-                expiry=expiry,
-                strike=selection.ce_strike,
-                right="call",
-                candle_date=exit_date,
-                candle_time=config.exit_time,
-            )
-        )
-        pe_exit = _close(
-            market_data_service.get_option_candle(
-                symbol="NIFTY",
-                exchange="NFO",
-                expiry=expiry,
-                strike=selection.pe_strike,
-                right="put",
-                candle_date=exit_date,
-                candle_time=config.exit_time,
-            )
-        )
 
         if ce_entry is None and pe_entry is None:
             return _skipped(base, "both_entry_prices_missing")
@@ -91,6 +70,53 @@ class ShortStrangleStrategy:
             return _skipped(base, "call_entry_price_missing")
         if pe_entry is None:
             return _skipped(base, "put_entry_price_missing")
+
+        stop_exit = _find_total_stop_loss_exit(
+            config=config,
+            expiry=expiry,
+            entry_date=entry_date,
+            exit_date=exit_date,
+            ce_strike=selection.ce_strike,
+            pe_strike=selection.pe_strike,
+            ce_entry=ce_entry,
+            pe_entry=pe_entry,
+        )
+        if stop_exit is None:
+            ce_exit = _close(
+                market_data_service.get_option_candle(
+                    symbol="NIFTY",
+                    exchange="NFO",
+                    expiry=expiry,
+                    strike=selection.ce_strike,
+                    right="call",
+                    candle_date=exit_date,
+                    candle_time=config.exit_time,
+                )
+            )
+            pe_exit = _close(
+                market_data_service.get_option_candle(
+                    symbol="NIFTY",
+                    exchange="NFO",
+                    expiry=expiry,
+                    strike=selection.pe_strike,
+                    right="put",
+                    candle_date=exit_date,
+                    candle_time=config.exit_time,
+                )
+            )
+            exit_reason = "scheduled_exit"
+        else:
+            exit_date = stop_exit["exit_date"]
+            ce_exit = stop_exit["ce_exit"]
+            pe_exit = stop_exit["pe_exit"]
+            exit_reason = "total_stop_loss"
+            base.update(
+                {
+                    "exit_date": exit_date.isoformat(),
+                    "exit_time": stop_exit["exit_time"].strftime("%H:%M"),
+                }
+            )
+
         if ce_exit is None and pe_exit is None:
             return _skipped(base, "both_exit_prices_missing")
         if ce_exit is None:
@@ -109,6 +135,7 @@ class ShortStrangleStrategy:
                 entry_price=ce_entry,
                 exit_price=ce_exit,
                 lot_size=lot,
+                exit_reason=exit_reason,
             ),
             _leg_row(
                 base,
@@ -118,6 +145,7 @@ class ShortStrangleStrategy:
                 entry_price=pe_entry,
                 exit_price=pe_exit,
                 lot_size=lot,
+                exit_reason=exit_reason,
             ),
         ]
         return {
@@ -131,6 +159,86 @@ def _close(candle: dict | None) -> float | None:
         return None
     close = float(candle["close"])
     return close if close > 0 else None
+
+
+def _find_total_stop_loss_exit(
+    *,
+    config,
+    expiry: date,
+    entry_date: date,
+    exit_date: date,
+    ce_strike: int,
+    pe_strike: int,
+    ce_entry: float,
+    pe_entry: float,
+) -> dict | None:
+    multiplier = config.total_stop_loss_multiplier
+    if multiplier is None or multiplier <= 0:
+        return None
+
+    stop_cost = (ce_entry + pe_entry) * float(multiplier)
+    ce_df = market_data_service.get_option_5m_range(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=expiry,
+        strike=ce_strike,
+        right="call",
+        start=entry_date,
+        end=exit_date,
+    )
+    pe_df = market_data_service.get_option_5m_range(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=expiry,
+        strike=pe_strike,
+        right="put",
+        start=entry_date,
+        end=exit_date,
+    )
+    stop_rows = _combined_stop_rows(
+        ce_df=ce_df,
+        pe_df=pe_df,
+        entry_at=datetime.combine(entry_date, config.entry_time),
+        exit_at=datetime.combine(exit_date, config.exit_time),
+    )
+    for _, row in stop_rows.iterrows():
+        if float(row["ce_close"]) + float(row["pe_close"]) >= stop_cost:
+            exit_at = row["bar_end"]
+            return {
+                "exit_date": exit_at.date(),
+                "exit_time": exit_at.time(),
+                "ce_exit": float(row["ce_close"]),
+                "pe_exit": float(row["pe_close"]),
+            }
+    return None
+
+
+def _combined_stop_rows(
+    *,
+    ce_df: pd.DataFrame,
+    pe_df: pd.DataFrame,
+    entry_at: datetime,
+    exit_at: datetime,
+) -> pd.DataFrame:
+    if ce_df.empty or pe_df.empty:
+        return pd.DataFrame(columns=["bar_end", "ce_close", "pe_close"])
+
+    ce_rows = _stop_leg_rows(ce_df, "ce_close")
+    pe_rows = _stop_leg_rows(pe_df, "pe_close")
+    merged = ce_rows.merge(pe_rows, on="bar_end", how="inner").sort_values("bar_end")
+    return merged[(merged["bar_end"] >= entry_at) & (merged["bar_end"] <= exit_at)]
+
+
+def _stop_leg_rows(df: pd.DataFrame, close_col: str) -> pd.DataFrame:
+    rows = df[["datetime", "close"]].copy()
+    rows["bar_end"] = pd.to_datetime(rows["datetime"]).apply(lambda value: bar_end_time(value.to_pydatetime()))
+    rows["bar_end"] = [
+        datetime.combine(pd.Timestamp(start).date(), end_time)
+        for start, end_time in zip(rows["datetime"], rows["bar_end"])
+    ]
+    rows[close_col] = pd.to_numeric(rows["close"], errors="coerce")
+    rows = rows[rows[close_col] > 0]
+    return rows[["bar_end", close_col]]
 
 
 def _base_row(config, expiry: date, entry_date: date, exit_date: date) -> dict:
@@ -156,6 +264,7 @@ def _leg_row(
     entry_price: float,
     exit_price: float,
     lot_size: int,
+    exit_reason: str,
 ) -> dict:
     row = base.copy()
     row.update(
@@ -166,6 +275,7 @@ def _leg_row(
             "entry_price": round(entry_price, 2),
             "exit_price": round(exit_price, 2),
             "lot_size": lot_size,
+            "exit_reason": exit_reason,
         }
     )
     return row
@@ -192,6 +302,7 @@ def _trade_columns() -> list[str]:
         "entry_price",
         "exit_price",
         "lot_size",
+        "exit_reason",
         "spot_at_entry",
         "atm_strike",
         "strike_offset",
