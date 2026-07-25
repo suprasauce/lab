@@ -12,9 +12,8 @@
     </div>
     <div class="tabs">
       <a class="tab" href="#summary">Summary</a>
-      <a class="tab" href="#trades">Trades</a>
       <a class="tab" href="#regime-analysis">Regime Analysis</a>
-      <a class="tab" href="#analytics">Analytics</a>
+      <a class="tab" href="#trades">Trades</a>
     </div>
   </section>
 
@@ -34,28 +33,6 @@
     {% endif %}
   </section>
 
-  <section class="panel">
-    <h2>Equity Curve</h2>
-    {% if equity_curve %}
-      <div class="chart">
-        <svg id="equity-chart" viewBox="0 0 960 320" role="img" aria-label="Equity curve"></svg>
-      </div>
-    {% else %}
-      <p class="empty">No equity curve.</p>
-    {% endif %}
-  </section>
-
-  <section class="panel">
-    <h2>Drawdown</h2>
-    <p class="empty">Drawdown chart placeholder.</p>
-  </section>
-
-  <section id="trades" class="panel">
-    <h2>Trades</h2>
-    {% set link_trade_ids = true %}
-    {% include "table.html" with context %}
-  </section>
-
   <section id="regime-analysis" class="panel">
     <h2>Regime Analysis</h2>
     <div class="chart">
@@ -69,47 +46,22 @@
     </div>
   </section>
 
-  <section id="analytics" class="panel">
-    <h2>Analytics</h2>
-    {% if trade_metrics %}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>trade_id</th>
-              <th>expiry_date</th>
-              <th>premium_received</th>
-              <th>maxMtm</th>
-              <th>minMtm</th>
-              <th>mtmVolatilityPctOfPremium</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in trade_metrics %}
-              <tr>
-                <td><a href="/backtests/{{ run.run_id }}/trades/{{ row.trade_id }}/mtm" target="_blank" rel="noopener noreferrer">{{ row.trade_id }}</a></td>
-                <td>{{ row.expiry_date }}</td>
-                <td>{{ row.premium_received if row.premium_received is not none else "" }}</td>
-                <td>{{ row.maxMtm if row.maxMtm is not none else "" }}</td>
-                <td>{{ row.minMtm if row.minMtm is not none else "" }}</td>
-                <td>{{ row.mtmVolatilityPctOfPremium if row.mtmVolatilityPctOfPremium is not none else "" }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <p class="empty">No analytics rows.</p>
-    {% endif %}
+  <section id="trades" class="panel">
+    <h2>Trades</h2>
+    {% set link_trade_ids = true %}
+    {% set merge_trade_ids = true %}
+    {% include "table.html" with context %}
   </section>
 
   <script>
     (() => {
       const equity = {{ equity_curve | tojson }};
       const tradeMetrics = {{ trade_metrics | tojson }};
+      const vixCurve = {{ vix_curve | tojson }};
       const dateAxis = [...new Set([
         ...equity.map((point) => point.date),
         ...tradeMetrics.map((row) => row.expiry_date).filter(Boolean),
+        ...vixCurve.map((point) => point.date).filter(Boolean),
       ])].sort();
 
       function drawLineChart(id, rows, valueKey, label) {
@@ -190,13 +142,9 @@ Min MTM: ${point.source.minMtm ?? ""}</title>
         `;
       }
 
-      drawLineChart("equity-chart", equity, "equity", "Equity");
       drawLineChart("regime-equity-chart", equity, "equity", "Equity");
       drawBarChart("regime-volatility-chart", tradeMetrics);
-      const vix = document.getElementById("regime-vix-chart");
-      if (vix) {
-        vix.innerHTML = '<text x="56" y="40" fill="#6b7280" font-size="12">India VIX data not available yet.</text>';
-      }
+      drawLineChart("regime-vix-chart", vixCurve, "vix", "India VIX");
     })();
   </script>
 {% endblock %}

@@ -29,6 +29,10 @@ def save_run(run_id: str, metadata: dict, results: dict) -> Path:
         json.dumps(results.get("trade_metrics", []), indent=2),
         encoding="utf-8",
     )
+    (run_dir / "vix_curve.json").write_text(
+        json.dumps(results.get("vix_curve", []), indent=2),
+        encoding="utf-8",
+    )
     (run_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return run_dir
 
@@ -44,6 +48,7 @@ def load_run(run_id: str) -> dict:
         "metrics": _read_json(run_dir / "metrics.json"),
         "equity_curve": _read_json(run_dir / "equity_curve.json", default=[]),
         "trade_metrics": _read_json(run_dir / "trade_metrics.json", default=[]),
+        "vix_curve": _read_json(run_dir / "vix_curve.json", default=[]),
     }
 
 

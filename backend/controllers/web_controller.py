@@ -57,6 +57,7 @@ def strategy_page(request: Request, strategy_id: str):
         metrics={},
         equity_curve=[],
         trade_metrics=[],
+        vix_curve=[],
     )
 
 
@@ -127,8 +128,9 @@ def run_page(request: Request, run_id: str):
         metrics=run["metrics"],
         equity_curve=run["equity_curve"],
         trade_metrics=run["trade_metrics"],
+        vix_curve=run["vix_curve"],
         trades_columns=dataframe_columns(run["trades"]),
-        trades_rows=dataframe_records(run["trades"]),
+        trades_rows=_merge_trade_id_rows(dataframe_records(run["trades"])),
         skipped_columns=dataframe_columns(run["skipped_expiries"]),
         skipped_rows=dataframe_records(run["skipped_expiries"]),
     )
@@ -212,6 +214,30 @@ def _default_form() -> dict:
         "strike_offset": 6,
         "lot_size": "",
     }
+
+
+def _merge_trade_id_rows(rows: list[dict]) -> list[dict]:
+    current_trade_id = None
+    first_index = 0
+    count = 0
+    merged = [dict(row) for row in rows]
+
+    for index, row in enumerate(merged):
+        trade_id = row.get("trade_id")
+        if trade_id != current_trade_id:
+            if count:
+                merged[first_index]["_trade_id_rowspan"] = count
+            current_trade_id = trade_id
+            first_index = index
+            count = 1
+            row["_hide_trade_id"] = False
+        else:
+            count += 1
+            row["_hide_trade_id"] = True
+
+    if count:
+        merged[first_index]["_trade_id_rowspan"] = count
+    return merged
 
 
 def _render(template_name: str, status_code: int = 200, **context) -> HTMLResponse:

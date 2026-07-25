@@ -33,6 +33,14 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
                 "expiry_date": "2026-01-27",
                 "entry_date": "2025-12-12",
                 "exit_date": "2026-01-27",
+                "leg_role": "short_call",
+            },
+            {
+                "trade_id": "trade-1",
+                "expiry_date": "2026-01-27",
+                "entry_date": "2025-12-12",
+                "exit_date": "2026-01-27",
+                "leg_role": "short_put",
             }
         ]
     )
@@ -75,6 +83,7 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
                     "mtmVolatilityPctOfPremium": 7.35,
                 }
             ],
+            "vix_curve": [{"date": "2026-01-27", "vix": 14.2}],
         }
 
     monkeypatch.setattr(web_controller, "run_backtest_for_strategy", fake_run_backtest_for_strategy)
@@ -97,16 +106,20 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert response.status_code == 200
     assert "Backtest Results" in response.text
     assert "Summary" in response.text
-    assert "Trades" in response.text
     assert "Regime Analysis" in response.text
-    assert "Analytics" in response.text
-    assert "Metrics" in response.text
-    assert "Equity Curve" in response.text
+    assert "Trades" in response.text
+    assert "Analytics" not in response.text
+    assert "Drawdown chart placeholder" not in response.text
     assert "mtmVolatilityPctOfPremium" in response.text
     assert "maxMtm" in response.text
     assert "minMtm" in response.text
+    assert "India VIX" in response.text
+    assert "vixCurve" in response.text
     assert "Total PnL" in response.text
     assert "/backtests/run-1/trades/trade-1/mtm" in response.text
+    assert 'rowspan="2" class="merged-trade-id"' in response.text
+    assert response.text.index('href="#summary"') < response.text.index('href="#regime-analysis"')
+    assert response.text.index('href="#regime-analysis"') < response.text.index('href="#trades"')
 
     response = client.get("/backtests/run-1/trades")
     assert response.status_code == 200

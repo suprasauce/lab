@@ -12,13 +12,15 @@
         {% for row in trades_rows %}
           <tr>
             {% for column in trades_columns %}
-              <td>
-                {% if column == "trade_id" and link_trade_ids and run and row[column] %}
-                  <a href="/backtests/{{ run.run_id }}/trades/{{ row[column] }}/mtm" target="_blank">{{ row[column] }}</a>
-                {% else %}
-                  {{ row[column] }}
-                {% endif %}
-              </td>
+              {% if not (column == "trade_id" and merge_trade_ids and row._hide_trade_id) %}
+                <td{% if column == "trade_id" and merge_trade_ids %} rowspan="{{ row._trade_id_rowspan or 1 }}" class="merged-trade-id"{% endif %}>
+                  {% if column == "trade_id" and link_trade_ids and run and row[column] %}
+                    <a href="/backtests/{{ run.run_id }}/trades/{{ row[column] }}/mtm" target="_blank">{{ row[column] }}</a>
+                  {% else %}
+                    {{ row[column] }}
+                  {% endif %}
+                </td>
+              {% endif %}
             {% endfor %}
           </tr>
         {% endfor %}

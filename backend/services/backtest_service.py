@@ -15,6 +15,7 @@ from backend.services.metrics_service import (
 )
 from backend.services.mtm_service import build_daily_mtm
 from backend.services.result_service import save_run
+from backend.services.vix_service import build_vix_curve
 from backend.strategies.short_strangle import ShortStrangleStrategy
 
 STRATEGIES = {
@@ -71,6 +72,10 @@ def run_backtest_for_strategy(
     results["trade_metrics"] = build_trade_metrics(
         trades=results["trades"],
         daily_mtm=results["daily_mtm"],
+    )
+    results["vix_curve"] = build_vix_curve(
+        equity_curve=results["equity_curve"],
+        trade_metrics=results["trade_metrics"],
     )
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -84,6 +84,7 @@ Results land in `results/{timestamp}/`:
 - `metrics.json`
 - `equity_curve.json`
 - `trade_metrics.json`
+- `vix_curve.json`
 - `trades.csv`
 - `skipped_expiries.csv`
 - `daily_mtm.csv`
