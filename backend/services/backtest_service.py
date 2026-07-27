@@ -14,6 +14,7 @@ from backend.services.metrics_service import (
     build_trade_metrics,
 )
 from backend.services.mtm_service import build_daily_mtm
+from backend.services.request_context import create_context
 from backend.services.result_service import save_run
 from backend.services.vix_service import build_vix_curve
 from backend.strategies.short_strangle import ShortStrangleStrategy
@@ -63,8 +64,9 @@ def run_backtest_for_strategy(
         end_date=end_date,
     )
     strategy = ShortStrangleStrategy()
-    results = run_backtest(strategy, config)
-    results["daily_mtm"] = build_daily_mtm(results["trades"])
+    context = create_context()
+    results = run_backtest(strategy, config, context)
+    results["daily_mtm"] = build_daily_mtm(results["trades"], context)
     results["metrics"] = build_backtest_metrics(
         trades=results["trades"],
         skipped_expiries=results["skipped_expiries"],
@@ -110,12 +112,16 @@ def parse_time(value: str) -> time:
     return datetime.strptime(value, "%H:%M").time()
 
 
-def run_backtest(strategy, config: StrategyConfig) -> dict[str, pd.DataFrame]:
+def run_backtest(
+    strategy,
+    config: StrategyConfig,
+    context: dict | None = None,
+) -> dict[str, pd.DataFrame]:
     trades: list[pd.DataFrame] = []
     skipped_expiries: list[pd.DataFrame] = []
 
     for expiry in iter_monthly_expiries(config.start_date, config.end_date):
-        result = strategy.run(config, expiry)
+        result = strategy.run(config, expiry, context)
         trades.append(result["trades"])
         skipped_expiries.append(result["skipped_expiries"])
 

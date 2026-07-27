@@ -10,7 +10,7 @@ class FakeStrategy:
     def __init__(self):
         self.calls = []
 
-    def run(self, config, expiry):
+    def run(self, config, expiry, context=None):
         self.calls.append(expiry)
         return {
             "trades": pd.DataFrame([{"expiry_date": expiry.isoformat()}]),

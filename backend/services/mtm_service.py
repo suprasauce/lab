@@ -7,22 +7,25 @@ from datetime import date, datetime, time
 import pandas as pd
 
 from backend.common.nse_calendar import trading_days_between
-from backend.services import market_data_service
+from backend.services import request_context
 
 DAILY_MTM_TIME = time(15, 30)
 
 
-def build_daily_mtm(trades: pd.DataFrame) -> pd.DataFrame:
+def build_daily_mtm(
+    trades: pd.DataFrame,
+    context: dict | None = None,
+) -> pd.DataFrame:
     if trades.empty:
         return pd.DataFrame(columns=_daily_mtm_columns())
 
     rows: list[dict] = []
     for _, trade in trades.iterrows():
-        rows.extend(_build_leg_daily_mtm(trade))
+        rows.extend(_build_leg_daily_mtm(trade, context))
     return pd.DataFrame(rows, columns=_daily_mtm_columns())
 
 
-def _build_leg_daily_mtm(trade: pd.Series) -> list[dict]:
+def _build_leg_daily_mtm(trade: pd.Series, context: dict | None) -> list[dict]:
     entry_date = _parse_date(trade["entry_date"])
     exit_date = _parse_date(trade["exit_date"])
     expiry = _parse_date(trade["expiry_date"])
@@ -38,7 +41,8 @@ def _build_leg_daily_mtm(trade: pd.Series) -> list[dict]:
             entry_time=entry_time,
             exit_time=exit_time,
         )
-        candle = market_data_service.get_option_candle(
+        candle = request_context.get_option_candle(
+            context,
             symbol="NIFTY",
             exchange="NFO",
             expiry=expiry,

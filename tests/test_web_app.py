@@ -78,6 +78,8 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
                 {
                     "trade_id": "trade-1",
                     "expiry_date": "2026-01-27",
+                    "exit_date": "2026-01-20",
+                    "exit_reason": "total_stop_loss",
                     "premium_received": 100.0,
                     "maxMtm": 50.0,
                     "minMtm": -10.0,
@@ -117,6 +119,8 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert "minMtm" in response.text
     assert "India VIX" in response.text
     assert "vixCurve" in response.text
+    assert "calendarDateAxis" in response.text
+    assert "Exit reason" in response.text
     assert "chart.umd.min.js" in response.text
     assert '<canvas id="regime-equity-chart"' in response.text
     assert '<canvas id="regime-volatility-chart"' in response.text

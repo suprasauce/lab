@@ -59,11 +59,12 @@
       const equity = {{ equity_curve | tojson }};
       const tradeMetrics = {{ trade_metrics | tojson }};
       const vixCurve = {{ vix_curve | tojson }};
-      const dateAxis = [...new Set([
+      const sourceDates = [
         ...equity.map((point) => point.date),
-        ...tradeMetrics.map((row) => row.expiry_date).filter(Boolean),
+        ...tradeMetrics.map((row) => row.exit_date || row.expiry_date).filter(Boolean),
         ...vixCurve.map((point) => point.date).filter(Boolean),
-      ])].sort();
+      ].filter(Boolean);
+      const dateAxis = calendarDateAxis(sourceDates);
 
       if (!window.Chart) {
         document.querySelectorAll(".chart").forEach((chart) => {
@@ -74,6 +75,36 @@
 
       Chart.defaults.font.family = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       Chart.defaults.color = "#6b7280";
+
+      function calendarDateAxis(dates) {
+        if (!dates.length) return [];
+        const sorted = [...new Set(dates)].sort();
+        const start = parseLocalDate(sorted[0]);
+        const end = parseLocalDate(sorted[sorted.length - 1]);
+        const axis = [];
+        for (let d = start; d <= end; d = addDays(d, 1)) {
+          axis.push(formatLocalDate(d));
+        }
+        return axis;
+      }
+
+      function parseLocalDate(value) {
+        const [year, month, day] = value.split("-").map(Number);
+        return new Date(year, month - 1, day);
+      }
+
+      function addDays(value, days) {
+        const next = new Date(value);
+        next.setDate(next.getDate() + days);
+        return next;
+      }
+
+      function formatLocalDate(value) {
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, "0");
+        const day = String(value.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
 
       function alignedData(rows, dateKey, valueKey) {
         const byDate = new Map(rows.map((row) => [row[dateKey], Number(row[valueKey])]));
@@ -104,7 +135,7 @@
           scales: {
             x: {
               grid: { display: false },
-              ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+              ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 },
             },
             y: {
               border: { display: false },
@@ -152,26 +183,35 @@
           canvas.parentElement.innerHTML = '<p class="empty chart-empty">No volatility data.</p>';
           return;
         }
-        const byDate = new Map(points.map((row) => [row.expiry_date, row]));
+        const byDate = new Map(points.map((row) => [row.exit_date || row.expiry_date, row]));
         const options = baseOptions("MTM Volatility (% of Premium)", "%");
         options.plugins.tooltip.callbacks.label = (context) => {
           const row = byDate.get(context.label);
           return [
             `Volatility: ${Number(context.parsed.y).toFixed(2)}%`,
+            `Trade: ${row?.trade_id ?? ""}`,
+            `Exit: ${row?.exit_date ?? ""}`,
+            `Expiry: ${row?.expiry_date ?? ""}`,
+            `Exit reason: ${row?.exit_reason ?? ""}`,
+            `Premium: ${row?.premium_received ?? ""}`,
             `Max MTM: ${row?.maxMtm ?? ""}`,
             `Min MTM: ${row?.minMtm ?? ""}`,
           ];
         };
         new Chart(canvas, {
-          type: "bar",
+          type: "line",
           data: {
             labels: dateAxis,
             datasets: [{
               label: "MTM Volatility",
               data: dateAxis.map((date) => byDate.has(date) ? Number(byDate.get(date).mtmVolatilityPctOfPremium) : null),
+              borderColor: "#0f766e",
               backgroundColor: "#0f766e",
-              borderRadius: 4,
-              maxBarThickness: 36,
+              borderWidth: 2,
+              pointRadius: dateAxis.map((date) => byDate.has(date) ? 4 : 0),
+              pointHoverRadius: 6,
+              tension: 0.2,
+              spanGaps: true,
             }],
           },
           options,

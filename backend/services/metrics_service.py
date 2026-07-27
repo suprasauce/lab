@@ -68,6 +68,8 @@ def build_trade_metrics(*, trades: pd.DataFrame, daily_mtm: pd.DataFrame) -> lis
             {
                 "trade_id": trade_id,
                 "expiry_date": str(trade["expiry_date"]),
+                "exit_date": str(trade["exit_date"]),
+                "exit_reason": str(trade["exit_reason"]) if "exit_reason" in trade else "",
                 "premium_received": None if premium is None else _round(premium),
                 "maxMtm": _max_mtm(mtm_rows),
                 "minMtm": _min_mtm(mtm_rows),
@@ -121,10 +123,13 @@ def _premium_by_trade(trades: pd.DataFrame) -> dict[str, float]:
 
 
 def _trade_summary(trades: pd.DataFrame) -> pd.DataFrame:
+    columns = ["trade_id", "expiry_date", "exit_date"]
+    if "exit_reason" in trades.columns:
+        columns.append("exit_reason")
     return (
-        trades[["trade_id", "expiry_date"]]
+        trades[columns]
         .drop_duplicates()
-        .sort_values(["expiry_date", "trade_id"])
+        .sort_values(["exit_date", "trade_id"])
     )
 
 

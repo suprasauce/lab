@@ -9,13 +9,18 @@ import pandas as pd
 from backend.common.nse_calendar import entry_date_for_expiry
 from backend.common.strike_selector import select_strikes
 from backend.common.utils import bar_end_time
-from backend.services import market_data_service
+from backend.services import request_context
 
 
 class ShortStrangleStrategy:
     name = "nifty_short_strangle"
 
-    def run(self, config, expiry: date) -> dict[str, pd.DataFrame]:
+    def run(
+        self,
+        config,
+        expiry: date,
+        context: dict | None = None,
+    ) -> dict[str, pd.DataFrame]:
         entry_date = entry_date_for_expiry(expiry, config.entry_dte)
         exit_date = expiry
         base = _base_row(config, expiry, entry_date, exit_date)
@@ -23,7 +28,8 @@ class ShortStrangleStrategy:
         if entry_date >= expiry:
             return _skipped(base, "entry_on_or_after_expiry")
 
-        spot_candle = market_data_service.get_underlying_candle(
+        spot_candle = request_context.get_underlying_candle(
+            context,
             symbol="NIFTY",
             exchange="NSE",
             candle_date=entry_date,
@@ -42,7 +48,8 @@ class ShortStrangleStrategy:
         )
 
         ce_entry = _close(
-            market_data_service.get_option_candle(
+            request_context.get_option_candle(
+                context,
                 symbol="NIFTY",
                 exchange="NFO",
                 expiry=expiry,
@@ -53,7 +60,8 @@ class ShortStrangleStrategy:
             )
         )
         pe_entry = _close(
-            market_data_service.get_option_candle(
+            request_context.get_option_candle(
+                context,
                 symbol="NIFTY",
                 exchange="NFO",
                 expiry=expiry,
@@ -80,10 +88,12 @@ class ShortStrangleStrategy:
             pe_strike=selection.pe_strike,
             ce_entry=ce_entry,
             pe_entry=pe_entry,
+            context=context,
         )
         if stop_exit is None:
             ce_exit = _close(
-                market_data_service.get_option_candle(
+                request_context.get_option_candle(
+                    context,
                     symbol="NIFTY",
                     exchange="NFO",
                     expiry=expiry,
@@ -94,7 +104,8 @@ class ShortStrangleStrategy:
                 )
             )
             pe_exit = _close(
-                market_data_service.get_option_candle(
+                request_context.get_option_candle(
+                    context,
                     symbol="NIFTY",
                     exchange="NFO",
                     expiry=expiry,
@@ -171,13 +182,15 @@ def _find_total_stop_loss_exit(
     pe_strike: int,
     ce_entry: float,
     pe_entry: float,
+    context: dict | None,
 ) -> dict | None:
     multiplier = config.total_stop_loss_multiplier
     if multiplier is None or multiplier <= 0:
         return None
 
     stop_cost = (ce_entry + pe_entry) * float(multiplier)
-    ce_df = market_data_service.get_option_5m_range(
+    ce_df = request_context.get_option_5m_range(
+        context,
         symbol="NIFTY",
         exchange="NFO",
         expiry=expiry,
@@ -186,7 +199,8 @@ def _find_total_stop_loss_exit(
         start=entry_date,
         end=exit_date,
     )
-    pe_df = market_data_service.get_option_5m_range(
+    pe_df = request_context.get_option_5m_range(
+        context,
         symbol="NIFTY",
         exchange="NFO",
         expiry=expiry,
