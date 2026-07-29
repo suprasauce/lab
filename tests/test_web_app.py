@@ -20,6 +20,7 @@ def test_strategy_pages_render():
     assert "Basic Settings" in response.text
     assert "Entry Rules" in response.text
     assert "Exit Rules" in response.text
+    assert "Exit DTE" in response.text
     assert "Total Stop Loss Multiplier" in response.text
     assert "Strike Selection" in response.text
     assert "Filters" in response.text
@@ -99,6 +100,7 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
             "start_date": "2026-01-01",
             "end_date": "2026-02-28",
             "entry_dte": "45",
+            "exit_dte": "0",
             "entry_time": "09:30",
             "exit_time": "15:30",
             "total_stop_loss_multiplier": "",

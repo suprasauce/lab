@@ -144,6 +144,14 @@ def entry_date_for_expiry(expiry: date, entry_dte: int) -> date:
     return previous_trading_day(calendar_entry)
 
 
+def exit_date_for_expiry(expiry: date, exit_dte: int) -> date:
+    """Calendar DTE exit; roll to previous trading day if holiday/weekend."""
+    calendar_exit = expiry - timedelta(days=exit_dte)
+    if is_trading_day(calendar_exit):
+        return calendar_exit
+    return previous_trading_day(calendar_exit)
+
+
 def calendar_dte_at_entry(expiry: date, entry: date) -> int:
     return (expiry - entry).days
 

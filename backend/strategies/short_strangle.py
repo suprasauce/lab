@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 import pandas as pd
 
-from backend.common.nse_calendar import entry_date_for_expiry
+from backend.common.nse_calendar import entry_date_for_expiry, exit_date_for_expiry
 from backend.common.strike_selector import select_strikes
 from backend.common.utils import bar_end_time
 from backend.services import request_context
@@ -22,7 +22,7 @@ class ShortStrangleStrategy:
         context: dict | None = None,
     ) -> dict[str, pd.DataFrame]:
         entry_date = entry_date_for_expiry(expiry, config.entry_dte)
-        exit_date = expiry
+        exit_date = exit_date_for_expiry(expiry, config.exit_dte)
         base = _base_row(config, expiry, entry_date, exit_date)
 
         if entry_date >= expiry:

@@ -4,6 +4,7 @@ from datetime import date
 
 from backend.common.nse_calendar import (
     entry_date_for_expiry,
+    exit_date_for_expiry,
     is_trading_day,
     iter_monthly_expiries,
     monthly_expiry,
@@ -36,6 +37,11 @@ def test_entry_on_weekend_rolls_prev():
     entry = entry_date_for_expiry(expiry, 45)
     assert entry.weekday() < 5
     assert entry not in {date(2023, 12, 25)} or is_trading_day(entry)
+
+
+def test_exit_dte_rolls_weekend_to_previous_trading_day():
+    expiry = date(2026, 1, 27)
+    assert exit_date_for_expiry(expiry, 2) == date(2026, 1, 23)
 
 
 def test_iter_expiries_in_range():

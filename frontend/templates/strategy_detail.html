@@ -36,6 +36,9 @@
           <label>Exit Time
             <input name="exit_time" type="time" value="{{ form.exit_time }}" step="300" required>
           </label>
+          <label>Exit DTE
+            <input name="exit_dte" type="number" value="{{ form.exit_dte }}" min="0" required>
+          </label>
           <label>Total Stop Loss Multiplier
             <input name="total_stop_loss_multiplier" type="number" value="{{ form.total_stop_loss_multiplier or '' }}" min="0" step="0.1" placeholder="none">
           </label>

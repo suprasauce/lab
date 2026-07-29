@@ -44,6 +44,7 @@ def run_backtest_for_strategy(
     start_date: date,
     end_date: date,
     entry_dte: int,
+    exit_dte: int,
     entry_time: time,
     exit_time: time,
     total_stop_loss_multiplier: float | None,
@@ -55,6 +56,7 @@ def run_backtest_for_strategy(
 
     config = StrategyConfig(
         entry_dte=entry_dte,
+        exit_dte=exit_dte,
         entry_time=entry_time,
         exit_time=exit_time,
         total_stop_loss_multiplier=total_stop_loss_multiplier,
@@ -91,6 +93,7 @@ def run_backtest_for_strategy(
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "entry_dte": entry_dte,
+        "exit_dte": exit_dte,
         "entry_time": entry_time.strftime("%H:%M"),
         "exit_time": exit_time.strftime("%H:%M"),
         "total_stop_loss_multiplier": total_stop_loss_multiplier,

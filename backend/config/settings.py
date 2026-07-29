@@ -24,6 +24,7 @@ def lot_size_for_date(d: date) -> int:
 @dataclass
 class StrategyConfig:
     entry_dte: int = 45
+    exit_dte: int = 0
     entry_time: time = time(9, 30)
     exit_time: time = time(15, 30)
     total_stop_loss_multiplier: float | None = None
