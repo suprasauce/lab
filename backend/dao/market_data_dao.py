@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import date, datetime, time
 from pathlib import Path
 
@@ -10,6 +11,8 @@ import pandas as pd
 
 from backend.config.settings import DB_PATH
 from backend.common.utils import bar_start_for_end_time
+
+_DB_LOCK = threading.RLock()
 
 
 class MarketDataDao:
@@ -22,7 +25,7 @@ class MarketDataDao:
         return duckdb.connect(str(self.path))
 
     def _init_schema(self) -> None:
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             con.execute(
                 """
                 CREATE TABLE IF NOT EXISTS underlying_5m (
@@ -78,7 +81,7 @@ class MarketDataDao:
             )
 
     def load_underlying_5m(self, *, symbol: str, exchange: str, start: date, end: date) -> pd.DataFrame:
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             return con.execute(
                 """
                 SELECT datetime, open, high, low, close, volume
@@ -93,7 +96,7 @@ class MarketDataDao:
 
     def load_underlying_candle(self, *, symbol: str, exchange: str, candle_date: date, candle_time: time) -> dict | None:
         candle_start = bar_start_for_end_time(candle_date, candle_time)
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             df = con.execute(
                 """
                 SELECT datetime, open, high, low, close, volume
@@ -119,7 +122,7 @@ class MarketDataDao:
         start: date,
         end: date,
     ) -> pd.DataFrame:
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             return con.execute(
                 """
                 SELECT datetime, open, high, low, close, volume, open_interest
@@ -149,7 +152,7 @@ class MarketDataDao:
         candle_time: time,
     ) -> dict | None:
         candle_start = bar_start_for_end_time(candle_date, candle_time)
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             df = con.execute(
                 """
                 SELECT datetime, open, high, low, close, volume, open_interest
@@ -177,7 +180,7 @@ class MarketDataDao:
         rows["created_at"] = now
         rows["updated_at"] = now
 
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             con.register("incoming_underlying", rows)
             con.execute(
                 """
@@ -220,7 +223,7 @@ class MarketDataDao:
         rows["created_at"] = now
         rows["updated_at"] = now
 
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             con.register("incoming_derivatives", rows)
             con.execute(
                 """
@@ -256,7 +259,7 @@ class MarketDataDao:
         strike: int | None = None,
         right: str | None = None,
     ) -> bool:
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             df = con.execute(
                 """
                 SELECT 1
@@ -296,7 +299,7 @@ class MarketDataDao:
     ) -> None:
         now = datetime.now()
         option_right = None if right is None else right.lower()
-        with self._connect() as con:
+        with _DB_LOCK, self._connect() as con:
             con.execute(
                 """
                 DELETE FROM missing_5m_data

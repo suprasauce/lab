@@ -25,6 +25,10 @@ def save_run(run_id: str, metadata: dict, results: dict) -> Path:
         json.dumps(results.get("equity_curve", []), indent=2),
         encoding="utf-8",
     )
+    (run_dir / "expiry_pnl_curve.json").write_text(
+        json.dumps(results.get("expiry_pnl_curve", []), indent=2),
+        encoding="utf-8",
+    )
     (run_dir / "trade_metrics.json").write_text(
         json.dumps(results.get("trade_metrics", []), indent=2),
         encoding="utf-8",
@@ -47,6 +51,7 @@ def load_run(run_id: str) -> dict:
         "daily_mtm": _read_csv(run_dir / "daily_mtm.csv"),
         "metrics": _read_json(run_dir / "metrics.json"),
         "equity_curve": _read_json(run_dir / "equity_curve.json", default=[]),
+        "expiry_pnl_curve": _read_json(run_dir / "expiry_pnl_curve.json", default=[]),
         "trade_metrics": _read_json(run_dir / "trade_metrics.json", default=[]),
         "vix_curve": _read_json(run_dir / "vix_curve.json", default=[]),
     }
@@ -70,6 +75,8 @@ def list_runs() -> list[dict]:
                 "created_at": metadata.get("created_at", ""),
                 "total_pnl": metrics.get("total_pnl", ""),
                 "win_rate": metrics.get("win_rate", ""),
+                "risk_reward_ratio": metrics.get("risk_reward_ratio", ""),
+                "expectancy": metrics.get("expectancy", ""),
                 "traded_expiries": metrics.get("traded_expiries", ""),
                 "skipped_expiries": metrics.get("skipped_expiries", ""),
             }

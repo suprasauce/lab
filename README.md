@@ -1,12 +1,13 @@
-# Nifty Short Strangle Backtest
+# Options Backtesting UI
 
 Backtest strategies using ICICI Breeze API historical 5-minute data with on-demand DuckDB caching.
 
-## Strategy Defaults
+## Strategy Builder
 
-- Enter **45 DTE** before monthly expiry at **09:30** IST
-- Exit on expiry day at **15:30** IST
-- Strikes: **ATM +/- 6 strike steps** where each step is 50 points
+- Build a custom multi-leg option strategy from the UI.
+- Each leg has its own option type, side, quantity, strike rule, entry DTE/time, and exit DTE/time.
+- Supported strike selection methods: Delta, Offset in points, Premium, Fixed Strike, and ATM.
+- All positions in one expiry cycle use the same monthly expiry.
 - Monthly expiry: last **Thursday** before Sep 2025, last **Tuesday** from Sep 2025
 
 ## Architecture
@@ -15,12 +16,11 @@ Backtest strategies using ICICI Breeze API historical 5-minute data with on-dema
 - `backend/services/` contains API use cases: running backtests, loading results, fetching market data, and building MTM.
 - `backend/dao/market_data_dao.py` stores and loads 5-minute candles in `data/market_data.duckdb`.
 - `backend/client/breeze_client.py` wraps the Breeze SDK.
-- `backend/strategies/` contains strategy rules.
 - `backend/common/` contains shared calendar, candle, and strike-selection helpers.
 - `frontend/templates/` contains the HTML templates.
 - `tests/` contains the test suite.
 
-The web controller handles HTTP/form input, services orchestrate the use case, the DAO owns DuckDB SQL, the client owns Breeze API calls, and strategies hold the trading rules.
+The web controller handles HTTP/form input, services orchestrate the use case, the DAO owns DuckDB SQL, and the client owns Breeze API calls.
 
 DuckDB tables:
 
@@ -74,7 +74,7 @@ The session token expires, so refresh it whenever Breeze returns `Session key is
 python -m uvicorn backend.app:app --reload
 ```
 
-Open `http://127.0.0.1:8000` to select a strategy, run a backtest, view trades, and open a trade's daily MTM table.
+Open `http://127.0.0.1:8000` to configure legs, run a backtest, view trades, and open a trade's daily MTM table.
 
 ## Output
 
@@ -83,6 +83,7 @@ Results land in `results/{timestamp}/`:
 - `metadata.json`
 - `metrics.json`
 - `equity_curve.json`
+- `expiry_pnl_curve.json`
 - `trade_metrics.json`
 - `vix_curve.json`
 - `trades.csv`

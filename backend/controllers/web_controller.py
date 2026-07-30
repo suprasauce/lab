@@ -8,6 +8,8 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from backend.config.settings import BACKTEST_ROOT
 from backend.services.backtest_service import (
+    CUSTOM_STRATEGY_ID,
+    PositionConfig,
     get_strategy,
     list_strategies,
     parse_date,
@@ -37,7 +39,7 @@ def home_page(request: Request):
 
 @router.get("/backtests/new")
 def new_backtest():
-    return RedirectResponse(url="/strategies/nifty_short_strangle")
+    return RedirectResponse(url=f"/strategies/{CUSTOM_STRATEGY_ID}")
 
 
 @router.get("/strategies/{strategy_id}", response_class=HTMLResponse)
@@ -67,44 +69,44 @@ def run_strategy(
     strategy_id: str,
     start_date: str = Form(...),
     end_date: str = Form(...),
-    entry_dte: int = Form(...),
-    exit_dte: int = Form(...),
-    entry_time: str = Form(...),
-    exit_time: str = Form(...),
-    total_stop_loss_multiplier: str = Form(""),
-    strike_offset: int = Form(...),
-    lot_size: str = Form(""),
+    leg_role: list[str] = Form(...),
+    option_type: list[str] = Form(...),
+    side: list[str] = Form(...),
+    quantity: list[str] = Form(...),
+    strike_selection: list[str] = Form(...),
+    strike_value: list[str] = Form(...),
+    entry_dte: list[int] = Form(...),
+    entry_time: list[str] = Form(...),
+    exit_dte: list[int] = Form(...),
+    exit_time: list[str] = Form(...),
+    include_mtm: bool = Form(False),
 ):
     form = {
         "start_date": start_date,
         "end_date": end_date,
-        "entry_dte": entry_dte,
-        "exit_dte": exit_dte,
-        "entry_time": entry_time,
-        "exit_time": exit_time,
-        "total_stop_loss_multiplier": total_stop_loss_multiplier,
-        "strike_offset": strike_offset,
-        "lot_size": lot_size,
+        "positions": _form_positions(
+            leg_role=leg_role,
+            option_type=option_type,
+            side=side,
+            quantity=quantity,
+            strike_selection=strike_selection,
+            strike_value=strike_value,
+            entry_dte=entry_dte,
+            entry_time=entry_time,
+            exit_dte=exit_dte,
+            exit_time=exit_time,
+        ),
+        "include_mtm": include_mtm,
     }
     try:
         strategy = get_strategy(strategy_id)
-        lot_size_value = int(lot_size) if lot_size.strip() else None
-        stop_loss_value = (
-            float(total_stop_loss_multiplier)
-            if total_stop_loss_multiplier.strip()
-            else None
-        )
+        positions = _parse_positions(form["positions"])
         run_id, results = run_backtest_for_strategy(
             strategy_id=strategy_id,
             start_date=parse_date(start_date),
             end_date=parse_date(end_date),
-            entry_dte=entry_dte,
-            exit_dte=exit_dte,
-            entry_time=parse_time(entry_time),
-            exit_time=parse_time(exit_time),
-            total_stop_loss_multiplier=stop_loss_value,
-            strike_offset=strike_offset,
-            lot_size=lot_size_value,
+            positions=positions,
+            include_mtm=include_mtm,
         )
     except Exception as exc:
         try:
@@ -129,7 +131,7 @@ def run_page(request: Request, run_id: str):
         run = load_run(run_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    strategy = get_strategy(run["metadata"].get("strategy_id", "nifty_short_strangle"))
+    strategy = get_strategy(run["metadata"].get("strategy_id", CUSTOM_STRATEGY_ID))
     return _render(
         "backtest_results.html",
         request=request,
@@ -138,6 +140,7 @@ def run_page(request: Request, run_id: str):
         metric_cards=metric_cards(run["metrics"]),
         metrics=run["metrics"],
         equity_curve=run["equity_curve"],
+        expiry_pnl_curve=run["expiry_pnl_curve"],
         trade_metrics=run["trade_metrics"],
         vix_curve=run["vix_curve"],
         trades_columns=dataframe_columns(run["trades"]),
@@ -219,14 +222,103 @@ def _default_form() -> dict:
     return {
         "start_date": "2026-01-01",
         "end_date": "2026-02-28",
-        "entry_dte": 45,
-        "exit_dte": 0,
-        "entry_time": "09:30",
-        "exit_time": "15:30",
-        "total_stop_loss_multiplier": "",
-        "strike_offset": 6,
-        "lot_size": "",
+        "positions": [
+            {
+                "leg_role": "short_call",
+                "option_type": "call",
+                "side": "sell",
+                "quantity": "",
+                "strike_selection": "offset",
+                "strike_value": "300",
+                "entry_dte": 45,
+                "entry_time": "09:30",
+                "exit_dte": 0,
+                "exit_time": "15:30",
+            },
+            {
+                "leg_role": "short_put",
+                "option_type": "put",
+                "side": "sell",
+                "quantity": "",
+                "strike_selection": "offset",
+                "strike_value": "300",
+                "entry_dte": 45,
+                "entry_time": "09:30",
+                "exit_dte": 0,
+                "exit_time": "15:30",
+            },
+        ],
+        "include_mtm": True,
     }
+
+
+def _form_positions(
+    *,
+    leg_role: list[str],
+    option_type: list[str],
+    side: list[str],
+    quantity: list[str],
+    strike_selection: list[str],
+    strike_value: list[str],
+    entry_dte: list[int],
+    entry_time: list[str],
+    exit_dte: list[int],
+    exit_time: list[str],
+) -> list[dict]:
+    count = len(leg_role)
+    return [
+        {
+            "leg_role": leg_role[index],
+            "option_type": option_type[index],
+            "side": side[index],
+            "quantity": quantity[index],
+            "strike_selection": strike_selection[index],
+            "strike_value": strike_value[index],
+            "entry_dte": entry_dte[index],
+            "entry_time": entry_time[index],
+            "exit_dte": exit_dte[index],
+            "exit_time": exit_time[index],
+        }
+        for index in range(count)
+    ]
+
+
+def _parse_positions(rows: list[dict]) -> list[PositionConfig]:
+    positions = []
+    for index, row in enumerate(rows, start=1):
+        quantity = str(row["quantity"]).strip()
+        leg_role = str(row["leg_role"]).strip() or f"leg_{index}"
+        positions.append(
+            PositionConfig(
+                leg_role=leg_role,
+                option_type=str(row["option_type"]).lower(),
+                side=str(row["side"]).lower(),
+                quantity=int(quantity) if quantity else None,
+                strike_selection=str(row["strike_selection"]).lower(),
+                strike_params=_strike_params(row),
+                entry_dte=int(row["entry_dte"]),
+                entry_time=parse_time(str(row["entry_time"])),
+                exit_dte=int(row["exit_dte"]),
+                exit_time=parse_time(str(row["exit_time"])),
+            )
+        )
+    return positions
+
+
+def _strike_params(row: dict) -> dict[str, float | None]:
+    method = str(row.get("strike_selection", "")).lower()
+    value = _optional_float(row.get("strike_value"))
+    return {
+        "delta": value if method == "delta" else None,
+        "offset_points": value if method == "offset" else None,
+        "target_premium": value if method == "premium" else None,
+        "fixed_strike": value if method == "fixed_strike" else None,
+    }
+
+
+def _optional_float(value) -> float | None:
+    text = "" if value is None else str(value).strip()
+    return None if not text else float(text)
 
 
 def _merge_trade_id_rows(rows: list[dict]) -> list[dict]:

@@ -14,44 +14,74 @@
           <label>End Date
             <input name="end_date" type="date" value="{{ form.end_date }}" required>
           </label>
-          <label>Lot Size
-            <input name="lot_size" type="number" value="{{ form.lot_size or '' }}" min="1" placeholder="auto">
+          <label class="checkbox-field">
+            <input name="include_mtm" type="checkbox" value="true"{% if form.include_mtm %} checked{% endif %}>
+            Calculate Daily MTM
           </label>
         </div>
       </fieldset>
+
       <fieldset>
-        <legend>Entry Rules</legend>
-        <div class="form-grid">
-          <label>Entry DTE
-            <input name="entry_dte" type="number" value="{{ form.entry_dte }}" min="1" required>
-          </label>
-          <label>Entry Time
-            <input name="entry_time" type="time" value="{{ form.entry_time }}" step="300" required>
-          </label>
+        <legend>Legs</legend>
+        <div class="table-wrap">
+          <table class="legs-table">
+            <thead>
+              <tr>
+                <th>role</th>
+                <th>option</th>
+                <th>side</th>
+                <th>qty</th>
+                <th>Strike Selection</th>
+                <th>value</th>
+                <th>entry dte</th>
+                <th>entry time</th>
+                <th>exit dte</th>
+                <th>exit time</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="legs-body">
+              {% for leg in form.positions %}
+                <tr>
+                  <td><input name="leg_role" value="{{ leg.leg_role }}" required></td>
+                  <td>
+                    <select name="option_type">
+                      <option value="call"{% if leg.option_type == "call" %} selected{% endif %}>Call</option>
+                      <option value="put"{% if leg.option_type == "put" %} selected{% endif %}>Put</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select name="side">
+                      <option value="sell"{% if leg.side == "sell" %} selected{% endif %}>Sell</option>
+                      <option value="buy"{% if leg.side == "buy" %} selected{% endif %}>Buy</option>
+                    </select>
+                  </td>
+                  <td><input name="quantity" type="number" value="{{ leg.quantity or '' }}" min="1" placeholder="auto"></td>
+                  <td>
+                    <select name="strike_selection" data-strike-selection>
+                      <option value="delta"{% if leg.strike_selection == "delta" %} selected{% endif %}>Delta</option>
+                      <option value="offset"{% if leg.strike_selection == "offset" %} selected{% endif %}>Offset</option>
+                      <option value="premium"{% if leg.strike_selection == "premium" %} selected{% endif %}>Premium</option>
+                      <option value="fixed_strike"{% if leg.strike_selection == "fixed_strike" %} selected{% endif %}>Fixed Strike</option>
+                      <option value="atm"{% if leg.strike_selection == "atm" %} selected{% endif %}>ATM</option>
+                    </select>
+                  </td>
+                  <td><input name="strike_value" data-strike-value type="number" value="{{ leg.strike_value or '' }}" step="0.01" placeholder="300"></td>
+                  <td><input name="entry_dte" type="number" value="{{ leg.entry_dte }}" min="1" required></td>
+                  <td><input name="entry_time" type="time" value="{{ leg.entry_time }}" step="300" required></td>
+                  <td><input name="exit_dte" type="number" value="{{ leg.exit_dte }}" min="0" required></td>
+                  <td><input name="exit_time" type="time" value="{{ leg.exit_time }}" step="300" required></td>
+                  <td><button type="button" class="button remove-leg">Remove</button></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button type="button" class="button" id="add-leg">Add Leg</button>
         </div>
       </fieldset>
-      <fieldset>
-        <legend>Exit Rules</legend>
-        <div class="form-grid">
-          <label>Exit Time
-            <input name="exit_time" type="time" value="{{ form.exit_time }}" step="300" required>
-          </label>
-          <label>Exit DTE
-            <input name="exit_dte" type="number" value="{{ form.exit_dte }}" min="0" required>
-          </label>
-          <label>Total Stop Loss Multiplier
-            <input name="total_stop_loss_multiplier" type="number" value="{{ form.total_stop_loss_multiplier or '' }}" min="0" step="0.1" placeholder="none">
-          </label>
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend>Strike Selection</legend>
-        <div class="form-grid">
-          <label>Strike Offset
-            <input name="strike_offset" type="number" value="{{ form.strike_offset }}" min="0" required>
-          </label>
-        </div>
-      </fieldset>
+
       <fieldset>
         <legend>Filters</legend>
         <p class="empty">No filters configured.</p>
@@ -63,4 +93,100 @@
   {% if error %}
     <div class="error">{{ error }}</div>
   {% endif %}
+
+  <template id="leg-template">
+    <tr>
+      <td><input name="leg_role" value="leg" required></td>
+      <td>
+        <select name="option_type">
+          <option value="call">Call</option>
+          <option value="put">Put</option>
+        </select>
+      </td>
+      <td>
+        <select name="side">
+          <option value="sell">Sell</option>
+          <option value="buy">Buy</option>
+        </select>
+      </td>
+      <td><input name="quantity" type="number" min="1" placeholder="auto"></td>
+      <td>
+        <select name="strike_selection" data-strike-selection>
+          <option value="delta">Delta</option>
+          <option value="offset" selected>Offset</option>
+          <option value="premium">Premium</option>
+          <option value="fixed_strike">Fixed Strike</option>
+          <option value="atm">ATM</option>
+        </select>
+      </td>
+      <td><input name="strike_value" data-strike-value type="number" value="300" step="0.01" placeholder="300"></td>
+      <td><input name="entry_dte" type="number" value="45" min="1" required></td>
+      <td><input name="entry_time" type="time" value="09:30" step="300" required></td>
+      <td><input name="exit_dte" type="number" value="0" min="0" required></td>
+      <td><input name="exit_time" type="time" value="15:30" step="300" required></td>
+      <td><button type="button" class="button remove-leg">Remove</button></td>
+    </tr>
+  </template>
+
+  <script>
+    (() => {
+      const body = document.getElementById("legs-body");
+      const template = document.getElementById("leg-template");
+      const add = document.getElementById("add-leg");
+      if (!body || !template || !add) return;
+
+      function syncRemoveButtons() {
+        const buttons = [...body.querySelectorAll(".remove-leg")];
+        for (const button of buttons) button.disabled = buttons.length <= 1;
+      }
+
+      function syncStrikeSelection(row) {
+        const select = row.querySelector("[data-strike-selection]");
+        const input = row.querySelector("[data-strike-value]");
+        if (!select) return;
+        const method = select.value;
+        if (!input) return;
+        const labels = {
+          delta: "0.16",
+          offset: "300",
+          premium: "100",
+          fixed_strike: "25000",
+          atm: "none",
+        };
+        input.placeholder = labels[method] || "";
+        input.disabled = method === "atm";
+        input.required = method !== "atm";
+        input.min = method === "delta" ? "0" : "";
+        input.max = method === "delta" ? "1" : "";
+        input.step = method === "premium" ? "0.05" : method === "delta" ? "0.01" : "50";
+      }
+
+      function syncAllStrikeSelections() {
+        for (const row of body.querySelectorAll("tr")) syncStrikeSelection(row);
+      }
+
+      add.addEventListener("click", () => {
+        const row = template.content.firstElementChild.cloneNode(true);
+        const index = body.querySelectorAll("tr").length + 1;
+        row.querySelector('input[name="leg_role"]').value = `leg_${index}`;
+        body.appendChild(row);
+        syncRemoveButtons();
+        syncStrikeSelection(row);
+      });
+
+      body.addEventListener("click", (event) => {
+        if (!event.target.classList.contains("remove-leg")) return;
+        if (body.querySelectorAll("tr").length <= 1) return;
+        event.target.closest("tr").remove();
+        syncRemoveButtons();
+      });
+      body.addEventListener("change", (event) => {
+        if (!event.target.matches("[data-strike-selection]")) return;
+        syncStrikeSelection(event.target.closest("tr"));
+      });
+
+      syncRemoveButtons();
+      syncAllStrikeSelections();
+    })();
+  </script>
 {% endblock %}

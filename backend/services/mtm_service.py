@@ -7,25 +7,24 @@ from datetime import date, datetime, time
 import pandas as pd
 
 from backend.common.nse_calendar import trading_days_between
-from backend.services import request_context
+from backend.services import market_data_service
 
 DAILY_MTM_TIME = time(15, 30)
 
 
 def build_daily_mtm(
     trades: pd.DataFrame,
-    context: dict | None = None,
 ) -> pd.DataFrame:
     if trades.empty:
         return pd.DataFrame(columns=_daily_mtm_columns())
 
     rows: list[dict] = []
     for _, trade in trades.iterrows():
-        rows.extend(_build_leg_daily_mtm(trade, context))
+        rows.extend(_build_leg_daily_mtm(trade))
     return pd.DataFrame(rows, columns=_daily_mtm_columns())
 
 
-def _build_leg_daily_mtm(trade: pd.Series, context: dict | None) -> list[dict]:
+def _build_leg_daily_mtm(trade: pd.Series) -> list[dict]:
     entry_date = _parse_date(trade["entry_date"])
     exit_date = _parse_date(trade["exit_date"])
     expiry = _parse_date(trade["expiry_date"])
@@ -41,8 +40,7 @@ def _build_leg_daily_mtm(trade: pd.Series, context: dict | None) -> list[dict]:
             entry_time=entry_time,
             exit_time=exit_time,
         )
-        candle = request_context.get_option_candle(
-            context,
+        candle = market_data_service.get_option_candle(
             symbol="NIFTY",
             exchange="NFO",
             expiry=expiry,
@@ -74,7 +72,13 @@ def _mtm_time_for_day(
 def _mtm_row(trade: pd.Series, mtm_date: date, mtm_time: time, current_price: float | None) -> dict:
     entry_price = float(trade["entry_price"])
     lot_size = int(trade["lot_size"])
-    mtm = None if current_price is None else round((entry_price - current_price) * lot_size, 2)
+    side = str(trade.get("side", "sell")).lower()
+    if current_price is None:
+        mtm = None
+    elif side == "buy":
+        mtm = round((current_price - entry_price) * lot_size, 2)
+    else:
+        mtm = round((entry_price - current_price) * lot_size, 2)
     return {
         "trade_id": trade["trade_id"],
         "expiry_date": trade["expiry_date"],
@@ -82,6 +86,7 @@ def _mtm_row(trade: pd.Series, mtm_date: date, mtm_time: time, current_price: fl
         "mtm_time": mtm_time.strftime("%H:%M"),
         "leg_role": trade["leg_role"],
         "option_type": trade["option_type"],
+        "side": side,
         "strike": int(trade["strike"]),
         "entry_price": round(entry_price, 2),
         "current_price": None if current_price is None else round(current_price, 2),
@@ -118,6 +123,7 @@ def _daily_mtm_columns() -> list[str]:
         "mtm_time",
         "leg_role",
         "option_type",
+        "side",
         "strike",
         "entry_price",
         "current_price",

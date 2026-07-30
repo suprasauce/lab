@@ -11,20 +11,58 @@ def test_strategy_pages_render():
     response = client.get("/")
     assert response.status_code == 200
     assert "Backtests" in response.text
-    assert "Nifty Short Strangle" in response.text
+    assert "Custom Multi-Leg Strategy" in response.text
     assert "New Backtest" in response.text
 
-    response = client.get("/strategies/nifty_short_strangle")
+    response = client.get("/strategies/custom_multi_leg")
     assert response.status_code == 200
     assert "Backtest Configuration" in response.text
     assert "Basic Settings" in response.text
-    assert "Entry Rules" in response.text
-    assert "Exit Rules" in response.text
-    assert "Exit DTE" in response.text
-    assert "Total Stop Loss Multiplier" in response.text
+    assert "Legs" in response.text
     assert "Strike Selection" in response.text
+    assert "Offset" in response.text
+    assert "Delta" in response.text
+    assert "Premium" in response.text
+    assert "Fixed Strike" in response.text
+    assert "ATM" in response.text
+    assert "<th>value</th>" in response.text
+    assert "Risk-free Rate" not in response.text
+    assert "Delta Scan Range" not in response.text
+    assert "Total Stop Loss Multiplier" not in response.text
+    assert "Calculate Daily MTM" in response.text
     assert "Filters" in response.text
     assert "Run Backtest" in response.text
+
+
+def test_home_page_renders_rr_and_expectancy(monkeypatch):
+    monkeypatch.setattr(
+        web_controller,
+        "list_runs",
+        lambda: [
+            {
+                "run_id": "run-1",
+                "strategy_name": "Custom Multi-Leg Strategy",
+                "start_date": "2026-01-01",
+                "end_date": "2026-02-28",
+                "created_at": "2026-07-30T12:00:00",
+                "total_pnl": 100.0,
+                "win_rate": 50.0,
+                "risk_reward_ratio": 2.0,
+                "expectancy": 10.0,
+                "traded_expiries": 2,
+                "skipped_expiries": 0,
+            }
+        ],
+    )
+
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "<th>RR</th>" in response.text
+    assert "<th>expectancy</th>" in response.text
+    assert "<td>2.0</td>" in response.text
+    assert "<td>10.0</td>" in response.text
 
 
 def test_strategy_run_form_renders_metrics_link(monkeypatch):
@@ -67,6 +105,8 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
             "metrics": {
                 "total_pnl": 100.0,
                 "win_rate": 100.0,
+                "risk_reward_ratio": 2.0,
+                "expectancy": 50.0,
                 "max_drawdown": 0.0,
                 "best_expiry_pnl": 100.0,
                 "worst_expiry_pnl": 100.0,
@@ -75,12 +115,13 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
                 "skipped_expiries": 0,
             },
             "equity_curve": [{"date": "2026-01-27", "equity": 100.0}],
+            "expiry_pnl_curve": [{"date": "2026-01-27", "pnl": 100.0}],
             "trade_metrics": [
                 {
                     "trade_id": "trade-1",
                     "expiry_date": "2026-01-27",
                     "exit_date": "2026-01-20",
-                    "exit_reason": "total_stop_loss",
+                    "exit_reason": "scheduled_exit",
                     "premium_received": 100.0,
                     "maxMtm": 50.0,
                     "minMtm": -10.0,
@@ -95,17 +136,20 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
 
     client = TestClient(app)
     response = client.post(
-        "/strategies/nifty_short_strangle/run",
+        "/strategies/custom_multi_leg/run",
         data={
             "start_date": "2026-01-01",
             "end_date": "2026-02-28",
-            "entry_dte": "45",
-            "exit_dte": "0",
-            "entry_time": "09:30",
-            "exit_time": "15:30",
-            "total_stop_loss_multiplier": "",
-            "strike_offset": "6",
-            "lot_size": "",
+            "leg_role": ["short_call", "short_put"],
+            "option_type": ["call", "put"],
+            "side": ["sell", "sell"],
+            "quantity": ["", ""],
+            "strike_selection": ["offset", "offset"],
+            "strike_value": ["300", "300"],
+            "entry_dte": ["45", "45"],
+            "entry_time": ["09:30", "09:30"],
+            "exit_dte": ["0", "0"],
+            "exit_time": ["15:30", "15:30"],
         },
     )
 
@@ -122,12 +166,17 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert "India VIX" in response.text
     assert "vixCurve" in response.text
     assert "calendarDateAxis" in response.text
+    assert "expiryPnl" in response.text
+    assert '<canvas id="expiry-pnl-chart"' in response.text
+    assert "Expiry P&amp;L" in response.text or "Expiry P&L" in response.text
     assert "Exit reason" in response.text
     assert "chart.umd.min.js" in response.text
     assert '<canvas id="regime-equity-chart"' in response.text
     assert '<canvas id="regime-volatility-chart"' in response.text
     assert '<canvas id="regime-vix-chart"' in response.text
     assert "Total PnL" in response.text
+    assert "RR" in response.text
+    assert "Expectancy" in response.text
     assert "/backtests/run-1/trades/trade-1/mtm" in response.text
     assert 'rowspan="2" class="merged-trade-id"' in response.text
     assert response.text.index('href="#summary"') < response.text.index('href="#regime-analysis"')

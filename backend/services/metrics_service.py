@@ -13,9 +13,10 @@ def build_backtest_metrics(
     trades: pd.DataFrame,
     skipped_expiries: pd.DataFrame,
     daily_mtm: pd.DataFrame,
+    include_mtm: bool = True,
 ) -> dict[str, Any]:
     expiry_pnl = _expiry_pnl(trades)
-    mtm_curve = _daily_portfolio_mtm(daily_mtm)
+    mtm_curve = _daily_portfolio_mtm(daily_mtm) if include_mtm else pd.DataFrame()
     skip_counts = _skip_counts(skipped_expiries)
 
     traded_expiries = int(expiry_pnl["expiry_date"].nunique()) if not expiry_pnl.empty else 0
@@ -24,6 +25,10 @@ def build_backtest_metrics(
     winning_expiries = int((expiry_pnl["pnl"] > 0).sum()) if not expiry_pnl.empty else 0
     losing_expiries = int((expiry_pnl["pnl"] < 0).sum()) if not expiry_pnl.empty else 0
     total_pnl = _round(expiry_pnl["pnl"].sum()) if not expiry_pnl.empty else 0.0
+    average_profit = _average_profit(expiry_pnl)
+    average_loss = _average_loss(expiry_pnl)
+    win_rate_decimal = winning_expiries / traded_expiries if traded_expiries else 0.0
+    loss_rate_decimal = losing_expiries / traded_expiries if traded_expiries else 0.0
 
     return {
         "total_expiries": total_expiries,
@@ -37,12 +42,20 @@ def build_backtest_metrics(
         "winning_expiries": winning_expiries,
         "losing_expiries": losing_expiries,
         "win_rate": _round((winning_expiries / traded_expiries) * 100) if traded_expiries else 0.0,
-        "max_drawdown": _max_drawdown(mtm_curve),
-        "max_profit_seen": _round(mtm_curve["mtm"].max()) if not mtm_curve.empty else 0.0,
-        "max_loss_seen": _round(mtm_curve["mtm"].min()) if not mtm_curve.empty else 0.0,
-        "ending_mtm": _round(mtm_curve["mtm"].iloc[-1]) if not mtm_curve.empty else 0.0,
-        "best_mtm_day": _day_for_extreme(mtm_curve, "max"),
-        "worst_mtm_day": _day_for_extreme(mtm_curve, "min"),
+        "average_profit": average_profit,
+        "average_loss": average_loss,
+        "risk_reward_ratio": (
+            _round(average_loss / average_profit)
+            if average_profit and average_profit > 0
+            else None
+        ),
+        "expectancy": _round((win_rate_decimal * average_profit) - (loss_rate_decimal * average_loss)),
+        "max_drawdown": _max_drawdown(mtm_curve) if include_mtm else None,
+        "max_profit_seen": _round(mtm_curve["mtm"].max()) if include_mtm and not mtm_curve.empty else None,
+        "max_loss_seen": _round(mtm_curve["mtm"].min()) if include_mtm and not mtm_curve.empty else None,
+        "ending_mtm": _round(mtm_curve["mtm"].iloc[-1]) if include_mtm and not mtm_curve.empty else None,
+        "best_mtm_day": _day_for_extreme(mtm_curve, "max") if include_mtm else None,
+        "worst_mtm_day": _day_for_extreme(mtm_curve, "min") if include_mtm else None,
         "most_common_skip_reason": _most_common_skip_reason(skip_counts),
         "skip_reason_counts": skip_counts,
     }
@@ -51,6 +64,21 @@ def build_backtest_metrics(
 def build_equity_curve(trades: pd.DataFrame) -> list[dict[str, Any]]:
     realized = _realized_pnl_by_exit_date(trades)
     return _equity_curve(realized)
+
+
+def build_expiry_pnl_curve(trades: pd.DataFrame) -> list[dict[str, Any]]:
+    expiry_pnl = _expiry_pnl(trades)
+    if expiry_pnl.empty:
+        return []
+    rows = (
+        expiry_pnl.groupby("expiry_date", as_index=False)["pnl"]
+        .sum()
+        .sort_values("expiry_date")
+    )
+    return [
+        {"date": str(row["expiry_date"]), "pnl": _round(row["pnl"])}
+        for _, row in rows.iterrows()
+    ]
 
 
 def build_trade_metrics(*, trades: pd.DataFrame, daily_mtm: pd.DataFrame) -> list[dict[str, Any]]:
@@ -83,10 +111,11 @@ def build_trade_metrics(*, trades: pd.DataFrame, daily_mtm: pd.DataFrame) -> lis
 
 
 def metric_cards(metrics: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
+    cards = [
         {"label": "Total PnL", "value": metrics.get("total_pnl", 0.0)},
         {"label": "Win Rate", "value": f"{metrics.get('win_rate', 0.0)}%"},
-        {"label": "Max Drawdown", "value": metrics.get("max_drawdown", 0.0)},
+        {"label": "RR", "value": metrics.get("risk_reward_ratio") or "n/a"},
+        {"label": "Expectancy", "value": metrics.get("expectancy", 0.0)},
         {"label": "Best Expiry", "value": metrics.get("best_expiry_pnl", 0.0)},
         {"label": "Worst Expiry", "value": metrics.get("worst_expiry_pnl", 0.0)},
         {"label": "Avg PnL / Expiry", "value": metrics.get("average_pnl_per_expiry", 0.0)},
@@ -94,21 +123,37 @@ def metric_cards(metrics: dict[str, Any]) -> list[dict[str, Any]]:
         {"label": "Skipped Expiries", "value": metrics.get("skipped_expiries", 0)},
         {"label": "Most Common Skip", "value": metrics.get("most_common_skip_reason") or "none"},
     ]
+    if metrics.get("max_drawdown") is not None:
+        cards.insert(2, {"label": "Max Drawdown", "value": metrics.get("max_drawdown", 0.0)})
+    return cards
 
 
 def _expiry_pnl(trades: pd.DataFrame) -> pd.DataFrame:
     if trades.empty:
         return pd.DataFrame(columns=["trade_id", "expiry_date", "pnl"])
     rows = trades.copy()
-    rows["leg_pnl"] = (
-        pd.to_numeric(rows["entry_price"], errors="coerce")
-        - pd.to_numeric(rows["exit_price"], errors="coerce")
-    ) * pd.to_numeric(rows["lot_size"], errors="coerce")
+    rows["leg_pnl"] = _leg_pnl(rows)
     return (
         rows.groupby(["trade_id", "expiry_date"], as_index=False)["leg_pnl"]
         .sum()
         .rename(columns={"leg_pnl": "pnl"})
     )
+
+
+def _average_profit(expiry_pnl: pd.DataFrame) -> float:
+    if expiry_pnl.empty:
+        return 0.0
+    wins = pd.to_numeric(expiry_pnl["pnl"], errors="coerce")
+    wins = wins[wins > 0]
+    return _round(wins.mean()) if not wins.empty else 0.0
+
+
+def _average_loss(expiry_pnl: pd.DataFrame) -> float:
+    if expiry_pnl.empty:
+        return 0.0
+    losses = pd.to_numeric(expiry_pnl["pnl"], errors="coerce")
+    losses = losses[losses < 0].abs()
+    return _round(losses.mean()) if not losses.empty else 0.0
 
 
 def _premium_by_trade(trades: pd.DataFrame) -> dict[str, float]:
@@ -183,10 +228,7 @@ def _realized_pnl_by_exit_date(trades: pd.DataFrame) -> pd.DataFrame:
     if trades.empty:
         return pd.DataFrame(columns=["date", "pnl"])
     rows = trades.copy()
-    rows["pnl"] = (
-        pd.to_numeric(rows["entry_price"], errors="coerce")
-        - pd.to_numeric(rows["exit_price"], errors="coerce")
-    ) * pd.to_numeric(rows["lot_size"], errors="coerce")
+    rows["pnl"] = _leg_pnl(rows)
     rows["date"] = rows["exit_date"].astype(str)
     return rows.groupby("date", as_index=False)["pnl"].sum().sort_values("date")
 
@@ -208,6 +250,19 @@ def _daily_portfolio_mtm(daily_mtm: pd.DataFrame) -> pd.DataFrame:
     rows = daily_mtm.copy()
     rows["mtm"] = pd.to_numeric(rows["mtm"], errors="coerce").fillna(0.0)
     return rows.groupby("mtm_date", as_index=False)["mtm"].sum().sort_values("mtm_date")
+
+
+def _leg_pnl(rows: pd.DataFrame) -> pd.Series:
+    entry = pd.to_numeric(rows["entry_price"], errors="coerce")
+    exit_ = pd.to_numeric(rows["exit_price"], errors="coerce")
+    quantity = pd.to_numeric(rows["lot_size"], errors="coerce")
+    if "side" in rows.columns:
+        side = rows["side"].fillna("sell").astype(str).str.lower()
+    else:
+        side = pd.Series(["sell"] * len(rows), index=rows.index)
+    short_pnl = (entry - exit_) * quantity
+    long_pnl = (exit_ - entry) * quantity
+    return short_pnl.where(side != "buy", long_pnl)
 
 
 def _skip_counts(skipped_expiries: pd.DataFrame) -> dict[str, int]:

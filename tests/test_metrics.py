@@ -3,6 +3,7 @@ import pandas as pd
 from backend.services.metrics_service import (
     build_backtest_metrics,
     build_equity_curve,
+    build_expiry_pnl_curve,
     build_trade_metrics,
 )
 
@@ -49,6 +50,70 @@ def test_build_backtest_metrics_derives_pnl_and_mtm():
     assert metrics["most_common_skip_reason"] == "spot_no_price"
 
 
+def test_build_backtest_metrics_derives_rr_and_expectancy():
+    trades = pd.DataFrame(
+        [
+            {
+                "trade_id": "win-1",
+                "expiry_date": "2026-01-27",
+                "entry_price": 100.0,
+                "exit_price": 80.0,
+                "lot_size": 75,
+            },
+            {
+                "trade_id": "win-2",
+                "expiry_date": "2026-02-24",
+                "entry_price": 120.0,
+                "exit_price": 80.0,
+                "lot_size": 75,
+            },
+            {
+                "trade_id": "loss-1",
+                "expiry_date": "2026-03-31",
+                "entry_price": 100.0,
+                "exit_price": 160.0,
+                "lot_size": 75,
+            },
+        ]
+    )
+
+    metrics = build_backtest_metrics(
+        trades=trades,
+        skipped_expiries=pd.DataFrame(),
+        daily_mtm=pd.DataFrame(),
+        include_mtm=False,
+    )
+
+    assert metrics["average_profit"] == 2250.0
+    assert metrics["average_loss"] == 4500.0
+    assert metrics["risk_reward_ratio"] == 2.0
+    assert metrics["expectancy"] == 0.0
+
+
+def test_build_backtest_metrics_rr_is_none_without_profit():
+    trades = pd.DataFrame(
+        [
+            {
+                "trade_id": "loss-1",
+                "expiry_date": "2026-01-27",
+                "entry_price": 100.0,
+                "exit_price": 110.0,
+                "lot_size": 75,
+            },
+        ]
+    )
+
+    metrics = build_backtest_metrics(
+        trades=trades,
+        skipped_expiries=pd.DataFrame(),
+        daily_mtm=pd.DataFrame(),
+        include_mtm=False,
+    )
+
+    assert metrics["risk_reward_ratio"] is None
+    assert metrics["expectancy"] == -750.0
+
+
 def test_build_equity_curve_returns_realized_curve():
     trades = pd.DataFrame(
         [
@@ -78,6 +143,41 @@ def test_build_equity_curve_returns_realized_curve():
     ]
 
 
+def test_build_expiry_pnl_curve_returns_expiry_bars():
+    trades = pd.DataFrame(
+        [
+            {
+                "trade_id": "trade-1",
+                "expiry_date": "2026-01-27",
+                "entry_price": 100.0,
+                "exit_price": 80.0,
+                "lot_size": 75,
+            },
+            {
+                "trade_id": "trade-1",
+                "expiry_date": "2026-01-27",
+                "entry_price": 50.0,
+                "exit_price": 70.0,
+                "lot_size": 75,
+            },
+            {
+                "trade_id": "trade-2",
+                "expiry_date": "2026-02-24",
+                "entry_price": 40.0,
+                "exit_price": 50.0,
+                "lot_size": 75,
+            },
+        ]
+    )
+
+    curve = build_expiry_pnl_curve(trades)
+
+    assert curve == [
+        {"date": "2026-01-27", "pnl": 0.0},
+        {"date": "2026-02-24", "pnl": -750.0},
+    ]
+
+
 def test_build_trade_metrics_mtm_volatility_pct_of_premium():
     trades = pd.DataFrame(
         [
@@ -85,7 +185,7 @@ def test_build_trade_metrics_mtm_volatility_pct_of_premium():
                 "trade_id": "trade-1",
                 "expiry_date": "2026-01-27",
                 "exit_date": "2026-01-20",
-                "exit_reason": "total_stop_loss",
+                "exit_reason": "scheduled_exit",
                 "entry_price": 100,
                 "lot_size": 10,
             },
@@ -93,7 +193,7 @@ def test_build_trade_metrics_mtm_volatility_pct_of_premium():
                 "trade_id": "trade-1",
                 "expiry_date": "2026-01-27",
                 "exit_date": "2026-01-20",
-                "exit_reason": "total_stop_loss",
+                "exit_reason": "scheduled_exit",
                 "entry_price": 50,
                 "lot_size": 10,
             },
@@ -114,7 +214,7 @@ def test_build_trade_metrics_mtm_volatility_pct_of_premium():
             "trade_id": "trade-1",
             "expiry_date": "2026-01-27",
             "exit_date": "2026-01-20",
-            "exit_reason": "total_stop_loss",
+            "exit_reason": "scheduled_exit",
             "premium_received": 1500.0,
             "maxMtm": 150.0,
             "minMtm": -150.0,

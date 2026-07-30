@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date, time
 from typing import TYPE_CHECKING
 
@@ -15,15 +16,8 @@ if TYPE_CHECKING:
     from backend.client.breeze_client import BreezeClient
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
-    )
-    logger.addHandler(handler)
-logger.propagate = False
 _service: _MarketDataService | None = None
+_SERVICE_LOCK = threading.Lock()
 
 
 class _MarketDataService:
@@ -39,7 +33,7 @@ class _MarketDataService:
         candle_date: date,
         candle_time: time,
     ) -> dict | None:
-        logger.info(
+        logger.debug(
             "Market data request underlying symbol=%s exchange=%s date=%s time=%s",
             symbol,
             exchange,
@@ -53,7 +47,7 @@ class _MarketDataService:
             candle_time=candle_time,
         )
         if candle is not None:
-            logger.info(
+            logger.debug(
                 "DuckDB hit underlying symbol=%s exchange=%s date=%s time=%s",
                 symbol,
                 exchange,
@@ -62,7 +56,7 @@ class _MarketDataService:
             )
             return candle
 
-        logger.info(
+        logger.debug(
             "DuckDB miss underlying symbol=%s exchange=%s date=%s time=%s",
             symbol,
             exchange,
@@ -91,7 +85,7 @@ class _MarketDataService:
             candle_time=candle_time,
         )
         if candle is not None:
-            logger.info(
+            logger.debug(
                 "Resolved underlying from Breeze cache symbol=%s exchange=%s date=%s time=%s",
                 symbol,
                 exchange,
@@ -133,7 +127,7 @@ class _MarketDataService:
         candle_time: time,
     ) -> dict | None:
         right = right.lower()
-        logger.info(
+        logger.debug(
             "Market data request option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
             symbol,
             exchange,
@@ -154,7 +148,7 @@ class _MarketDataService:
             candle_time=candle_time,
         )
         if candle is not None:
-            logger.info(
+            logger.debug(
                 "DuckDB hit option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
                 symbol,
                 exchange,
@@ -166,7 +160,7 @@ class _MarketDataService:
             )
             return candle
 
-        logger.info(
+        logger.debug(
             "DuckDB miss option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
             symbol,
             exchange,
@@ -215,7 +209,7 @@ class _MarketDataService:
             candle_time=candle_time,
         )
         if candle is not None:
-            logger.info(
+            logger.debug(
                 "Resolved option from Breeze cache symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
                 symbol,
                 exchange,
@@ -269,7 +263,7 @@ class _MarketDataService:
         end: date,
     ):
         right = right.lower()
-        logger.info(
+        logger.debug(
             "Market data request option range symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
             symbol,
             exchange,
@@ -522,7 +516,9 @@ def get_option_5m_range(
 def _get_market_data_service() -> _MarketDataService:
     global _service
     if _service is None:
-        _service = _create_market_data_service()
+        with _SERVICE_LOCK:
+            if _service is None:
+                _service = _create_market_data_service()
     return _service
 
 

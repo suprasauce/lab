@@ -7,8 +7,8 @@
       <span>Run {{ run.run_id }}</span>
       <span>{{ run.strategy_name }}</span>
       <span>{{ run.start_date }} to {{ run.end_date }}</span>
-      <span>Entry DTE: {{ run.entry_dte }}</span>
-      <span>Strike offset: {{ run.strike_offset }}</span>
+      <span>Legs: {{ run.positions|length if run.positions is defined else "" }}</span>
+      <span>MTM: {% if run.include_mtm is not defined or run.include_mtm %}enabled{% else %}disabled{% endif %}</span>
     </div>
     <div class="tabs">
       <a class="tab" href="#summary">Summary</a>
@@ -31,6 +31,9 @@
     {% else %}
       <p class="empty">No metrics.</p>
     {% endif %}
+    <div class="chart">
+      <canvas id="expiry-pnl-chart" aria-label="Expiry profit and loss"></canvas>
+    </div>
   </section>
 
   <section id="regime-analysis" class="panel">
@@ -38,17 +41,21 @@
     <div class="chart">
       <canvas id="regime-equity-chart" aria-label="Regime equity curve"></canvas>
     </div>
-    <div class="chart">
-      <canvas id="regime-volatility-chart" aria-label="MTM volatility by trade"></canvas>
-    </div>
-    <div class="chart">
-      <canvas id="regime-vix-chart" aria-label="India VIX"></canvas>
-    </div>
+    {% if run.include_mtm is not defined or run.include_mtm %}
+      <div class="chart">
+        <canvas id="regime-volatility-chart" aria-label="MTM volatility by trade"></canvas>
+      </div>
+      <div class="chart">
+        <canvas id="regime-vix-chart" aria-label="India VIX"></canvas>
+      </div>
+    {% else %}
+      <p class="empty">MTM was disabled for this run.</p>
+    {% endif %}
   </section>
 
   <section id="trades" class="panel">
     <h2>Trades</h2>
-    {% set link_trade_ids = true %}
+    {% set link_trade_ids = run.include_mtm is not defined or run.include_mtm %}
     {% set merge_trade_ids = true %}
     {% include "table.html" with context %}
   </section>
@@ -57,10 +64,12 @@
   <script>
     (() => {
       const equity = {{ equity_curve | tojson }};
+      const expiryPnl = {{ expiry_pnl_curve | tojson }};
       const tradeMetrics = {{ trade_metrics | tojson }};
       const vixCurve = {{ vix_curve | tojson }};
       const sourceDates = [
         ...equity.map((point) => point.date),
+        ...expiryPnl.map((point) => point.date),
         ...tradeMetrics.map((row) => row.exit_date || row.expiry_date).filter(Boolean),
         ...vixCurve.map((point) => point.date).filter(Boolean),
       ].filter(Boolean);
@@ -218,6 +227,37 @@
         });
       }
 
+      function drawExpiryPnlChart(id, rows) {
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        if (!rows.length || !dateAxis.length) {
+          canvas.parentElement.innerHTML = '<p class="empty chart-empty">No expiry P&L data.</p>';
+          return;
+        }
+        const byDate = new Map(rows.map((row) => [row.date, Number(row.pnl)]));
+        const values = dateAxis.map((date) => byDate.has(date) ? byDate.get(date) : null);
+        const options = baseOptions("Expiry P&L");
+        options.scales.y.grid.color = (context) => context.tick.value === 0 ? "#9ca3af" : "#eef2f7";
+        options.plugins.tooltip.callbacks.label = (context) => `P&L: ${Number(context.parsed.y).toFixed(2)}`;
+        new Chart(canvas, {
+          type: "bar",
+          data: {
+            labels: dateAxis,
+            datasets: [{
+              label: "Expiry P&L",
+              data: values,
+              backgroundColor: values.map((value) => value === null ? "transparent" : value >= 0 ? "#16a34a" : "#dc2626"),
+              borderColor: values.map((value) => value === null ? "transparent" : value >= 0 ? "#15803d" : "#b91c1c"),
+              borderWidth: 1,
+              barPercentage: 0.9,
+              categoryPercentage: 0.9,
+            }],
+          },
+          options,
+        });
+      }
+
+      drawExpiryPnlChart("expiry-pnl-chart", expiryPnl);
       drawLineChart("regime-equity-chart", equity, "date", "equity", "Equity", "#2563eb");
       drawVolatilityChart("regime-volatility-chart", tradeMetrics);
       drawLineChart("regime-vix-chart", vixCurve, "date", "vix", "India VIX", "#b45309");

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
-from datetime import date, time, timedelta
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,22 +19,6 @@ LOT_SIZE_CHANGE_DATE = date(2024, 11, 20)
 
 def lot_size_for_date(d: date) -> int:
     return 75 if d >= LOT_SIZE_CHANGE_DATE else 50
-
-
-@dataclass
-class StrategyConfig:
-    entry_dte: int = 45
-    exit_dte: int = 0
-    entry_time: time = time(9, 30)
-    exit_time: time = time(15, 30)
-    total_stop_loss_multiplier: float | None = None
-    strike_offset: int = 6
-    lot_size: int | None = None  # None = auto from entry date
-    start_date: date = field(default_factory=lambda: date.today() - timedelta(days=365))
-    end_date: date = field(default_factory=lambda: date.today())
-
-    def resolve_lot_size(self, entry_date: date) -> int:
-        return self.lot_size if self.lot_size is not None else lot_size_for_date(entry_date)
 
 
 @dataclass

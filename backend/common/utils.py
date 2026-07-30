@@ -1,4 +1,4 @@
-"""Timezone and price extraction helpers."""
+"""Timezone and Breeze candle helpers."""
 
 from __future__ import annotations
 
@@ -65,24 +65,3 @@ def bar_start_for_end_time(d: date, target: time, interval_minutes: int = 5) -> 
     """Return the candle timestamp for a bar ending at target time."""
     return datetime.combine(d, target) - timedelta(minutes=interval_minutes)
 
-
-def get_price_at_time(df: pd.DataFrame, target: time) -> float | None:
-    """
-    Return close of the 5min bar ending at target time.
-
-    For example, 09:30 uses the candle timestamped 09:25 if Breeze labels
-    candles by start time.
-    """
-    if df.empty or "close" not in df.columns:
-        return None
-    for _, row in df.iterrows():
-        end = bar_end_time(row["datetime"].to_pydatetime())
-        if (
-            end.hour == target.hour
-            and end.minute == target.minute
-            and end.second == target.second
-        ):
-            close = float(row["close"])
-            if close > 0:
-                return close
-    return None
