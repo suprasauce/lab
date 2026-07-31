@@ -7,16 +7,18 @@ from backend.services.mtm_service import build_daily_mtm
 
 
 def test_build_daily_mtm_for_short_leg(monkeypatch):
-    def fake_get_option_candle(**kwargs):
-        prices = {
-            (date(2026, 1, 2), time(9, 30)): 100.0,
-            (date(2026, 1, 5), time(15, 30)): 80.0,
-            (date(2026, 1, 6), time(15, 30)): 70.0,
-        }
-        close = prices.get((kwargs["candle_date"], kwargs["candle_time"]))
-        return None if close is None else {"close": close}
+    def fake_get_option_5m_range(**kwargs):
+        return pd.DataFrame(
+            [
+                {"datetime": "2026-01-02 09:25:00", "close": 100.0},
+                {"datetime": "2026-01-02 09:30:00", "close": 95.0},
+                {"datetime": "2026-01-05 15:25:00", "close": 80.0},
+                {"datetime": "2026-01-06 15:25:00", "close": 70.0},
+                {"datetime": "2026-01-06 15:30:00", "close": 60.0},
+            ]
+        )
 
-    monkeypatch.setattr(market_data_service, "get_option_candle", fake_get_option_candle)
+    monkeypatch.setattr(market_data_service, "get_option_5m_range", fake_get_option_5m_range)
     trades = pd.DataFrame(
         [
             {
@@ -38,8 +40,8 @@ def test_build_daily_mtm_for_short_leg(monkeypatch):
 
     mtm = build_daily_mtm(trades)
 
-    assert mtm["mtm_date"].tolist() == ["2026-01-02", "2026-01-05", "2026-01-06"]
-    assert mtm["mtm_time"].tolist() == ["09:30", "15:30", "15:30"]
-    assert mtm["current_price"].tolist() == [100.0, 80.0, 70.0]
-    assert mtm["mtm"].tolist() == [0.0, 1500.0, 2250.0]
-    assert mtm["reason"].tolist() == ["ok", "ok", "ok"]
+    assert mtm["mtm_date"].tolist() == ["2026-01-02", "2026-01-02", "2026-01-05", "2026-01-06"]
+    assert mtm["mtm_time"].tolist() == ["09:30", "09:35", "15:30", "15:30"]
+    assert mtm["current_price"].tolist() == [100.0, 95.0, 80.0, 70.0]
+    assert mtm["mtm"].tolist() == [0.0, 375.0, 1500.0, 2250.0]
+    assert mtm["reason"].tolist() == ["ok", "ok", "ok", "ok"]

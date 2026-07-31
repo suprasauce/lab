@@ -14,6 +14,7 @@ from backend.common.nse_calendar import entry_date_for_expiry, exit_date_for_exp
 from backend.config.settings import lot_size_for_date
 from backend.services import market_data_service
 from backend.services.metrics_service import (
+    build_average_mtm_by_expiry,
     build_backtest_metrics,
     build_equity_curve,
     build_expiry_pnl_curve,
@@ -99,6 +100,11 @@ def run_backtest_for_strategy(
     )
     results["equity_curve"] = build_equity_curve(results["trades"])
     results["expiry_pnl_curve"] = build_expiry_pnl_curve(results["trades"])
+    results["average_mtm_by_expiry"] = (
+        build_average_mtm_by_expiry(trades=results["trades"], daily_mtm=results["daily_mtm"])
+        if include_mtm
+        else []
+    )
     results["trade_metrics"] = (
         build_trade_metrics(trades=results["trades"], daily_mtm=results["daily_mtm"])
         if include_mtm

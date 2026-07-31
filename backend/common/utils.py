@@ -31,6 +31,14 @@ def day_session_breeze_range(d: date) -> tuple[str, str]:
     )
 
 
+def date_session_breeze_range(start: date, end: date) -> tuple[str, str]:
+    """Full market sessions for a date range in the format Breeze expects."""
+    return (
+        breeze_iso_at_market_time(start, MARKET_OPEN),
+        breeze_iso_at_market_time(end, MARKET_CLOSE),
+    )
+
+
 def expiry_to_breeze_iso(expiry: date) -> str:
     """Breeze expects expiry datetime; 07:00 UTC is the SDK convention."""
     return f"{expiry.isoformat()}T07:00:00.000Z"
@@ -64,4 +72,3 @@ def bar_end_time(bar_start: datetime, interval_minutes: int = 5) -> time:
 def bar_start_for_end_time(d: date, target: time, interval_minutes: int = 5) -> datetime:
     """Return the candle timestamp for a bar ending at target time."""
     return datetime.combine(d, target) - timedelta(minutes=interval_minutes)
-

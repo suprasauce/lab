@@ -1,6 +1,7 @@
 import pandas as pd
 
 from backend.services.metrics_service import (
+    build_average_mtm_by_expiry,
     build_backtest_metrics,
     build_equity_curve,
     build_expiry_pnl_curve,
@@ -27,7 +28,12 @@ def test_build_backtest_metrics_derives_pnl_and_mtm():
             },
         ]
     )
-    skipped = pd.DataFrame([{"reason": "spot_no_price"}])
+    skipped = pd.DataFrame(
+        [
+            {"expiry_date": "2026-02-24", "reason": "spot_no_price"},
+            {"expiry_date": "2026-02-24", "reason": "spot_no_price"},
+        ]
+    )
     daily_mtm = pd.DataFrame(
         [
             {"mtm_date": "2026-01-01", "mtm": 0.0},
@@ -175,6 +181,30 @@ def test_build_expiry_pnl_curve_returns_expiry_bars():
     assert curve == [
         {"date": "2026-01-27", "pnl": 0.0},
         {"date": "2026-02-24", "pnl": -750.0},
+    ]
+
+
+def test_build_average_mtm_by_expiry_returns_average_5m_mtm_pct_of_premium():
+    trades = pd.DataFrame(
+        [
+            {"expiry_date": "2026-01-27", "entry_price": 10.0, "lot_size": 100},
+            {"expiry_date": "2026-02-24", "entry_price": 20.0, "lot_size": 100},
+        ]
+    )
+    daily_mtm = pd.DataFrame(
+        [
+            {"expiry_date": "2026-01-27", "mtm_date": "2026-01-01", "mtm_time": "09:30", "mtm": 100.0},
+            {"expiry_date": "2026-01-27", "mtm_date": "2026-01-01", "mtm_time": "09:30", "mtm": -50.0},
+            {"expiry_date": "2026-01-27", "mtm_date": "2026-01-01", "mtm_time": "09:35", "mtm": 200.0},
+            {"expiry_date": "2026-02-24", "mtm_date": "2026-02-01", "mtm_time": "09:30", "mtm": -300.0},
+        ]
+    )
+
+    curve = build_average_mtm_by_expiry(trades=trades, daily_mtm=daily_mtm)
+
+    assert curve == [
+        {"date": "2026-01-27", "average_mtm_pct_of_premium": 12.5},
+        {"date": "2026-02-24", "average_mtm_pct_of_premium": -15.0},
     ]
 
 

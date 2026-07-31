@@ -79,6 +79,20 @@ class MarketDataDao:
                 )
                 """
             )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS option_contract_fetch_coverage (
+                    symbol TEXT NOT NULL,
+                    exchange TEXT NOT NULL,
+                    expiry DATE NOT NULL,
+                    strike INTEGER NOT NULL,
+                    option_right TEXT NOT NULL,
+                    fetched_from_date DATE NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL
+                )
+                """
+            )
 
     def load_underlying_5m(self, *, symbol: str, exchange: str, start: date, end: date) -> pd.DataFrame:
         with _DB_LOCK, self._connect() as con:
@@ -327,6 +341,84 @@ class MarketDataDao:
                     option_right,
                     data_date,
                     reason,
+                    now,
+                    now,
+                ],
+            )
+
+    def option_contract_fetched_from(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        expiry: date,
+        strike: int,
+        right: str,
+    ) -> date | None:
+        with _DB_LOCK, self._connect() as con:
+            df = con.execute(
+                """
+                SELECT fetched_from_date
+                FROM option_contract_fetch_coverage
+                WHERE symbol = ?
+                  AND exchange = ?
+                  AND expiry = ?
+                  AND strike = ?
+                  AND option_right = ?
+                LIMIT 1
+                """,
+                [symbol, exchange, expiry, strike, right.lower()],
+            ).df()
+        if df.empty:
+            return None
+        return pd.Timestamp(df.iloc[0]["fetched_from_date"]).date()
+
+    def mark_option_contract_fetched_from(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        expiry: date,
+        strike: int,
+        right: str,
+        fetched_from_date: date,
+    ) -> None:
+        existing = self.option_contract_fetched_from(
+            symbol=symbol,
+            exchange=exchange,
+            expiry=expiry,
+            strike=strike,
+            right=right,
+        )
+        if existing is not None and existing <= fetched_from_date:
+            return
+
+        now = datetime.now()
+        option_right = right.lower()
+        with _DB_LOCK, self._connect() as con:
+            con.execute(
+                """
+                DELETE FROM option_contract_fetch_coverage
+                WHERE symbol = ?
+                  AND exchange = ?
+                  AND expiry = ?
+                  AND strike = ?
+                  AND option_right = ?
+                """,
+                [symbol, exchange, expiry, strike, option_right],
+            )
+            con.execute(
+                """
+                INSERT INTO option_contract_fetch_coverage
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    symbol,
+                    exchange,
+                    expiry,
+                    strike,
+                    option_right,
+                    fetched_from_date,
                     now,
                     now,
                 ],

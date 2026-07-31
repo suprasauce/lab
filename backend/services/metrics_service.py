@@ -20,7 +20,7 @@ def build_backtest_metrics(
     skip_counts = _skip_counts(skipped_expiries)
 
     traded_expiries = int(expiry_pnl["expiry_date"].nunique()) if not expiry_pnl.empty else 0
-    skipped_count = int(len(skipped_expiries))
+    skipped_count = _skipped_expiry_count(skipped_expiries)
     total_expiries = traded_expiries + skipped_count
     winning_expiries = int((expiry_pnl["pnl"] > 0).sum()) if not expiry_pnl.empty else 0
     losing_expiries = int((expiry_pnl["pnl"] < 0).sum()) if not expiry_pnl.empty else 0
@@ -79,6 +79,32 @@ def build_expiry_pnl_curve(trades: pd.DataFrame) -> list[dict[str, Any]]:
         {"date": str(row["expiry_date"]), "pnl": _round(row["pnl"])}
         for _, row in rows.iterrows()
     ]
+
+
+def build_average_mtm_by_expiry(*, trades: pd.DataFrame, daily_mtm: pd.DataFrame) -> list[dict[str, Any]]:
+    if trades.empty or daily_mtm.empty:
+        return []
+    rows = daily_mtm.copy()
+    rows["mtm"] = pd.to_numeric(rows["mtm"], errors="coerce")
+    rows = rows.dropna(subset=["expiry_date", "mtm_date", "mtm_time", "mtm"])
+    if rows.empty:
+        return []
+    premium_by_expiry = _premium_by_expiry(trades)
+    intraday_expiry_mtm = rows.groupby(["expiry_date", "mtm_date", "mtm_time"], as_index=False)["mtm"].sum()
+    average_mtm = (
+        intraday_expiry_mtm.groupby("expiry_date", as_index=False)["mtm"]
+        .mean()
+        .sort_values("expiry_date")
+    )
+    result = []
+    for _, row in average_mtm.iterrows():
+        expiry = str(row["expiry_date"])
+        premium = premium_by_expiry.get(expiry)
+        value = None
+        if premium is not None and abs(premium) > 0:
+            value = _round((float(row["mtm"]) / abs(premium)) * 100)
+        result.append({"date": expiry, "average_mtm_pct_of_premium": value})
+    return result
 
 
 def build_trade_metrics(*, trades: pd.DataFrame, daily_mtm: pd.DataFrame) -> list[dict[str, Any]]:
@@ -167,6 +193,17 @@ def _premium_by_trade(trades: pd.DataFrame) -> dict[str, float]:
     return {str(trade_id): float(value) for trade_id, value in premium.items()}
 
 
+def _premium_by_expiry(trades: pd.DataFrame) -> dict[str, float]:
+    if trades.empty:
+        return {}
+    rows = trades.copy()
+    rows["premium"] = pd.to_numeric(rows["entry_price"], errors="coerce") * pd.to_numeric(
+        rows["lot_size"], errors="coerce"
+    )
+    premium = rows.groupby("expiry_date")["premium"].sum()
+    return {str(expiry): float(value) for expiry, value in premium.items()}
+
+
 def _trade_summary(trades: pd.DataFrame) -> pd.DataFrame:
     columns = ["trade_id", "expiry_date", "exit_date"]
     if "exit_reason" in trades.columns:
@@ -183,10 +220,13 @@ def _trade_daily_mtm(daily_mtm: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["trade_id", "mtm_date", "mtm"])
     rows = daily_mtm.copy()
     rows["mtm"] = pd.to_numeric(rows["mtm"], errors="coerce").fillna(0.0)
+    group_columns = ["trade_id", "mtm_date"]
+    if "mtm_time" in rows.columns:
+        group_columns.append("mtm_time")
     return (
-        rows.groupby(["trade_id", "mtm_date"], as_index=False)["mtm"]
+        rows.groupby(group_columns, as_index=False)["mtm"]
         .sum()
-        .sort_values(["trade_id", "mtm_date"])
+        .sort_values(group_columns)
     )
 
 
@@ -200,10 +240,10 @@ def _mtm_volatility_pct_of_premium(
     if len(mtm_rows) < 2:
         return 0.0
 
-    mtm_values = pd.to_numeric(
-        mtm_rows.sort_values("mtm_date")["mtm"],
-        errors="coerce",
-    ).dropna()
+    sort_columns = ["mtm_date"]
+    if "mtm_time" in mtm_rows.columns:
+        sort_columns.append("mtm_time")
+    mtm_values = pd.to_numeric(mtm_rows.sort_values(sort_columns)["mtm"], errors="coerce").dropna()
     if len(mtm_values) < 2:
         return 0.0
 
@@ -249,7 +289,10 @@ def _daily_portfolio_mtm(daily_mtm: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["mtm_date", "mtm"])
     rows = daily_mtm.copy()
     rows["mtm"] = pd.to_numeric(rows["mtm"], errors="coerce").fillna(0.0)
-    return rows.groupby("mtm_date", as_index=False)["mtm"].sum().sort_values("mtm_date")
+    group_columns = ["mtm_date"]
+    if "mtm_time" in rows.columns:
+        group_columns.append("mtm_time")
+    return rows.groupby(group_columns, as_index=False)["mtm"].sum().sort_values(group_columns)
 
 
 def _leg_pnl(rows: pd.DataFrame) -> pd.Series:
@@ -270,6 +313,14 @@ def _skip_counts(skipped_expiries: pd.DataFrame) -> dict[str, int]:
         return {}
     counts = skipped_expiries["reason"].fillna("unknown").value_counts()
     return {str(reason): int(count) for reason, count in counts.items()}
+
+
+def _skipped_expiry_count(skipped_expiries: pd.DataFrame) -> int:
+    if skipped_expiries.empty:
+        return 0
+    if "expiry_date" in skipped_expiries.columns:
+        return int(skipped_expiries["expiry_date"].dropna().astype(str).nunique())
+    return int(len(skipped_expiries))
 
 
 def _most_common_skip_reason(skip_counts: dict[str, int]) -> str | None:

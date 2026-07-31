@@ -1,15 +1,16 @@
-"""Daily mark-to-market builders."""
+"""Mark-to-market builders."""
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time
 
 import pandas as pd
 
-from backend.common.nse_calendar import trading_days_between
+from backend.common.utils import bar_end_time, bar_start_for_end_time
 from backend.services import market_data_service
 
-DAILY_MTM_TIME = time(15, 30)
+logger = logging.getLogger(__name__)
 
 
 def build_daily_mtm(
@@ -18,55 +19,43 @@ def build_daily_mtm(
     if trades.empty:
         return pd.DataFrame(columns=_daily_mtm_columns())
 
+    logger.info("MTM calculation started trades=%s expiries=%s", len(trades), trades["expiry_date"].nunique())
     rows: list[dict] = []
-    for _, trade in trades.iterrows():
-        rows.extend(_build_leg_daily_mtm(trade))
+    for expiry, expiry_trades in trades.groupby("expiry_date", sort=True):
+        logger.info("MTM expiry started expiry=%s legs=%s", expiry, len(expiry_trades))
+        before = len(rows)
+        for _, trade in expiry_trades.iterrows():
+            rows.extend(_build_leg_5m_mtm(trade))
+        logger.info("MTM expiry completed expiry=%s rows=%s", expiry, len(rows) - before)
+    logger.info("MTM calculation completed rows=%s", len(rows))
     return pd.DataFrame(rows, columns=_daily_mtm_columns())
 
 
-def _build_leg_daily_mtm(trade: pd.Series) -> list[dict]:
+def _build_leg_5m_mtm(trade: pd.Series) -> list[dict]:
     entry_date = _parse_date(trade["entry_date"])
     exit_date = _parse_date(trade["exit_date"])
     expiry = _parse_date(trade["expiry_date"])
     entry_time = _parse_time(trade["entry_time"])
     exit_time = _parse_time(trade["exit_time"])
+    candles = market_data_service.get_option_5m_range(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=expiry,
+        strike=int(trade["strike"]),
+        right=str(trade["option_type"]),
+        start=entry_date,
+        end=exit_date,
+    )
+    candle_closes = _candle_closes(candles)
+    entry_bar_start = bar_start_for_end_time(entry_date, entry_time)
+    exit_bar_start = bar_start_for_end_time(exit_date, exit_time)
 
     rows = []
-    for mtm_date in trading_days_between(entry_date, exit_date):
-        mtm_time = _mtm_time_for_day(
-            mtm_date=mtm_date,
-            entry_date=entry_date,
-            exit_date=exit_date,
-            entry_time=entry_time,
-            exit_time=exit_time,
-        )
-        candle = market_data_service.get_option_candle(
-            symbol="NIFTY",
-            exchange="NFO",
-            expiry=expiry,
-            strike=int(trade["strike"]),
-            right=str(trade["option_type"]),
-            candle_date=mtm_date,
-            candle_time=mtm_time,
-        )
-        current_price = _close(candle)
-        rows.append(_mtm_row(trade, mtm_date, mtm_time, current_price))
+    for candle_time, current_price in candle_closes:
+        if candle_time < entry_bar_start or candle_time > exit_bar_start:
+            continue
+        rows.append(_mtm_row(trade, candle_time.date(), bar_end_time(candle_time), current_price))
     return rows
-
-
-def _mtm_time_for_day(
-    *,
-    mtm_date: date,
-    entry_date: date,
-    exit_date: date,
-    entry_time: time,
-    exit_time: time,
-) -> time:
-    if mtm_date == entry_date:
-        return entry_time
-    if mtm_date == exit_date:
-        return exit_time
-    return DAILY_MTM_TIME
 
 
 def _mtm_row(trade: pd.Series, mtm_date: date, mtm_time: time, current_price: float | None) -> dict:
@@ -96,11 +85,19 @@ def _mtm_row(trade: pd.Series, mtm_date: date, mtm_time: time, current_price: fl
     }
 
 
-def _close(candle: dict | None) -> float | None:
-    if candle is None or candle.get("close") is None:
-        return None
-    close = float(candle["close"])
-    return close if close > 0 else None
+def _candle_closes(candles: pd.DataFrame) -> list[tuple[datetime, float]]:
+    if candles is None or candles.empty or "datetime" not in candles.columns or "close" not in candles.columns:
+        return []
+
+    df = candles[["datetime", "close"]].copy()
+    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    if getattr(df["datetime"].dt, "tz", None) is not None:
+        df["datetime"] = df["datetime"].dt.tz_localize(None)
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df = df.dropna(subset=["datetime", "close"])
+    df = df[df["close"] > 0]
+    df = df.sort_values("datetime")
+    return list(zip(df["datetime"].dt.to_pydatetime(), df["close"].astype(float)))
 
 
 def _parse_date(value) -> date:

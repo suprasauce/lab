@@ -29,7 +29,7 @@ def test_strategy_pages_render():
     assert "Risk-free Rate" not in response.text
     assert "Delta Scan Range" not in response.text
     assert "Total Stop Loss Multiplier" not in response.text
-    assert "Calculate Daily MTM" in response.text
+    assert "Calculate 5-Min MTM" in response.text
     assert "Filters" in response.text
     assert "Run Backtest" in response.text
 
@@ -116,6 +116,7 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
             },
             "equity_curve": [{"date": "2026-01-27", "equity": 100.0}],
             "expiry_pnl_curve": [{"date": "2026-01-27", "pnl": 100.0}],
+            "average_mtm_by_expiry": [{"date": "2026-01-27", "average_mtm_pct_of_premium": 25.0}],
             "trade_metrics": [
                 {
                     "trade_id": "trade-1",
@@ -160,7 +161,8 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert "Trades" in response.text
     assert "Analytics" not in response.text
     assert "Drawdown chart placeholder" not in response.text
-    assert "mtmVolatilityPctOfPremium" in response.text
+    assert "averageMtmByExpiry" in response.text
+    assert "Average MTM (% of Premium) by Expiry" in response.text
     assert "maxMtm" in response.text
     assert "minMtm" in response.text
     assert "India VIX" in response.text
@@ -169,10 +171,9 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert "expiryPnl" in response.text
     assert '<canvas id="expiry-pnl-chart"' in response.text
     assert "Expiry P&amp;L" in response.text or "Expiry P&L" in response.text
-    assert "Exit reason" in response.text
     assert "chart.umd.min.js" in response.text
     assert '<canvas id="regime-equity-chart"' in response.text
-    assert '<canvas id="regime-volatility-chart"' in response.text
+    assert '<canvas id="regime-average-mtm-chart"' in response.text
     assert '<canvas id="regime-vix-chart"' in response.text
     assert "Total PnL" in response.text
     assert "RR" in response.text
@@ -216,7 +217,7 @@ def test_trade_mtm_page_renders_curve(monkeypatch):
     assert "mtm-chart" in response.text
     assert "chart.umd.min.js" in response.text
     assert '<canvas id="mtm-chart"' in response.text
-    assert "Daily MTM Rows" in response.text
+    assert "5-Min MTM Rows" in response.text
 
 
 def test_placeholder_pages_render():

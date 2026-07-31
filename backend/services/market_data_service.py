@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import date, time
+from datetime import date, time, timedelta
 from typing import TYPE_CHECKING
 
-from backend.common.nse_calendar import trading_days_between
 from backend.config.settings import load_credentials
 from backend.dao.market_data_dao import MarketDataDao
-from backend.common.utils import day_session_breeze_range, expiry_to_breeze_iso, normalize_candle_df
+from backend.common.utils import (
+    date_session_breeze_range,
+    day_session_breeze_range,
+    expiry_to_breeze_iso,
+    normalize_candle_df,
+)
 
 if TYPE_CHECKING:
     from backend.client.breeze_client import BreezeClient
@@ -174,10 +178,10 @@ class _MarketDataService:
             symbol=symbol,
             exchange=exchange,
             instrument_type="option",
+            data_date=candle_date,
             expiry=expiry,
             strike=strike,
             right=right,
-            data_date=candle_date,
         ):
             logger.warning(
                 "Missing marker hit option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
@@ -190,13 +194,14 @@ class _MarketDataService:
             )
             return None
 
-        self._fetch_option_day(
+        self._fetch_option_range(
             symbol=symbol,
             exchange=exchange,
             expiry=expiry,
             strike=strike,
             right=right,
-            candle_date=candle_date,
+            start=candle_date,
+            end=candle_date,
         )
         candle = self.dao.load_derivative_candle(
             underlying_symbol=symbol,
@@ -219,37 +224,29 @@ class _MarketDataService:
                 candle_date,
                 candle_time,
             )
-        else:
-            logger.warning(
-                "Still missing option after Breeze fetch symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
-                symbol,
-                exchange,
-                expiry,
-                strike,
-                right,
-                candle_date,
-                candle_time,
-            )
-            self.dao.mark_day_missing(
-                symbol=symbol,
-                exchange=exchange,
-                instrument_type="option",
-                expiry=expiry,
-                strike=strike,
-                right=right,
-                data_date=candle_date,
-                reason="requested_candle_missing_after_fetch",
-            )
-            logger.info(
-                "Marked day missing option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s reason=requested_candle_missing_after_fetch",
-                symbol,
-                exchange,
-                expiry,
-                strike,
-                right,
-                candle_date,
-            )
-        return candle
+            return candle
+
+        logger.warning(
+            "Still missing option after Breeze fetch symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            candle_date,
+            candle_time,
+        )
+        self.dao.mark_day_missing(
+            symbol=symbol,
+            exchange=exchange,
+            instrument_type="option",
+            data_date=candle_date,
+            reason="requested_candle_missing_after_fetch",
+            expiry=expiry,
+            strike=strike,
+            right=right,
+        )
+        return None
 
     def get_option_5m_range(
         self,
@@ -273,45 +270,14 @@ class _MarketDataService:
             start,
             end,
         )
-        for candle_date in trading_days_between(start, end):
-            day_df = self.dao.load_derivative_5m(
-                underlying_symbol=symbol,
-                exchange=exchange,
-                instrument_type="option",
-                expiry=expiry,
-                strike=strike,
-                right=right,
-                start=candle_date,
-                end=candle_date,
-            )
-            if not day_df.empty:
-                continue
-            if self.dao.is_day_marked_missing(
-                symbol=symbol,
-                exchange=exchange,
-                instrument_type="option",
-                expiry=expiry,
-                strike=strike,
-                right=right,
-                data_date=candle_date,
-            ):
-                logger.warning(
-                    "Missing marker hit option range symbol=%s expiry=%s strike=%s right=%s date=%s",
-                    symbol,
-                    expiry,
-                    strike,
-                    right,
-                    candle_date,
-                )
-                continue
-            self._fetch_option_day(
-                symbol=symbol,
-                exchange=exchange,
-                expiry=expiry,
-                strike=strike,
-                right=right,
-                candle_date=candle_date,
-            )
+        self._ensure_option_contract_range(
+            symbol=symbol,
+            exchange=exchange,
+            expiry=expiry,
+            strike=strike,
+            right=right,
+            start=start,
+        )
 
         return self.dao.load_derivative_5m(
             underlying_symbol=symbol,
@@ -372,7 +338,7 @@ class _MarketDataService:
             candle_date,
         )
 
-    def _fetch_option_day(
+    def _ensure_option_contract_range(
         self,
         *,
         symbol: str,
@@ -380,18 +346,90 @@ class _MarketDataService:
         expiry: date,
         strike: int,
         right: str,
-        candle_date: date,
+        start: date,
     ) -> None:
+        fetched_from = self.dao.option_contract_fetched_from(
+            symbol=symbol,
+            exchange=exchange,
+            expiry=expiry,
+            strike=strike,
+            right=right,
+        )
+        if fetched_from is not None and fetched_from <= start:
+            logger.debug(
+                "Option contract coverage hit symbol=%s exchange=%s expiry=%s strike=%s right=%s fetched_from=%s requested_start=%s",
+                symbol,
+                exchange,
+                expiry,
+                strike,
+                right,
+                fetched_from,
+                start,
+            )
+            return
+
+        fetch_end = expiry if fetched_from is None else fetched_from - timedelta(days=1)
+        if fetch_end < start:
+            self.dao.mark_option_contract_fetched_from(
+                symbol=symbol,
+                exchange=exchange,
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                fetched_from_date=start,
+            )
+            return
+
+        for chunk_start, chunk_end in _date_chunks(start, fetch_end, days=14):
+            self._fetch_option_range(
+                symbol=symbol,
+                exchange=exchange,
+                expiry=expiry,
+                strike=strike,
+                right=right,
+                start=chunk_start,
+                end=chunk_end,
+            )
+        self.dao.mark_option_contract_fetched_from(
+            symbol=symbol,
+            exchange=exchange,
+            expiry=expiry,
+            strike=strike,
+            right=right,
+            fetched_from_date=start,
+        )
         logger.info(
-            "Breeze fetch option day start symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
+            "Marked option contract coverage symbol=%s exchange=%s expiry=%s strike=%s right=%s fetched_from=%s",
             symbol,
             exchange,
             expiry,
             strike,
             right,
-            candle_date,
+            start,
         )
-        from_iso, to_iso = day_session_breeze_range(candle_date)
+
+    def _fetch_option_range(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        expiry: date,
+        strike: int,
+        right: str,
+        start: date,
+        end: date,
+    ) -> None:
+        logger.info(
+            "Breeze fetch option range start symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
+            symbol,
+            exchange,
+            expiry,
+            strike,
+            right,
+            start,
+            end,
+        )
+        from_iso, to_iso = date_session_breeze_range(start, end)
         raw = self.client.get_historical_5min(
             from_date=from_iso,
             to_date=to_iso,
@@ -404,36 +442,18 @@ class _MarketDataService:
         )
         df = normalize_candle_df(raw)
         logger.info(
-            "Breeze returned option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
+            "Breeze returned option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
             len(df),
             symbol,
             exchange,
             expiry,
             strike,
             right,
-            candle_date,
+            start,
+            end,
         )
         if df.empty:
-            logger.warning("No option data %s %s %s on %s", expiry, strike, right, candle_date)
-            self.dao.mark_day_missing(
-                symbol=symbol,
-                exchange=exchange,
-                instrument_type="option",
-                expiry=expiry,
-                strike=strike,
-                right=right,
-                data_date=candle_date,
-                reason="provider_no_rows",
-            )
-            logger.info(
-                "Marked day missing option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s reason=provider_no_rows",
-                symbol,
-                exchange,
-                expiry,
-                strike,
-                right,
-                candle_date,
-            )
+            logger.warning("No option data %s %s %s from %s to %s", expiry, strike, right, start, end)
             return
         self.dao.save_derivative_5m(
             underlying_symbol=symbol,
@@ -445,14 +465,15 @@ class _MarketDataService:
             df=df,
         )
         logger.info(
-            "DuckDB saved option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
+            "DuckDB saved option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
             len(df),
             symbol,
             exchange,
             expiry,
             strike,
             right,
-            candle_date,
+            start,
+            end,
         )
 
 
@@ -511,6 +532,16 @@ def get_option_5m_range(
         start=start,
         end=end,
     )
+
+
+def _date_chunks(start: date, end: date, *, days: int) -> list[tuple[date, date]]:
+    chunks = []
+    cur = start
+    while cur <= end:
+        chunk_end = min(cur + timedelta(days=days - 1), end)
+        chunks.append((cur, chunk_end))
+        cur = chunk_end + timedelta(days=1)
+    return chunks
 
 
 def _get_market_data_service() -> _MarketDataService:

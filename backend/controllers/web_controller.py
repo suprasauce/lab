@@ -141,6 +141,7 @@ def run_page(request: Request, run_id: str):
         metrics=run["metrics"],
         equity_curve=run["equity_curve"],
         expiry_pnl_curve=run["expiry_pnl_curve"],
+        average_mtm_by_expiry=run["average_mtm_by_expiry"],
         trade_metrics=run["trade_metrics"],
         vix_curve=run["vix_curve"],
         trades_columns=dataframe_columns(run["trades"]),

@@ -2,7 +2,7 @@
 {% set title = "MTM " ~ trade_id %}
 {% block content %}
   <section class="panel">
-    <h1>Daily MTM</h1>
+    <h1>5-Min MTM</h1>
     <p>{{ trade_id }}</p>
     <div class="meta">
       <span>Run: <a href="/backtests/{{ run.run_id }}">{{ run.run_id }}</a></span>
@@ -30,7 +30,7 @@
           const rows = {{ mtm_rows | tojson }};
           const byDate = new Map();
           for (const row of rows) {
-            const date = row.mtm_date;
+            const date = `${row.mtm_date} ${row.mtm_time || ""}`.trim();
             const value = Number(row.mtm || 0);
             byDate.set(date, (byDate.get(date) || 0) + value);
           }
@@ -70,7 +70,7 @@
                 legend: { display: false },
                 title: {
                   display: true,
-                  text: "Daily MTM",
+                  text: "5-Min MTM",
                   align: "start",
                   color: "#111827",
                   font: { size: 14, weight: "700" },
@@ -102,7 +102,7 @@
   </section>
 
   <section class="panel">
-    <h2>Daily MTM Rows</h2>
+    <h2>5-Min MTM Rows</h2>
     {% set trades_columns = mtm_columns %}
     {% set trades_rows = mtm_rows %}
     {% set link_trade_ids = false %}

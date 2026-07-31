@@ -61,3 +61,66 @@ def test_mark_and_read_missing_option_day(tmp_path):
         right="call",
         data_date=date(2026, 1, 2),
     )
+
+
+def test_mark_and_read_option_contract_coverage(tmp_path):
+    dao = MarketDataDao(tmp_path / "market.duckdb")
+
+    assert dao.option_contract_fetched_from(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=date(2026, 1, 27),
+        strike=24500,
+        right="call",
+    ) is None
+
+    dao.mark_option_contract_fetched_from(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=date(2026, 1, 27),
+        strike=24500,
+        right="call",
+        fetched_from_date=date(2026, 1, 10),
+    )
+
+    assert dao.option_contract_fetched_from(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=date(2026, 1, 27),
+        strike=24500,
+        right="call",
+    ) == date(2026, 1, 10)
+
+    dao.mark_option_contract_fetched_from(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=date(2026, 1, 27),
+        strike=24500,
+        right="call",
+        fetched_from_date=date(2026, 1, 15),
+    )
+
+    assert dao.option_contract_fetched_from(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=date(2026, 1, 27),
+        strike=24500,
+        right="call",
+    ) == date(2026, 1, 10)
+
+    dao.mark_option_contract_fetched_from(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=date(2026, 1, 27),
+        strike=24500,
+        right="call",
+        fetched_from_date=date(2026, 1, 5),
+    )
+
+    assert dao.option_contract_fetched_from(
+        symbol="NIFTY",
+        exchange="NFO",
+        expiry=date(2026, 1, 27),
+        strike=24500,
+        right="call",
+    ) == date(2026, 1, 5)
