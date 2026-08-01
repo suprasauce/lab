@@ -73,7 +73,7 @@ class _MarketDataService:
             instrument_type="underlying",
             data_date=candle_date,
         ):
-            logger.warning(
+            logger.debug(
                 "Missing marker hit underlying symbol=%s exchange=%s date=%s",
                 symbol,
                 exchange,
@@ -97,7 +97,7 @@ class _MarketDataService:
                 candle_time,
             )
         else:
-            logger.warning(
+            logger.debug(
                 "Still missing underlying after Breeze fetch symbol=%s exchange=%s date=%s time=%s",
                 symbol,
                 exchange,
@@ -111,7 +111,7 @@ class _MarketDataService:
                 data_date=candle_date,
                 reason="requested_candle_missing_after_fetch",
             )
-            logger.info(
+            logger.debug(
                 "Marked day missing underlying symbol=%s exchange=%s date=%s reason=requested_candle_missing_after_fetch",
                 symbol,
                 exchange,
@@ -183,7 +183,7 @@ class _MarketDataService:
             strike=strike,
             right=right,
         ):
-            logger.warning(
+            logger.debug(
                 "Missing marker hit option symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s",
                 symbol,
                 exchange,
@@ -226,7 +226,7 @@ class _MarketDataService:
             )
             return candle
 
-        logger.warning(
+        logger.debug(
             "Still missing option after Breeze fetch symbol=%s exchange=%s expiry=%s strike=%s right=%s date=%s time=%s",
             symbol,
             exchange,
@@ -291,7 +291,7 @@ class _MarketDataService:
         )
 
     def _fetch_underlying_day(self, *, symbol: str, exchange: str, candle_date: date) -> None:
-        logger.info(
+        logger.debug(
             "Breeze fetch underlying day start symbol=%s exchange=%s date=%s",
             symbol,
             exchange,
@@ -306,7 +306,7 @@ class _MarketDataService:
             product_type="cash",
         )
         df = normalize_candle_df(raw)
-        logger.info(
+        logger.debug(
             "Breeze returned underlying rows=%s symbol=%s exchange=%s date=%s",
             len(df),
             symbol,
@@ -314,7 +314,7 @@ class _MarketDataService:
             candle_date,
         )
         if df.empty:
-            logger.warning("No underlying data %s %s on %s", exchange, symbol, candle_date)
+            logger.debug("No underlying data %s %s on %s", exchange, symbol, candle_date)
             self.dao.mark_day_missing(
                 symbol=symbol,
                 exchange=exchange,
@@ -322,7 +322,7 @@ class _MarketDataService:
                 data_date=candle_date,
                 reason="provider_no_rows",
             )
-            logger.info(
+            logger.debug(
                 "Marked day missing underlying symbol=%s exchange=%s date=%s reason=provider_no_rows",
                 symbol,
                 exchange,
@@ -330,7 +330,7 @@ class _MarketDataService:
             )
             return
         self.dao.save_underlying_5m(symbol=symbol, exchange=exchange, df=df)
-        logger.info(
+        logger.debug(
             "DuckDB saved underlying rows=%s symbol=%s exchange=%s date=%s",
             len(df),
             symbol,
@@ -398,7 +398,7 @@ class _MarketDataService:
             right=right,
             fetched_from_date=start,
         )
-        logger.info(
+        logger.debug(
             "Marked option contract coverage symbol=%s exchange=%s expiry=%s strike=%s right=%s fetched_from=%s",
             symbol,
             exchange,
@@ -419,7 +419,7 @@ class _MarketDataService:
         start: date,
         end: date,
     ) -> None:
-        logger.info(
+        logger.debug(
             "Breeze fetch option range start symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
             symbol,
             exchange,
@@ -441,7 +441,7 @@ class _MarketDataService:
             strike_price=str(strike),
         )
         df = normalize_candle_df(raw)
-        logger.info(
+        logger.debug(
             "Breeze returned option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
             len(df),
             symbol,
@@ -453,7 +453,7 @@ class _MarketDataService:
             end,
         )
         if df.empty:
-            logger.warning("No option data %s %s %s from %s to %s", expiry, strike, right, start, end)
+            logger.debug("No option data %s %s %s from %s to %s", expiry, strike, right, start, end)
             return
         self.dao.save_derivative_5m(
             underlying_symbol=symbol,
@@ -464,7 +464,7 @@ class _MarketDataService:
             right=right,
             df=df,
         )
-        logger.info(
+        logger.debug(
             "DuckDB saved option rows=%s symbol=%s exchange=%s expiry=%s strike=%s right=%s start=%s end=%s",
             len(df),
             symbol,
@@ -556,10 +556,10 @@ def _get_market_data_service() -> _MarketDataService:
 def _create_market_data_service() -> _MarketDataService:
     from backend.client.breeze_client import BreezeClient
 
-    logger.info("Market data init start")
+    logger.debug("Market data init start")
     dao = MarketDataDao()
-    logger.info("DuckDB ready")
+    logger.debug("DuckDB ready")
     client = BreezeClient(load_credentials())
-    logger.info("Breeze session ready")
-    logger.info("Market data init complete")
+    logger.debug("Breeze session ready")
+    logger.debug("Market data init complete")
     return _MarketDataService(client, dao)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from datetime import date, datetime, time
 
@@ -11,6 +12,7 @@ from backend.common.utils import bar_end_time, bar_start_for_end_time
 from backend.services import market_data_service
 
 logger = logging.getLogger(__name__)
+MAX_MTM_LEG_WORKERS = 4
 
 
 def build_daily_mtm(
@@ -19,16 +21,39 @@ def build_daily_mtm(
     if trades.empty:
         return pd.DataFrame(columns=_daily_mtm_columns())
 
-    logger.info("MTM calculation started trades=%s expiries=%s", len(trades), trades["expiry_date"].nunique())
+    logger.info(
+        "MTM calculation started trades=%s trade_cycles=%s leg_workers=%s",
+        len(trades),
+        trades["trade_id"].nunique(),
+        min(MAX_MTM_LEG_WORKERS, len(trades)),
+    )
     rows: list[dict] = []
-    for expiry, expiry_trades in trades.groupby("expiry_date", sort=True):
-        logger.info("MTM expiry started expiry=%s legs=%s", expiry, len(expiry_trades))
+    for trade_id, trade_legs in trades.groupby("trade_id", sort=True):
+        expiry_values = sorted(str(value) for value in trade_legs["expiry_date"].dropna().unique())
+        logger.info("MTM trade started trade_id=%s expiries=%s legs=%s", trade_id, ",".join(expiry_values), len(trade_legs))
         before = len(rows)
-        for _, trade in expiry_trades.iterrows():
-            rows.extend(_build_leg_5m_mtm(trade))
-        logger.info("MTM expiry completed expiry=%s rows=%s", expiry, len(rows) - before)
+        rows.extend(_build_trade_mtm(trade_legs))
+        logger.info("MTM trade completed trade_id=%s rows=%s", trade_id, len(rows) - before)
     logger.info("MTM calculation completed rows=%s", len(rows))
     return pd.DataFrame(rows, columns=_daily_mtm_columns())
+
+
+def _build_trade_mtm(trade_legs: pd.DataFrame) -> list[dict]:
+    workers = min(MAX_MTM_LEG_WORKERS, len(trade_legs))
+    results = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_build_leg_5m_mtm, trade): index
+            for index, (_, trade) in enumerate(trade_legs.iterrows())
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            results.append((index, future.result()))
+
+    rows = []
+    for _, leg_rows in sorted(results, key=lambda item: item[0]):
+        rows.extend(leg_rows)
+    return rows
 
 
 def _build_leg_5m_mtm(trade: pd.Series) -> list[dict]:

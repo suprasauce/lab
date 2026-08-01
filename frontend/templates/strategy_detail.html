@@ -14,10 +14,6 @@
           <label>End Date
             <input name="end_date" type="date" value="{{ form.end_date }}" required>
           </label>
-          <label class="checkbox-field">
-            <input name="include_mtm" type="checkbox" value="true"{% if form.include_mtm %} checked{% endif %}>
-            Calculate 5-Min MTM
-          </label>
         </div>
       </fieldset>
 
@@ -83,6 +79,56 @@
       </fieldset>
 
       <fieldset>
+        <legend>Adjustments</legend>
+        <div class="table-wrap">
+          <table class="legs-table">
+            <thead>
+              <tr>
+                <th>Trigger</th>
+                <th>Premium Increase (%)</th>
+                <th>Action</th>
+                <th>Strike Selection</th>
+                <th>value</th>
+                <th>max adj</th>
+                <th>Condition</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="adjustments-body">
+              {% for adjustment in form.adjustments %}
+                <tr>
+                  <td>Premium Increase</td>
+                  <td><input name="adjustment_trigger_value" type="number" value="{{ adjustment.trigger_value }}" min="0" step="0.01" required></td>
+                  <td>Roll Triggered Leg</td>
+                  <td>
+                    <select name="adjustment_strike_selection" data-strike-selection>
+                      <option value="delta"{% if adjustment.strike_selection == "delta" %} selected{% endif %}>Delta</option>
+                      <option value="offset"{% if adjustment.strike_selection == "offset" %} selected{% endif %}>Offset</option>
+                      <option value="premium"{% if adjustment.strike_selection == "premium" %} selected{% endif %}>Premium</option>
+                      <option value="fixed_strike"{% if adjustment.strike_selection == "fixed_strike" %} selected{% endif %}>Fixed Strike</option>
+                      <option value="atm"{% if adjustment.strike_selection == "atm" %} selected{% endif %}>ATM</option>
+                    </select>
+                  </td>
+                  <td><input name="adjustment_strike_value" data-strike-value type="number" value="{{ adjustment.strike_value or '' }}" step="0.01" placeholder="0.20"></td>
+                  <td><input name="adjustment_max_adjustments" type="number" value="{{ adjustment.max_adjustments or '' }}" min="0" placeholder="unlimited"></td>
+                  <td>
+                    <select name="adjustment_condition">
+                      <option value="none"{% if adjustment.condition != "exit_net_credit_lte_zero" %} selected{% endif %}>None</option>
+                      <option value="exit_net_credit_lte_zero"{% if adjustment.condition == "exit_net_credit_lte_zero" %} selected{% endif %}>Exit if net credit <= 0</option>
+                    </select>
+                  </td>
+                  <td><button type="button" class="button remove-adjustment">Remove</button></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button type="button" class="button" id="add-adjustment">Add Adjustment</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
         <legend>Filters</legend>
         <p class="empty">No filters configured.</p>
       </fieldset>
@@ -128,12 +174,41 @@
     </tr>
   </template>
 
+  <template id="adjustment-template">
+    <tr>
+      <td>Premium Increase</td>
+      <td><input name="adjustment_trigger_value" type="number" value="50" min="0" step="0.01" required></td>
+      <td>Roll Triggered Leg</td>
+      <td>
+        <select name="adjustment_strike_selection" data-strike-selection>
+          <option value="delta" selected>Delta</option>
+          <option value="offset">Offset</option>
+          <option value="premium">Premium</option>
+          <option value="fixed_strike">Fixed Strike</option>
+          <option value="atm">ATM</option>
+        </select>
+      </td>
+      <td><input name="adjustment_strike_value" data-strike-value type="number" value="0.20" step="0.01" placeholder="0.20"></td>
+      <td><input name="adjustment_max_adjustments" type="number" min="0" placeholder="unlimited"></td>
+      <td>
+        <select name="adjustment_condition">
+          <option value="none" selected>None</option>
+          <option value="exit_net_credit_lte_zero">Exit if net credit <= 0</option>
+        </select>
+      </td>
+      <td><button type="button" class="button remove-adjustment">Remove</button></td>
+    </tr>
+  </template>
+
   <script>
     (() => {
       const body = document.getElementById("legs-body");
       const template = document.getElementById("leg-template");
       const add = document.getElementById("add-leg");
-      if (!body || !template || !add) return;
+      const adjustmentBody = document.getElementById("adjustments-body");
+      const adjustmentTemplate = document.getElementById("adjustment-template");
+      const addAdjustment = document.getElementById("add-adjustment");
+      if (!body || !template || !add || !adjustmentBody || !adjustmentTemplate || !addAdjustment) return;
 
       function syncRemoveButtons() {
         const buttons = [...body.querySelectorAll(".remove-leg")];
@@ -162,7 +237,7 @@
       }
 
       function syncAllStrikeSelections() {
-        for (const row of body.querySelectorAll("tr")) syncStrikeSelection(row);
+        for (const row of document.querySelectorAll("tbody tr")) syncStrikeSelection(row);
       }
 
       add.addEventListener("click", () => {
@@ -181,6 +256,19 @@
         syncRemoveButtons();
       });
       body.addEventListener("change", (event) => {
+        if (!event.target.matches("[data-strike-selection]")) return;
+        syncStrikeSelection(event.target.closest("tr"));
+      });
+      addAdjustment.addEventListener("click", () => {
+        const row = adjustmentTemplate.content.firstElementChild.cloneNode(true);
+        adjustmentBody.appendChild(row);
+        syncStrikeSelection(row);
+      });
+      adjustmentBody.addEventListener("click", (event) => {
+        if (!event.target.classList.contains("remove-adjustment")) return;
+        event.target.closest("tr").remove();
+      });
+      adjustmentBody.addEventListener("change", (event) => {
         if (!event.target.matches("[data-strike-selection]")) return;
         syncStrikeSelection(event.target.closest("tr"));
       });

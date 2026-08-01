@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, time
+import math
+from statistics import NormalDist
 from typing import Callable
 
 from backend.common.option_math import implied_volatility, option_delta
 from backend.services import market_data_service
 
 RISK_FREE_RATE = 0.07
-DELTA_STRIKE_SCAN_RANGE = 36
+DELTA_STRIKE_SCAN_RANGE = 40
+ESTIMATED_STRIKE_NEIGHBORS = 8
 STRIKE_STEP = 50
 
 
@@ -59,12 +63,18 @@ def _resolve_delta(context: StrikeSelectionContext) -> dict | None:
     time_to_expiry = _time_to_expiry_years(context.entry_date, context.entry_time, context.expiry)
     if time_to_expiry <= 0:
         return None
-    target = abs(float(value)) if context.option_type == "call" else -abs(float(value))
-    return _best_scanned_candidate(
+    target = abs(float(value))
+    estimated = _estimated_delta_candidate(
         context=context,
         time_to_expiry=time_to_expiry,
-        score=lambda candidate: abs(candidate["delta"] - target),
-        stop=lambda candidate: abs(candidate["delta"]) <= abs(target),
+        target=target,
+    )
+    if estimated is not None:
+        return estimated
+    return _binary_search_delta(
+        context=context,
+        time_to_expiry=time_to_expiry,
+        target=target,
     )
 
 
@@ -72,93 +82,157 @@ def _resolve_premium(context: StrikeSelectionContext) -> dict | None:
     value = context.params.get("target_premium")
     if value is None:
         return None
-    return _best_scanned_candidate(
+    return _best_candidate(
         context=context,
         time_to_expiry=None,
         score=lambda candidate: abs(candidate["price"] - float(value)),
-        stop=lambda candidate: candidate["price"] <= float(value),
     )
 
 
-def _best_scanned_candidate(
+def _best_candidate(
     *,
     context: StrikeSelectionContext,
     time_to_expiry: float | None,
     score,
-    stop,
 ) -> dict | None:
-    candidates = []
-    offset = 0
-    while offset <= DELTA_STRIKE_SCAN_RANGE:
-        candidate = _candidate_at_offset(context, time_to_expiry, offset)
-        if candidate is None and candidates:
-            candidate = _next_valid_candidate(
-                context,
-                time_to_expiry,
-                candidates[-1]["offset"] + 1,
-                DELTA_STRIKE_SCAN_RANGE,
-            )
-        if candidate is None:
-            offset += 4
-            continue
-        candidates.append(candidate)
-        if stop(candidate):
-            previous_offset = candidates[-2]["offset"] if len(candidates) > 1 else candidate["offset"]
-            candidates.extend(
-                _candidates_between_offsets(
-                    context,
-                    time_to_expiry,
-                    previous_offset + 1,
-                    candidate["offset"] - 1,
-                )
-            )
-            return min(candidates, key=score)
-        offset = candidate["offset"] + 4
-
+    candidates = _fetch_candidates(context, time_to_expiry)
     if not candidates:
         return None
     return min(candidates, key=score)
 
 
-def _candidate_at_offset(
+def _estimated_delta_candidate(
+    *,
     context: StrikeSelectionContext,
-    time_to_expiry: float | None,
-    offset: int,
+    time_to_expiry: float,
+    target: float,
 ) -> dict | None:
+    atm_candidate = _candidate(context, context.atm, time_to_expiry)
+    if atm_candidate is None or atm_candidate.get("iv") is None:
+        return None
+    estimated_strike = _estimate_strike_from_delta(
+        context=context,
+        time_to_expiry=time_to_expiry,
+        target=target,
+        volatility=float(atm_candidate["iv"]),
+    )
+    if estimated_strike is None:
+        return None
+
+    strikes = _nearby_strikes(context, estimated_strike)
+    with ThreadPoolExecutor(max_workers=len(strikes) or 1) as executor:
+        candidates = list(executor.map(lambda strike: _candidate(context, strike, time_to_expiry), strikes))
+    valid = [candidate for candidate in candidates if candidate is not None]
+    if not valid:
+        return None
+    return min(valid, key=lambda candidate: abs(abs(candidate["delta"]) - target))
+
+
+def _estimate_strike_from_delta(
+    *,
+    context: StrikeSelectionContext,
+    time_to_expiry: float,
+    target: float,
+    volatility: float,
+) -> int | None:
+    if not 0 < target < 1 or volatility <= 0:
+        return None
+    probability = target if context.option_type == "call" else 1 - target
+    if not 0 < probability < 1:
+        return None
+    d1 = NormalDist().inv_cdf(probability)
+    strike = context.spot * math.exp(
+        (RISK_FREE_RATE + 0.5 * volatility**2) * time_to_expiry
+        - d1 * volatility * math.sqrt(time_to_expiry)
+    )
+    return _round_to_step(strike)
+
+
+def _nearby_strikes(context: StrikeSelectionContext, center: int) -> list[int]:
+    center_offset = _strike_to_offset(context, center)
+    if center_offset is None:
+        return []
+    low_offset = max(0, center_offset - ESTIMATED_STRIKE_NEIGHBORS)
+    high_offset = min(DELTA_STRIKE_SCAN_RANGE, center_offset + ESTIMATED_STRIKE_NEIGHBORS)
+    return sorted(_strike_at_offset(context, offset) for offset in range(low_offset, high_offset + 1))
+
+
+def _delta_strike_bounds(context: StrikeSelectionContext) -> tuple[int, int]:
+    distance = DELTA_STRIKE_SCAN_RANGE * STRIKE_STEP
+    if context.option_type == "call":
+        return context.atm, context.atm + distance
+    return context.atm - distance, context.atm
+
+
+def _strike_to_offset(context: StrikeSelectionContext, strike: int) -> int | None:
     direction = 1 if context.option_type == "call" else -1
-    strike = context.atm + offset * STRIKE_STEP * direction
-    candidate = _candidate(context, strike, time_to_expiry)
-    if candidate is not None:
-        candidate["offset"] = offset
-    return candidate
+    offset = round((strike - context.atm) / (STRIKE_STEP * direction))
+    return offset if 0 <= offset <= DELTA_STRIKE_SCAN_RANGE else None
 
 
-def _next_valid_candidate(
+def _strike_at_offset(context: StrikeSelectionContext, offset: int) -> int:
+    direction = 1 if context.option_type == "call" else -1
+    return context.atm + offset * STRIKE_STEP * direction
+
+
+def _binary_search_delta(
+    *,
     context: StrikeSelectionContext,
-    time_to_expiry: float | None,
-    start_offset: int,
-    max_range: int,
+    time_to_expiry: float,
+    target: float,
 ) -> dict | None:
-    for offset in range(start_offset, max_range + 1):
-        candidate = _candidate_at_offset(context, time_to_expiry, offset)
-        if candidate is not None:
-            return candidate
+    low = 0
+    high = DELTA_STRIKE_SCAN_RANGE
+    best = None
+
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = _nearest_valid_candidate(context, time_to_expiry, mid, low, high)
+        if candidate is None:
+            break
+
+        if best is None or abs(abs(candidate["delta"]) - target) < abs(abs(best["delta"]) - target):
+            best = candidate
+
+        if abs(candidate["delta"]) > target:
+            low = candidate["offset"] + 1
+        else:
+            high = candidate["offset"] - 1
+
+    return best
+
+
+def _nearest_valid_candidate(
+    context: StrikeSelectionContext,
+    time_to_expiry: float,
+    offset: int,
+    low: int,
+    high: int,
+) -> dict | None:
+    for distance in range(0, high - low + 1):
+        for candidate_offset in (offset - distance, offset + distance):
+            if candidate_offset < low or candidate_offset > high:
+                continue
+            candidate = _candidate_at_offset(context, time_to_expiry, candidate_offset)
+            if candidate is not None:
+                return candidate
     return None
 
 
-def _candidates_between_offsets(
+def _fetch_candidates(
     context: StrikeSelectionContext,
     time_to_expiry: float | None,
-    start_offset: int,
-    end_offset: int,
 ) -> list[dict]:
-    if start_offset > end_offset:
-        return []
-    return [
-        candidate
-        for offset in range(start_offset, end_offset + 1)
-        if (candidate := _candidate_at_offset(context, time_to_expiry, offset)) is not None
-    ]
+    offsets = list(range(DELTA_STRIKE_SCAN_RANGE + 1))
+    candidates = [_candidate_at_offset(context, time_to_expiry, offset) for offset in offsets]
+    return [candidate for candidate in candidates if candidate is not None]
+
+
+def _candidate_at_offset(context: StrikeSelectionContext, time_to_expiry: float | None, offset: int) -> dict | None:
+    candidate = _candidate(context, _strike_at_offset(context, offset), time_to_expiry)
+    if candidate is not None:
+        candidate["offset"] = offset
+    return candidate
 
 
 def _candidate(
@@ -223,6 +297,8 @@ def round_atm(spot: float) -> int:
 
 def _close(candle: dict | None) -> float | None:
     if candle is None or candle.get("close") is None:
+        return None
+    if float(candle.get("volume") or 0) <= 0:
         return None
     close = float(candle["close"])
     return close if close > 0 else None

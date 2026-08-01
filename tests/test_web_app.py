@@ -19,6 +19,12 @@ def test_strategy_pages_render():
     assert "Backtest Configuration" in response.text
     assert "Basic Settings" in response.text
     assert "Legs" in response.text
+    assert "Adjustments" in response.text
+    assert "Premium Increase (%)" in response.text
+    assert "Roll Triggered Leg" in response.text
+    assert "Add Adjustment" in response.text
+    assert "max adj" in response.text
+    assert "Exit if net credit &lt;= 0" in response.text or "Exit if net credit <= 0" in response.text
     assert "Strike Selection" in response.text
     assert "Offset" in response.text
     assert "Delta" in response.text
@@ -29,7 +35,7 @@ def test_strategy_pages_render():
     assert "Risk-free Rate" not in response.text
     assert "Delta Scan Range" not in response.text
     assert "Total Stop Loss Multiplier" not in response.text
-    assert "Calculate 5-Min MTM" in response.text
+    assert "Calculate 5-Min MTM" not in response.text
     assert "Filters" in response.text
     assert "Run Backtest" in response.text
 
@@ -87,6 +93,12 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     results = {"trades": trades, "skipped_expiries": pd.DataFrame(), "daily_mtm": pd.DataFrame()}
 
     def fake_run_backtest_for_strategy(**kwargs):
+        assert kwargs["include_mtm"] is True
+        assert len(kwargs["adjustments"]) == 1
+        assert kwargs["adjustments"][0].max_adjustments == 2
+        assert kwargs["adjustments"][0].exit_if_net_credit_lte_zero is True
+        assert kwargs["adjustments"][0].trigger.value == 50.0
+        assert kwargs["adjustments"][0].action.strike_selection.method == "delta"
         return "run-1", results
 
     def fake_load_run(run_id):
@@ -151,6 +163,11 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
             "entry_time": ["09:30", "09:30"],
             "exit_dte": ["0", "0"],
             "exit_time": ["15:30", "15:30"],
+            "adjustment_trigger_value": ["50"],
+            "adjustment_strike_selection": ["delta"],
+            "adjustment_strike_value": ["0.20"],
+            "adjustment_max_adjustments": ["2"],
+            "adjustment_condition": ["exit_net_credit_lte_zero"],
         },
     )
 
@@ -169,7 +186,8 @@ def test_strategy_run_form_renders_metrics_link(monkeypatch):
     assert "vixCurve" in response.text
     assert "calendarDateAxis" in response.text
     assert "expiryPnl" in response.text
-    assert '<canvas id="expiry-pnl-chart"' in response.text
+    assert 'id="expiry-pnl-heatmap"' in response.text
+    assert "Expiry P&amp;L Heatmap" in response.text or "Expiry P&L Heatmap" in response.text
     assert "Expiry P&amp;L" in response.text or "Expiry P&L" in response.text
     assert "chart.umd.min.js" in response.text
     assert '<canvas id="regime-equity-chart"' in response.text

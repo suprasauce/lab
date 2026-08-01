@@ -10,7 +10,7 @@
   </section>
 
   <section class="panel">
-    {% set link_trade_ids = run.include_mtm is not defined or run.include_mtm %}
+    {% set link_trade_ids = true %}
     {% include "table.html" with context %}
   </section>
 {% endblock %}

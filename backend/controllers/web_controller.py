@@ -8,8 +8,12 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from backend.config.settings import BACKTEST_ROOT
 from backend.services.backtest_service import (
+    ActionConfig,
+    AdjustmentConfig,
     CUSTOM_STRATEGY_ID,
     PositionConfig,
+    StrikeSelectionConfig,
+    TriggerConfig,
     get_strategy,
     list_strategies,
     parse_date,
@@ -79,7 +83,11 @@ def run_strategy(
     entry_time: list[str] = Form(...),
     exit_dte: list[int] = Form(...),
     exit_time: list[str] = Form(...),
-    include_mtm: bool = Form(False),
+    adjustment_trigger_value: list[str] | None = Form(None),
+    adjustment_strike_selection: list[str] | None = Form(None),
+    adjustment_strike_value: list[str] | None = Form(None),
+    adjustment_max_adjustments: list[str] | None = Form(None),
+    adjustment_condition: list[str] | None = Form(None),
 ):
     form = {
         "start_date": start_date,
@@ -96,17 +104,26 @@ def run_strategy(
             exit_dte=exit_dte,
             exit_time=exit_time,
         ),
-        "include_mtm": include_mtm,
+        "adjustments": _form_adjustments(
+            trigger_value=adjustment_trigger_value or [],
+            strike_selection=adjustment_strike_selection or [],
+            strike_value=adjustment_strike_value or [],
+            max_adjustments=adjustment_max_adjustments or [],
+            condition=adjustment_condition or [],
+        ),
+        "include_mtm": True,
     }
     try:
         strategy = get_strategy(strategy_id)
         positions = _parse_positions(form["positions"])
+        adjustments = _parse_adjustments(form["adjustments"])
         run_id, results = run_backtest_for_strategy(
             strategy_id=strategy_id,
             start_date=parse_date(start_date),
             end_date=parse_date(end_date),
             positions=positions,
-            include_mtm=include_mtm,
+            adjustments=adjustments,
+            include_mtm=True,
         )
     except Exception as exc:
         try:
@@ -249,6 +266,7 @@ def _default_form() -> dict:
                 "exit_time": "15:30",
             },
         ],
+        "adjustments": [],
         "include_mtm": True,
     }
 
@@ -284,6 +302,27 @@ def _form_positions(
     ]
 
 
+def _form_adjustments(
+    *,
+    trigger_value: list[str],
+    strike_selection: list[str],
+    strike_value: list[str],
+    max_adjustments: list[str],
+    condition: list[str],
+) -> list[dict]:
+    count = min(len(trigger_value), len(strike_selection), len(strike_value))
+    return [
+        {
+            "trigger_value": trigger_value[index],
+            "strike_selection": strike_selection[index],
+            "strike_value": strike_value[index],
+            "max_adjustments": max_adjustments[index] if index < len(max_adjustments) else "",
+            "condition": condition[index] if index < len(condition) else "none",
+        }
+        for index in range(count)
+    ]
+
+
 def _parse_positions(rows: list[dict]) -> list[PositionConfig]:
     positions = []
     for index, row in enumerate(rows, start=1):
@@ -306,6 +345,35 @@ def _parse_positions(rows: list[dict]) -> list[PositionConfig]:
     return positions
 
 
+def _parse_adjustments(rows: list[dict]) -> list[AdjustmentConfig]:
+    adjustments = []
+    for row in rows:
+        method = str(row["strike_selection"]).lower()
+        adjustments.append(
+            AdjustmentConfig(
+                trigger=TriggerConfig(
+                    type="premium_increase_pct",
+                    value=float(row["trigger_value"]),
+                ),
+                action=ActionConfig(
+                    type="roll_triggered_leg",
+                    strike_selection=StrikeSelectionConfig(
+                        method=method,
+                        params=_strike_params(
+                            {
+                                "strike_selection": method,
+                                "strike_value": row["strike_value"],
+                            }
+                        ),
+                    ),
+                ),
+                max_adjustments=_optional_int(row.get("max_adjustments")),
+                exit_if_net_credit_lte_zero=str(row.get("condition")) == "exit_net_credit_lte_zero",
+            )
+        )
+    return adjustments
+
+
 def _strike_params(row: dict) -> dict[str, float | None]:
     method = str(row.get("strike_selection", "")).lower()
     value = _optional_float(row.get("strike_value"))
@@ -320,6 +388,11 @@ def _strike_params(row: dict) -> dict[str, float | None]:
 def _optional_float(value) -> float | None:
     text = "" if value is None else str(value).strip()
     return None if not text else float(text)
+
+
+def _optional_int(value) -> int | None:
+    text = "" if value is None else str(value).strip()
+    return None if not text else int(text)
 
 
 def _merge_trade_id_rows(rows: list[dict]) -> list[dict]:

@@ -8,7 +8,6 @@
       <span>{{ run.strategy_name }}</span>
       <span>{{ run.start_date }} to {{ run.end_date }}</span>
       <span>Legs: {{ run.positions|length if run.positions is defined else "" }}</span>
-      <span>MTM: {% if run.include_mtm is not defined or run.include_mtm %}enabled{% else %}disabled{% endif %}</span>
     </div>
     <div class="tabs">
       <a class="tab" href="#summary">Summary</a>
@@ -31,31 +30,81 @@
     {% else %}
       <p class="empty">No metrics.</p>
     {% endif %}
-    <div class="chart">
-      <canvas id="expiry-pnl-chart" aria-label="Expiry profit and loss"></canvas>
-    </div>
+    <div id="expiry-pnl-heatmap" class="expiry-heatmap" aria-label="Expiry profit and loss heatmap"></div>
   </section>
+
+  <style>
+    .expiry-heatmap {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-top: 18px;
+      overflow-x: auto;
+      padding: 14px;
+    }
+    .heatmap-title {
+      color: #111827;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .heatmap-year {
+      margin-top: 14px;
+      min-width: max-content;
+    }
+    .heatmap-year:first-child {
+      margin-top: 0;
+    }
+    .heatmap-year-title {
+      color: #374151;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .heatmap-calendar {
+      display: grid;
+      gap: 3px;
+      grid-template-columns: 22px repeat(var(--weeks), 12px);
+      grid-template-rows: 16px repeat(7, 12px);
+    }
+    .heatmap-month-label {
+      color: #6b7280;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 12px;
+      white-space: nowrap;
+    }
+    .heatmap-weekday {
+      color: #6b7280;
+      font-size: 10px;
+      line-height: 12px;
+    }
+    .heatmap-day {
+      background: #e5e7eb;
+      border-radius: 2px;
+      height: 12px;
+      width: 12px;
+    }
+    .heatmap-day.outside-range {
+      visibility: hidden;
+    }
+  </style>
 
   <section id="regime-analysis" class="panel">
     <h2>Regime Analysis</h2>
     <div class="chart">
       <canvas id="regime-equity-chart" aria-label="Regime equity curve"></canvas>
     </div>
-    {% if run.include_mtm is not defined or run.include_mtm %}
-      <div class="chart">
-        <canvas id="regime-average-mtm-chart" aria-label="Average MTM percentage of premium by expiry"></canvas>
-      </div>
-      <div class="chart">
-        <canvas id="regime-vix-chart" aria-label="India VIX"></canvas>
-      </div>
-    {% else %}
-      <p class="empty">MTM was disabled for this run.</p>
-    {% endif %}
+    <div class="chart">
+      <canvas id="regime-average-mtm-chart" aria-label="Average MTM percentage of premium by expiry"></canvas>
+    </div>
+    <div class="chart">
+      <canvas id="regime-vix-chart" aria-label="India VIX"></canvas>
+    </div>
   </section>
 
   <section id="trades" class="panel">
     <h2>Trades</h2>
-    {% set link_trade_ids = run.include_mtm is not defined or run.include_mtm %}
+    {% set link_trade_ids = true %}
     {% set merge_trade_ids = true %}
     {% include "table.html" with context %}
   </section>
@@ -76,6 +125,8 @@
         ...vixCurve.map((point) => point.date).filter(Boolean),
       ].filter(Boolean);
       const dateAxis = calendarDateAxis(sourceDates);
+
+      drawExpiryPnlHeatmap("expiry-pnl-heatmap", expiryPnl);
 
       if (!window.Chart) {
         document.querySelectorAll(".chart").forEach((chart) => {
@@ -223,37 +274,110 @@
         });
       }
 
-      function drawExpiryPnlChart(id, rows) {
-        const canvas = document.getElementById(id);
-        if (!canvas) return;
-        if (!rows.length || !dateAxis.length) {
-          canvas.parentElement.innerHTML = '<p class="empty chart-empty">No expiry P&L data.</p>';
+      function drawExpiryPnlHeatmap(id, rows) {
+        const container = document.getElementById(id);
+        if (!container) return;
+        const points = rows
+          .filter((row) => row.date && row.pnl !== null && row.pnl !== "")
+          .map((row) => ({ date: row.date, pnl: Number(row.pnl) }));
+        if (!points.length) {
+          container.innerHTML = '<p class="empty chart-empty">No expiry P&L data.</p>';
           return;
         }
-        const byDate = new Map(rows.map((row) => [row.date, Number(row.pnl)]));
-        const values = dateAxis.map((date) => byDate.has(date) ? byDate.get(date) : null);
-        const options = baseOptions("Expiry P&L");
-        options.scales.y.grid.color = (context) => context.tick.value === 0 ? "#9ca3af" : "#eef2f7";
-        options.plugins.tooltip.callbacks.label = (context) => `P&L: ${Number(context.parsed.y).toFixed(2)}`;
-        new Chart(canvas, {
-          type: "bar",
-          data: {
-            labels: dateAxis,
-            datasets: [{
-              label: "Expiry P&L",
-              data: values,
-              backgroundColor: values.map((value) => value === null ? "transparent" : value >= 0 ? "#16a34a" : "#dc2626"),
-              borderColor: values.map((value) => value === null ? "transparent" : value >= 0 ? "#15803d" : "#b91c1c"),
-              borderWidth: 1,
-              barPercentage: 0.9,
-              categoryPercentage: 0.9,
-            }],
-          },
-          options,
-        });
+        const maxAbs = Math.max(...points.map((point) => Math.abs(point.pnl)), 1);
+        const byDate = new Map(points.map((point) => [point.date, point]));
+        const byYear = new Map();
+        for (const point of points) {
+          const year = point.date.slice(0, 4);
+          if (!byYear.has(year)) byYear.set(year, []);
+          byYear.get(year).push(point.date);
+        }
+
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        container.innerHTML = `<div class="heatmap-title">Expiry P&L Heatmap</div>`;
+        for (const [year, dates] of [...byYear.entries()].sort()) {
+          const first = parseLocalDate([...dates].sort()[0]);
+          const last = parseLocalDate([...dates].sort().at(-1));
+          const start = startOfWeek(first);
+          const end = endOfWeek(last);
+          const days = [];
+          for (let d = start; d <= end; d = addDays(d, 1)) {
+            days.push(new Date(d));
+          }
+          const weeks = Math.ceil(days.length / 7);
+          const yearEl = document.createElement("div");
+          yearEl.className = "heatmap-year";
+          yearEl.innerHTML = `<div class="heatmap-year-title">${year}</div>`;
+          const calendar = document.createElement("div");
+          calendar.className = "heatmap-calendar";
+          calendar.style.setProperty("--weeks", weeks);
+
+          ["M", "W", "F"].forEach((label, index) => {
+            const weekday = document.createElement("div");
+            weekday.className = "heatmap-weekday";
+            weekday.style.gridColumn = "1";
+            weekday.style.gridRow = String([3, 5, 7][index]);
+            weekday.textContent = label;
+            calendar.appendChild(weekday);
+          });
+
+          let lastMonth = null;
+          days.forEach((day, index) => {
+            const week = Math.floor(index / 7) + 2;
+            const weekday = day.getDay();
+            const row = weekday === 0 ? 8 : weekday + 1;
+            if (day.getDate() <= 7 && day.getMonth() !== lastMonth) {
+              lastMonth = day.getMonth();
+              const label = document.createElement("div");
+              label.className = "heatmap-month-label";
+              label.style.gridColumn = String(week);
+              label.style.gridRow = "1";
+              label.textContent = months[day.getMonth()];
+              calendar.appendChild(label);
+            }
+
+            const cell = document.createElement("div");
+            cell.className = "heatmap-day";
+            cell.style.gridColumn = String(week);
+            cell.style.gridRow = String(row);
+            const date = formatLocalDate(day);
+            const point = byDate.get(date);
+            if (day < first || day > last) {
+              cell.classList.add("outside-range");
+            }
+            if (point) {
+              const intensity = Math.max(0.12, Math.min(Math.abs(point.pnl) / maxAbs, 1));
+              const color = point.pnl >= 0 ? `rgba(22, 163, 74, ${intensity})` : `rgba(220, 38, 38, ${intensity})`;
+              cell.style.background = color;
+              cell.title = `${point.date} P&L: ${formatMoney(point.pnl)}`;
+            } else {
+              cell.title = date;
+            }
+            calendar.appendChild(cell);
+          });
+          yearEl.appendChild(calendar);
+          container.appendChild(yearEl);
+        }
       }
 
-      drawExpiryPnlChart("expiry-pnl-chart", expiryPnl);
+      function startOfWeek(value) {
+        const result = new Date(value);
+        const daysFromMonday = (result.getDay() + 6) % 7;
+        result.setDate(result.getDate() - daysFromMonday);
+        return result;
+      }
+
+      function endOfWeek(value) {
+        const result = new Date(value);
+        const daysToSunday = (7 - result.getDay()) % 7;
+        result.setDate(result.getDate() + daysToSunday);
+        return result;
+      }
+
+      function formatMoney(value) {
+        return Number(value).toFixed(2);
+      }
+
       drawLineChart("regime-equity-chart", equity, "date", "equity", "Equity", "#2563eb");
       drawAverageMtmChart("regime-average-mtm-chart", averageMtmByExpiry);
       drawLineChart("regime-vix-chart", vixCurve, "date", "vix", "India VIX", "#b45309");
