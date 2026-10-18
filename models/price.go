@@ -1,4 +1,4 @@
 package models
 
-// Price is a monetary amount in currency units (for example, rupees for INR).
-type Price float64
+// Price is a monetary amount in paise (100 paise = 1 rupee).
+type Price int64
