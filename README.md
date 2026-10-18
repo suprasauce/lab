@@ -11,7 +11,7 @@ Minimal Go models and a PostgreSQL market data repository.
 
 Underlying-to-instrument relationships use `UnderlyingID`. Strategies contain
 legs, legs reference instruments and contain trades, and trades identify their
-leg and source execution. Underlying IDs use int64 to match PostgreSQL BIGINT;
+leg and source execution. Underlying IDs and option contract IDs use int64 to match PostgreSQL BIGINT;
 other IDs currently remain strings. No candle ownership mapping is defined yet.
 
 Prices use int64 amounts in paise (100 paise = 1 rupee). Convert rupees to

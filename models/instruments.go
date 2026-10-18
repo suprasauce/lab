@@ -23,8 +23,8 @@ const (
 )
 
 type Option struct {
-	ID           string
-	UnderlyingID string
+	ID           int64
+	UnderlyingID int64
 	StrikePrice  Price
 	Expiry       time.Time
 	OptionType   OptionType
