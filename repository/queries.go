@@ -22,3 +22,23 @@ const queryGetOptionContract = `
 	  AND strike_price = $3
 	  AND option_type = $4;
 `
+
+const queryGetUnderlyingCandle = `
+	SELECT start_time, timeframe, open, high, low, close, volume
+	FROM underlying_candles
+	WHERE underlying_id = $1
+	  AND timeframe = $2
+	  AND start_time >= $3
+	ORDER BY start_time ASC
+	LIMIT 1;
+`
+
+const queryGetOptionCandles = `
+	SELECT start_time, timeframe, open, high, low, close, volume
+	FROM option_candles
+	WHERE option_contract_id = $1
+	  AND timeframe = $2
+	  AND start_time >= $3
+	  AND start_time <= $4
+	ORDER BY start_time ASC;
+`

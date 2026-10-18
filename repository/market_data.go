@@ -110,3 +110,81 @@ func (r *MarketDataRepository) GetOptionContract(
 	}
 	return contract, nil
 }
+
+// GetUnderlyingCandle returns the earliest available candle at or after startTime,
+// including subsequent trading sessions. The caller validates its suitability.
+// If no candle matches, the returned error wraps sql.ErrNoRows.
+func (r *MarketDataRepository) GetUnderlyingCandle(
+	ctx context.Context,
+	underlyingID int64,
+	startTime time.Time,
+	timeframe models.Timeframe,
+) (models.Candle, error) {
+	r.logger.DebugContext(ctx, "fetching underlying candle",
+		"underlying_id", underlyingID,
+		"start_time", startTime,
+		"timeframe", timeframe,
+	)
+
+	var candle models.Candle
+	err := r.db.QueryRowContext(ctx, queryGetUnderlyingCandle, underlyingID, timeframe, startTime).Scan(
+		&candle.Timestamp,
+		&candle.Timeframe,
+		&candle.Open,
+		&candle.High,
+		&candle.Low,
+		&candle.Close,
+		&candle.Volume,
+	)
+	if err != nil {
+		return models.Candle{}, fmt.Errorf("get underlying candle: %w", err)
+	}
+	return candle, nil
+}
+
+// GetOptionCandles returns available candles in the inclusive timestamp interval,
+// ordered chronologically. Missing candles are not filled or treated as errors.
+func (r *MarketDataRepository) GetOptionCandles(
+	ctx context.Context,
+	contractID int64,
+	startTime time.Time,
+	endTime time.Time,
+	timeframe models.Timeframe,
+) ([]models.Candle, error) {
+	if startTime.After(endTime) {
+		return nil, fmt.Errorf("get option candles: start time must not be after end time")
+	}
+
+	r.logger.DebugContext(ctx, "fetching option candles",
+		"contract_id", contractID,
+		"start_time", startTime,
+		"end_time", endTime,
+		"timeframe", timeframe,
+	)
+	rows, err := r.db.QueryContext(ctx, queryGetOptionCandles, contractID, timeframe, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("query option candles: %w", err)
+	}
+	defer rows.Close()
+
+	candles := make([]models.Candle, 0)
+	for rows.Next() {
+		var candle models.Candle
+		if err := rows.Scan(
+			&candle.Timestamp,
+			&candle.Timeframe,
+			&candle.Open,
+			&candle.High,
+			&candle.Low,
+			&candle.Close,
+			&candle.Volume,
+		); err != nil {
+			return nil, fmt.Errorf("scan option candle: %w", err)
+		}
+		candles = append(candles, candle)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate option candles: %w", err)
+	}
+	return candles, nil
+}
