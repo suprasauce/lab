@@ -1,3 +1,3 @@
-// Package engine reserves the home for future strategy evaluation and backtesting.
-// No engine behavior is implemented yet.
+// Package engine defines the skeleton for historical strategy backtesting.
+// Evaluation and execution are not implemented yet.
 package engine
