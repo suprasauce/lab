@@ -1,14 +1,17 @@
 # Options backtesting models
 
-Minimal Go models with no external dependencies.
+Minimal Go models and a PostgreSQL market data repository.
 
 - `models`: underlying, instrument variants, strategy, leg, trade, and candle.
 - `engine`: backtesting engine skeleton; evaluation and execution are unimplemented.
+- `database`: PostgreSQL pool initialization and connectivity checks using pgx.
+- `repository`: market data queries using an injected database/sql pool.
+- `main.go`: reads DATABASE_URL, initializes the pool, and closes it before returning.
 
 Underlying-to-instrument relationships use `UnderlyingID`. Strategies contain
 legs, legs reference instruments and contain trades, and trades identify their
-leg and source execution. IDs are opaque strings; persistence can choose their
-format later. No candle ownership or persistence mapping is defined yet.
+leg and source execution. Underlying IDs use int64 to match PostgreSQL BIGINT;
+other IDs currently remain strings. No candle ownership mapping is defined yet.
 
 Prices use int64 amounts in paise (100 paise = 1 rupee). Convert rupees to
 paise before assigning prices. Quantities count units rather than lots.
@@ -26,3 +29,6 @@ evaluation. V1 will allow one full entry and one full exit per leg, with no
 re-entry. Run currently returns an explicit not-implemented error.
 
 Run checks with `go test ./...` and `go vet ./...`.
+
+Set `DATABASE_URL` to the PostgreSQL connection string and run `go run .`.
+The application verifies connectivity and exits.

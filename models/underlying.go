@@ -1,6 +1,6 @@
 package models
 
 type Underlying struct {
-	ID     string
+	ID     int64
 	Symbol string
 }
