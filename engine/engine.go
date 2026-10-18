@@ -58,14 +58,35 @@ func (e *Engine) backtestOptions(ctx context.Context, strategy *models.Strategy)
 }
 
 func (e *Engine) backtestExpiry(ctx context.Context, strategy *models.Strategy, expiry time.Time) error {
-	// TODO: Invoke backtestLeg for each configured leg using the shared expiry.
-	return errors.New("backtestExpiry is not implemented")
+	executions := make([]models.LegExecution, len(strategy.Legs))
+	for i := range strategy.Legs {
+		executions[i] = models.LegExecution{
+			Leg: &strategy.Legs[i],
+			State: models.LegState{
+				Status: models.LegPending,
+			},
+		}
+	}
+	for i := range executions {
+		if err := e.backtestLeg(ctx, &executions[i], expiry); err != nil {
+			return fmt.Errorf("backtest expiry %s: leg %d: %w", expiry.Format(time.DateOnly), i, err)
+		}
+	}
+	return nil
 }
 
-func (e *Engine) backtestLeg(ctx context.Context, leg *models.Leg, expiry time.Time) error {
-	// TODO: Determine entry and exit timestamps, resolve the option contract,
-	// fetch historical option candles, and simulate the leg.
-	return errors.New("backtestLeg is not implemented")
+func (e *Engine) backtestLeg(ctx context.Context, execution *models.LegExecution, expiry time.Time) error {
+	switch execution.State.Status {
+	case models.LegPending:
+		// TODO: Strike selection and entry logic.
+	case models.LegOpen:
+		// TODO: Exit logic.
+	case models.LegClosed:
+		return nil
+	default:
+		return fmt.Errorf("invalid leg status: %s", execution.State.Status)
+	}
+	return nil
 }
 
 func (e *Engine) backtestEquity(ctx context.Context, strategy *models.Strategy) error {
