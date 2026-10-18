@@ -10,10 +10,11 @@ const (
 )
 
 type Strategy struct {
-	ID        string
-	Name      string
-	Type      StrategyType
-	StartTime time.Time
-	EndTime   time.Time
-	Legs      []Leg
+	UnderlyingID int64
+	ID           string
+	Name         string
+	Type         StrategyType
+	StartTime    time.Time
+	EndTime      time.Time
+	Legs         []Leg
 }

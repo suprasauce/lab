@@ -10,7 +10,7 @@ const queryGetExpiries = `
 	SELECT DISTINCT expiry
 	FROM option_contracts
 	WHERE underlying_id = $1
-	  AND expiry BETWEEN $2 AND $3
+	  AND expiry BETWEEN $2::timestamptz::date AND $3::timestamptz::date
 	ORDER BY expiry ASC;
 `
 

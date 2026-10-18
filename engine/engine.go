@@ -36,8 +36,25 @@ func (e *Engine) Backtest(ctx context.Context, strategy *models.Strategy) error 
 }
 
 func (e *Engine) backtestOptions(ctx context.Context, strategy *models.Strategy) error {
-	// TODO: Fetch unique expiries and invoke backtestExpiry sequentially for each.
-	return errors.New("backtestOptions is not implemented")
+	expiries, err := e.marketDataRepository.GetExpiries(
+		ctx,
+		strategy.UnderlyingID,
+		strategy.StartTime,
+		strategy.EndTime,
+	)
+	if err != nil {
+		return fmt.Errorf("backtest options: fetch expiries for underlying %d: %w", strategy.UnderlyingID, err)
+	}
+	if len(expiries) == 0 {
+		return fmt.Errorf("backtest options: no expiries found for underlying %d between %s and %s",
+			strategy.UnderlyingID, strategy.StartTime.Format(time.DateOnly), strategy.EndTime.Format(time.DateOnly))
+	}
+	for _, expiry := range expiries {
+		if err := e.backtestExpiry(ctx, strategy, expiry); err != nil {
+			return fmt.Errorf("backtest options: expiry %s: %w", expiry.Format(time.DateOnly), err)
+		}
+	}
+	return nil
 }
 
 func (e *Engine) backtestExpiry(ctx context.Context, strategy *models.Strategy, expiry time.Time) error {
