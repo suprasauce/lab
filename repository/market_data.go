@@ -44,47 +44,69 @@ func (r *MarketDataRepository) GetAllUnderlyings(ctx context.Context) ([]models.
 	return underlyings, nil
 }
 
-// GetOptionContracts returns contracts in the inclusive expiry date range.
+// GetExpiries returns distinct expiry dates in ascending order within the inclusive range.
 // The expiry range selects contracts, not the strategy's trading timestamps.
-func (r *MarketDataRepository) GetOptionContracts(
+func (r *MarketDataRepository) GetExpiries(
 	ctx context.Context,
 	underlyingID int64,
-	optionType models.OptionType,
 	startExpiry time.Time,
 	endExpiry time.Time,
-) ([]models.Option, error) {
+) ([]time.Time, error) {
 	if startExpiry.After(endExpiry) {
-		return nil, fmt.Errorf("get option contracts: start expiry must not be after end expiry")
+		return nil, fmt.Errorf("get expiries: start expiry must not be after end expiry")
 	}
 
-	r.logger.DebugContext(ctx, "fetching option contracts",
+	r.logger.DebugContext(ctx, "fetching expiries",
 		"underlying_id", underlyingID,
-		"option_type", optionType,
 		"start_expiry", startExpiry,
 		"end_expiry", endExpiry,
 	)
-	rows, err := r.db.QueryContext(ctx, queryGetOptionContracts, underlyingID, optionType, startExpiry, endExpiry)
+	rows, err := r.db.QueryContext(ctx, queryGetExpiries, underlyingID, startExpiry, endExpiry)
 	if err != nil {
-		return nil, fmt.Errorf("query option contracts: %w", err)
+		return nil, fmt.Errorf("query expiries: %w", err)
 	}
 	defer rows.Close()
 
-	contracts := make([]models.Option, 0)
+	expiries := make([]time.Time, 0)
 	for rows.Next() {
-		var contract models.Option
-		if err := rows.Scan(
-			&contract.ID,
-			&contract.UnderlyingID,
-			&contract.Expiry,
-			&contract.StrikePrice,
-			&contract.OptionType,
-		); err != nil {
-			return nil, fmt.Errorf("scan option contract: %w", err)
+		var expiry time.Time
+		if err := rows.Scan(&expiry); err != nil {
+			return nil, fmt.Errorf("scan expiry: %w", err)
 		}
-		contracts = append(contracts, contract)
+		expiries = append(expiries, expiry)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate option contracts: %w", err)
+		return nil, fmt.Errorf("iterate expiries: %w", err)
 	}
-	return contracts, nil
+	return expiries, nil
+}
+
+// GetOptionContract resolves a unique contract. Strike prices are in paise.
+// If no contract matches, the returned error wraps sql.ErrNoRows.
+func (r *MarketDataRepository) GetOptionContract(
+	ctx context.Context,
+	underlyingID int64,
+	expiry time.Time,
+	strikePrice models.Price,
+	optionType models.OptionType,
+) (models.Option, error) {
+	r.logger.DebugContext(ctx, "fetching option contract",
+		"underlying_id", underlyingID,
+		"expiry", expiry,
+		"strike_price", strikePrice,
+		"option_type", optionType,
+	)
+
+	var contract models.Option
+	err := r.db.QueryRowContext(ctx, queryGetOptionContract, underlyingID, expiry, strikePrice, optionType).Scan(
+		&contract.ID,
+		&contract.UnderlyingID,
+		&contract.Expiry,
+		&contract.StrikePrice,
+		&contract.OptionType,
+	)
+	if err != nil {
+		return models.Option{}, fmt.Errorf("get option contract: %w", err)
+	}
+	return contract, nil
 }
