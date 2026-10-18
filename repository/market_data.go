@@ -4,19 +4,25 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	"optionsbacktest/models"
 )
 
 type MarketDataRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *slog.Logger
 }
 
-func NewMarketDataRepository(db *sql.DB) *MarketDataRepository {
-	return &MarketDataRepository{db: db}
+func NewMarketDataRepository(db *sql.DB, logger *slog.Logger) *MarketDataRepository {
+	return &MarketDataRepository{
+		db:     db,
+		logger: logger.With("component", "market_data_repository"),
+	}
 }
 
 func (r *MarketDataRepository) GetAllUnderlyings(ctx context.Context) ([]models.Underlying, error) {
+	r.logger.DebugContext(ctx, "fetching all underlyings")
 	rows, err := r.db.QueryContext(ctx, queryGetAllUnderlyings)
 	if err != nil {
 		return nil, fmt.Errorf("query all underlyings: %w", err)

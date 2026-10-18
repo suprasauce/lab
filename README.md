@@ -4,9 +4,10 @@ Minimal Go models and a PostgreSQL market data repository.
 
 - `models`: underlying, instrument variants, strategy, leg, trade, and candle.
 - `engine`: backtesting engine skeleton; evaluation and execution are unimplemented.
-- `database`: PostgreSQL pool initialization and connectivity checks using pgx.
+- `database`: reads DATABASE_URL and initializes and verifies the PostgreSQL pool using pgx.
 - `repository`: market data queries using an injected database/sql pool.
-- `main.go`: reads DATABASE_URL, initializes the pool, and closes it before returning.
+- `logging`: configurable slog JSON logger writing to stdout; INFO by default in main.
+- `main.go`: initializes the pool and repository and closes the pool before returning.
 
 Underlying-to-instrument relationships use `UnderlyingID`. Strategies contain
 legs, legs reference instruments and contain trades, and trades identify their
@@ -32,3 +33,8 @@ Run checks with `go test ./...` and `go vet ./...`.
 
 Set `DATABASE_URL` to the PostgreSQL connection string and run `go run .`.
 The application verifies connectivity and exits.
+
+The repository logs fetch diagnostics at DEBUG. Successful operations and
+application lifecycle events are not logged. Returned errors are left for callers
+to handle and log once. Initialization
+failure logs omit raw driver errors because they may contain connection details.

@@ -2,25 +2,30 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 
 	"optionsbacktest/database"
+	"optionsbacktest/logging"
 	"optionsbacktest/repository"
 )
 
 func main() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		log.Fatal("DATABASE_URL is required")
-	}
-	db, err := database.NewPostgres(context.Background(), dsn)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
+	logger := logging.NewLogger(slog.LevelInfo)
 
-	marketDataRepository := repository.NewMarketDataRepository(db)
+	db, err := database.NewPostgres(context.Background())
+	if err != nil {
+		// Driver errors may contain connection details; do not log them verbatim.
+		logger.Error("application initialization failed", "component", "database")
+		os.Exit(1)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			logger.Error("failed to close database pool", "component", "database")
+		}
+	}()
+
+	marketDataRepository := repository.NewMarketDataRepository(db, logger)
 	// TODO: Use the repository when application behavior is added.
 	_ = marketDataRepository
 }
