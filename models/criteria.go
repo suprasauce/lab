@@ -1,5 +1,10 @@
 package models
 
+import (
+	"context"
+	"time"
+)
+
 // EntryCriteria decides when a leg should enter, independently of instrument selection.
 type EntryCriteria interface {
 	ShouldEnter(candle Candle, leg Leg) (bool, error)
@@ -10,9 +15,16 @@ type ExitCriteria interface {
 	ShouldExit(candle Candle, leg Leg) (bool, error)
 }
 
-// InstrumentSelector chooses what to trade when entry is triggered.
-// Future implementations may select options by offset, premium, or delta.
-// TODO: Define the market context needed by selectors when implementing them.
+// SelectionInput contains the common market context for option selection.
+type SelectionInput struct {
+	UnderlyingID int64
+	Expiry       time.Time
+	EntryTime    time.Time
+	OptionType   OptionType
+	Timeframe    Timeframe
+}
+
+// InstrumentSelector resolves an option contract using its own selection configuration.
 type InstrumentSelector interface {
-	Select(candle Candle) (Instrument, error)
+	Select(ctx context.Context, input SelectionInput) (Option, error)
 }

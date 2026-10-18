@@ -10,6 +10,14 @@ import (
 	"optionsbacktest/repository"
 )
 
+var marketLocation = func() *time.Location {
+	location, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		panic(fmt.Errorf("load market timezone: %w", err))
+	}
+	return location
+}()
+
 // Engine will evaluate each strategy leg independently over historical candles.
 type Engine struct {
 	marketDataRepository *repository.MarketDataRepository
@@ -61,30 +69,52 @@ func (e *Engine) backtestExpiry(ctx context.Context, strategy *models.Strategy, 
 	executions := make([]models.LegExecution, len(strategy.Legs))
 	for i := range strategy.Legs {
 		executions[i] = models.LegExecution{
-			Leg: &strategy.Legs[i],
+			Leg: strategy.Legs[i],
 			State: models.LegState{
 				Status: models.LegPending,
 			},
 		}
 	}
 	for i := range executions {
-		if err := e.backtestLeg(ctx, &executions[i], expiry); err != nil {
+		leg, ok := executions[i].Leg.(*models.OptionLeg)
+		if !ok || leg == nil {
+			return fmt.Errorf("backtest expiry %s: leg %d must be a non-nil *models.OptionLeg (got %T)", expiry.Format(time.DateOnly), i, executions[i].Leg)
+		}
+		if err := e.backtestOptionLeg(ctx, leg, &executions[i].State, expiry, strategy.UnderlyingID); err != nil {
 			return fmt.Errorf("backtest expiry %s: leg %d: %w", expiry.Format(time.DateOnly), i, err)
 		}
 	}
 	return nil
 }
 
-func (e *Engine) backtestLeg(ctx context.Context, execution *models.LegExecution, expiry time.Time) error {
-	switch execution.State.Status {
+func (e *Engine) backtestOptionLeg(ctx context.Context, leg *models.OptionLeg, state *models.LegState, expiry time.Time, underlyingID int64) error {
+	switch state.Status {
 	case models.LegPending:
-		// TODO: Strike selection and entry logic.
+		entryDate := expiry.AddDate(0, 0, -leg.EntryDTE)
+		state.EntryTargetTime = time.Date(
+			entryDate.Year(), entryDate.Month(), entryDate.Day(),
+			leg.EntryHour, leg.EntryMinute, 0, 0, marketLocation,
+		)
+
+		contract, err := leg.InstrumentSelector.Select(ctx, models.SelectionInput{
+			UnderlyingID: underlyingID,
+			Expiry:       expiry,
+			EntryTime:    state.EntryTargetTime,
+			OptionType:   leg.OptionType,
+			Timeframe:    models.Timeframe1m,
+		})
+		if err != nil {
+			return fmt.Errorf("select option contract: %w", err)
+		}
+		state.SelectedContract = &contract
+		state.SelectedStrike = contract.StrikePrice
+
 	case models.LegOpen:
 		// TODO: Exit logic.
 	case models.LegClosed:
 		return nil
 	default:
-		return fmt.Errorf("invalid leg status: %s", execution.State.Status)
+		return fmt.Errorf("invalid leg status: %s", state.Status)
 	}
 	return nil
 }

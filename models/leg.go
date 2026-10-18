@@ -7,16 +7,18 @@ const (
 	Short PositionSide = "SHORT"
 )
 
-type Leg struct {
-	ID           string
-	Instrument   Instrument
-	PositionSide PositionSide
-	// Quantity is the configured full entry and exit size in units.
-	Quantity           int64
-	EntryCriteria      EntryCriteria
-	ExitCriteria       ExitCriteria
-	InstrumentSelector InstrumentSelector
-	// Trades are in execution order, with nondecreasing timestamps. Slice order
-	// breaks ties. A closing trade must not exceed the quantity currently open.
-	Trades []Trade
+type Leg interface {
+	GetID() string
+	GetPositionSide() PositionSide
+	GetQuantity() int64
 }
+
+type BaseLeg struct {
+	ID           string
+	PositionSide PositionSide
+	Quantity     int64
+}
+
+func (l BaseLeg) GetID() string                 { return l.ID }
+func (l BaseLeg) GetPositionSide() PositionSide { return l.PositionSide }
+func (l BaseLeg) GetQuantity() int64            { return l.Quantity }

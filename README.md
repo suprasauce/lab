@@ -4,25 +4,45 @@ Minimal Go models and a PostgreSQL market data repository.
 
 - `models`: underlying, instrument variants, strategy, leg, trade, and candle.
 - `engine`: backtesting engine skeleton; evaluation and execution are unimplemented.
+- `selector`: option contract selection, with offset selection implemented and premium/delta placeholders.
 - `database`: reads DATABASE_URL and initializes and verifies the PostgreSQL pool using pgx.
 - `repository`: market data queries using an injected database/sql pool.
 - `logging`: configurable slog JSON logger writing to stdout; INFO by default in main.
 - `main.go`: initializes the pool and repository and closes the pool before returning.
 
 Underlying-to-instrument relationships use `UnderlyingID`. Strategies contain
-legs, legs reference instruments and contain trades, and trades identify their
-leg and source execution. Underlying IDs and option contract IDs use int64 to match PostgreSQL BIGINT;
+legs through the Leg interface. OptionLeg, FutureLeg, and EquityLeg embed BaseLeg
+for their ID, position side, and quantity. LegExecution associates a leg with
+fresh runtime state for each expiry. Trades identify their leg and source execution.
+Underlying IDs and option contract IDs use int64 to match PostgreSQL BIGINT;
 other IDs currently remain strings. No candle ownership mapping is defined yet.
 
 Prices use int64 amounts in paise (100 paise = 1 rupee). Convert rupees to
 paise before assigning prices. Quantities count units rather than lots.
 
-Models contain no validation or calculation logic. Instrument variants retain
-only their `Type` methods to implement the `Instrument` interface.
+Option and Underlying are concrete market-data models. Leg configuration does
+not reference a generic instrument abstraction.
 
-Each leg has a configured quantity, entry criteria, exit criteria, and an
-instrument selector. Entry criteria decide when to enter; selectors decide what
-to trade. No concrete criteria or selectors are implemented.
+OptionLeg configures OptionType (CALL/PUT), EntryDTE, EntryHour, EntryMinute,
+ExitDTE, ExitTime, and an InstrumentSelector. Entry clock components use
+Asia/Kolkata, loaded once by the engine; ExitTime retains HH:mm format.
+Leg configuration is assumed to be validated before backtesting.
+The engine calculates the target entry timestamp and delegates contract selection.
+OffsetSelector fetches the first available 1-minute underlying candle, validates
+that it is between the target timestamp and the end of the Kolkata expiry date,
+and rounds its open price to the nearest INR 50 strike (halfway rounds up).
+Its signed StrikeOffset counts intervals above or below ATM. It then resolves
+the option contract. LegState stores the target timestamp, selected contract,
+and strike; status remains PENDING. Trade execution is not implemented.
+
+Construct selectors with the same repository passed to the engine:
+
+```go
+backtestEngine := engine.NewEngine(marketDataRepository)
+leg.InstrumentSelector = selector.NewOffsetSelector(marketDataRepository, 2)
+```
+
+PremiumSelector and DeltaSelector return explicit not-implemented errors.
 
 `engine.Engine.Run` accepts a strategy and historical candles already obtained
 for its time range. TODOs outline chronological processing and independent leg
