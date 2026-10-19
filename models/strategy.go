@@ -17,5 +17,5 @@ type Strategy struct {
 	// StartDate and EndDate are inclusive calendar-date boundaries for expiry selection.
 	StartDate time.Time
 	EndDate   time.Time
-	Legs      []Leg
+	Legs      []OptionLeg
 }

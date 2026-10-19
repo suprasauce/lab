@@ -19,6 +19,6 @@ type LegState struct {
 
 // LegExecution associates leg configuration with its state for one expiry cycle.
 type LegExecution struct {
-	Leg   Leg
+	Leg   *OptionLeg
 	State LegState
 }

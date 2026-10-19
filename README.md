@@ -11,8 +11,8 @@ Minimal Go models and a PostgreSQL market data repository.
 - `main.go`: initializes the pool and repository and closes the pool before returning.
 
 Underlying-to-instrument relationships use `UnderlyingID`. Strategies contain
-legs through the Leg interface. OptionLeg, FutureLeg, and EquityLeg embed BaseLeg
-for their ID, position side, and quantity. LegExecution associates a leg with
+legs as concrete OptionLeg values containing their ID, position side, quantity,
+and option configuration. LegExecution points to an OptionLeg and associates it with
 fresh runtime state for each expiry. Trades identify their leg and source execution.
 Underlying IDs and option contract IDs use int64 to match PostgreSQL BIGINT;
 other IDs currently remain strings. No candle ownership mapping is defined yet.

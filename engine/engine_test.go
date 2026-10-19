@@ -62,7 +62,7 @@ func TestPendingLegEntryTarget(t *testing.T) {
 			}})
 			t.Cleanup(func() { db.Close() })
 			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			if err := NewEngine(repo).backtestOptionLeg(context.Background(), execution.Leg.(*models.OptionLeg), &execution.State, expiry, 1); err != nil {
+			if err := NewEngine(repo).backtestOptionLeg(context.Background(), execution.Leg, &execution.State, expiry, 1); err != nil {
 				t.Fatal(err)
 			}
 			if queries != 1 {
@@ -98,23 +98,11 @@ func TestPendingLegSelectorError(t *testing.T) {
 	}
 }
 
-func TestOptionsExpiryRejectsOtherLegTypes(t *testing.T) {
-	expiry := time.Date(2024, 10, 31, 0, 0, 0, 0, time.UTC)
-	var nilOption *models.OptionLeg
-	for _, leg := range []models.Leg{&models.FutureLeg{}, &models.EquityLeg{}, nil, nilOption} {
-		strategy := &models.Strategy{Legs: []models.Leg{leg}}
-		err := new(Engine).backtestExpiry(context.Background(), strategy, expiry)
-		if err == nil || !strings.Contains(err.Error(), "2024-10-31") || !strings.Contains(err.Error(), "leg 0") {
-			t.Fatalf("expected dated leg error for %T, got %v", leg, err)
-		}
-	}
-}
-
 func TestOptionsExpiryPropagatesLegFailure(t *testing.T) {
 	failure := errors.New("selection failed")
-	strategy := &models.Strategy{UnderlyingID: 1, Legs: []models.Leg{
-		&models.OptionLeg{EntryHour: 9, EntryMinute: 20, OptionType: models.Call, InstrumentSelector: &recordingSelector{err: failure}},
-		&models.EquityLeg{}, // Must not execute after the first leg fails.
+	strategy := &models.Strategy{UnderlyingID: 1, Legs: []models.OptionLeg{
+		{EntryHour: 9, EntryMinute: 20, OptionType: models.Call, InstrumentSelector: &recordingSelector{err: failure}},
+		{}, // Must not execute after the first leg fails.
 	}}
 	err := new(Engine).backtestExpiry(context.Background(), strategy, time.Date(2024, 10, 31, 0, 0, 0, 0, time.UTC))
 	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "leg 0") {

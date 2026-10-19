@@ -5,16 +5,6 @@ import (
 	"time"
 )
 
-// EntryCriteria decides when a leg should enter, independently of instrument selection.
-type EntryCriteria interface {
-	ShouldEnter(candle Candle, leg Leg) (bool, error)
-}
-
-// ExitCriteria decides when an open leg should exit in full.
-type ExitCriteria interface {
-	ShouldExit(candle Candle, leg Leg) (bool, error)
-}
-
 // SelectionInput contains the common market context for option selection.
 type SelectionInput struct {
 	UnderlyingID int64

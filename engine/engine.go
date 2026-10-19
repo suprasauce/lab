@@ -69,18 +69,15 @@ func (e *Engine) backtestExpiry(ctx context.Context, strategy *models.Strategy, 
 	executions := make([]models.LegExecution, len(strategy.Legs))
 	for i := range strategy.Legs {
 		executions[i] = models.LegExecution{
-			Leg: strategy.Legs[i],
+			Leg: &strategy.Legs[i],
 			State: models.LegState{
 				Status: models.LegPending,
 			},
 		}
 	}
 	for i := range executions {
-		leg, ok := executions[i].Leg.(*models.OptionLeg)
-		if !ok || leg == nil {
-			return fmt.Errorf("backtest expiry %s: leg %d must be a non-nil *models.OptionLeg (got %T)", expiry.Format(time.DateOnly), i, executions[i].Leg)
-		}
-		if err := e.backtestOptionLeg(ctx, leg, &executions[i].State, expiry, strategy.UnderlyingID); err != nil {
+
+		if err := e.backtestOptionLeg(ctx, executions[i].Leg, &executions[i].State, expiry, strategy.UnderlyingID); err != nil {
 			return fmt.Errorf("backtest expiry %s: leg %d: %w", expiry.Format(time.DateOnly), i, err)
 		}
 	}
