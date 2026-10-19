@@ -2,13 +2,13 @@ package repository
 
 const queryGetAllUnderlyings = `
 	SELECT id, symbol
-	FROM underlyings
+	FROM lab.underlyings
 	ORDER BY symbol;
 `
 
 const queryGetExpiries = `
 	SELECT DISTINCT expiry
-	FROM option_contracts
+	FROM lab.option_contracts
 	WHERE underlying_id = $1
 	  AND expiry BETWEEN $2::date AND $3::date
 	ORDER BY expiry ASC;
@@ -16,7 +16,7 @@ const queryGetExpiries = `
 
 const queryGetOptionContract = `
 	SELECT id, underlying_id, expiry, strike_price, option_type
-	FROM option_contracts
+	FROM lab.option_contracts
 	WHERE underlying_id = $1
 	  AND expiry = $2
 	  AND strike_price = $3
@@ -25,7 +25,7 @@ const queryGetOptionContract = `
 
 const queryGetUnderlyingCandle = `
 	SELECT start_time, timeframe, open, high, low, close, volume
-	FROM underlying_candles
+	FROM lab.underlying_candles
 	WHERE underlying_id = $1
 	  AND timeframe = $2
 	  AND start_time >= $3
@@ -35,7 +35,7 @@ const queryGetUnderlyingCandle = `
 
 const queryGetOptionCandles = `
 	SELECT start_time, timeframe, open, high, low, close, volume
-	FROM option_candles
+	FROM lab.option_candles
 	WHERE option_contract_id = $1
 	  AND timeframe = $2
 	  AND start_time >= $3

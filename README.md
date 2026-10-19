@@ -52,6 +52,14 @@ re-entry. Run currently returns an explicit not-implemented error.
 Run checks with `go test ./...` and `go vet ./...`.
 
 Set `DATABASE_URL` to the PostgreSQL connection string and run `go run .`.
+Use `postgres://localhost:5432/your_database` to select a database explicitly.
+Keyword/value connection strings are also supported:
+
+```powershell
+$env:DATABASE_URL = "host=localhost port=5432 user=postgres password=password dbname=optionsbacktest sslmode=disable"
+```
+
+Include the username and password in `DATABASE_URL`.
 The application verifies connectivity and exits.
 
 The repository logs fetch diagnostics at DEBUG. Successful operations and

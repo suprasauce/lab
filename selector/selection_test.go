@@ -80,14 +80,14 @@ func TestOffsetSelectorSelectionWindow(t *testing.T) {
 			queries := 0
 			db := sql.OpenDB(testConnector{query: func(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 				queries++
-				if strings.Contains(query, "FROM underlying_candles") {
+				if strings.Contains(query, "FROM lab.underlying_candles") {
 					if args[0].Value != int64(1) || args[1].Value != "1m" || !args[2].Value.(time.Time).Equal(input.EntryTime) {
 						t.Fatalf("unexpected candle args: %+v", args)
 					}
 					return &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"},
 						values: []driver.Value{stamp, "1m", int64(2253000), int64(2254000), int64(2250000), int64(2251000), int64(10)}}, nil
 				}
-				if !strings.Contains(query, "FROM option_contracts") {
+				if !strings.Contains(query, "FROM lab.option_contracts") {
 					t.Fatalf("unexpected query: %s", query)
 				}
 				if args[0].Value != int64(1) || !args[1].Value.(time.Time).Equal(input.Expiry) || args[2].Value != int64(2265000) || args[3].Value != "CALL" {

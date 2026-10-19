@@ -55,7 +55,7 @@ func TestPendingLegEntryTarget(t *testing.T) {
 					t.Fatal(err)
 				}
 				wantExit := time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 15, 30, 0, 0, marketLocation)
-				if !strings.Contains(query, "FROM option_candles") || len(args) != 4 || args[0].Value != int64(10) || args[1].Value != "1m" || !args[2].Value.(time.Time).Equal(wantEntry) || !args[3].Value.(time.Time).Equal(wantExit) {
+				if !strings.Contains(query, "FROM lab.option_candles") || len(args) != 4 || args[0].Value != int64(10) || args[1].Value != "1m" || !args[2].Value.(time.Time).Equal(wantEntry) || !args[3].Value.(time.Time).Equal(wantExit) {
 					t.Fatalf("unexpected candle request: %s, %+v", query, args)
 				}
 				return &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}, nil
