@@ -88,35 +88,53 @@ func (e *Engine) backtestExpiry(ctx context.Context, strategy *models.Strategy, 
 }
 
 func (e *Engine) backtestOptionLeg(ctx context.Context, leg *models.OptionLeg, state *models.LegState, expiry time.Time, underlyingID int64) error {
-	switch state.Status {
-	case models.LegPending:
-		entryDate := expiry.AddDate(0, 0, -leg.EntryDTE)
-		state.EntryTargetTime = time.Date(
-			entryDate.Year(), entryDate.Month(), entryDate.Day(),
-			leg.EntryHour, leg.EntryMinute, 0, 0, marketLocation,
-		)
+	for {
+		switch state.Status {
+		case models.LegPending:
+			entryDate := expiry.AddDate(0, 0, -leg.EntryDTE)
+			state.EntryTargetTime = time.Date(
+				entryDate.Year(), entryDate.Month(), entryDate.Day(),
+				leg.EntryHour, leg.EntryMinute, 0, 0, marketLocation,
+			)
 
-		contract, err := leg.InstrumentSelector.Select(ctx, models.SelectionInput{
-			UnderlyingID: underlyingID,
-			Expiry:       expiry,
-			EntryTime:    state.EntryTargetTime,
-			OptionType:   leg.OptionType,
-			Timeframe:    models.Timeframe1m,
-		})
-		if err != nil {
-			return fmt.Errorf("select option contract: %w", err)
+			contract, err := leg.InstrumentSelector.Select(ctx, models.SelectionInput{
+				UnderlyingID: underlyingID,
+				Expiry:       expiry,
+				EntryTime:    state.EntryTargetTime,
+				OptionType:   leg.OptionType,
+				Timeframe:    models.Timeframe1m,
+			})
+			if err != nil {
+				return fmt.Errorf("select option contract: %w", err)
+			}
+			state.SelectedContract = &contract
+			state.SelectedStrike = contract.StrikePrice
+			state.Status = models.LegOpen
+
+		case models.LegOpen:
+			exitTime := time.Date(
+				expiry.Year(), expiry.Month(), expiry.Day(),
+				15, 30, 0, 0, marketLocation,
+			)
+			candles, err := e.marketDataRepository.GetOptionCandles(
+				ctx,
+				state.SelectedContract.ID,
+				state.EntryTargetTime,
+				exitTime,
+				models.Timeframe1m,
+			)
+			if err != nil {
+				return fmt.Errorf("fetch option candles: %w", err)
+			}
+			// TODO: Simulate the leg candle by candle.
+			_ = candles
+			state.Status = models.LegClosed
+		case models.LegClosed:
+			return nil
+		default:
+			return fmt.Errorf("invalid leg status: %s", state.Status)
 		}
-		state.SelectedContract = &contract
-		state.SelectedStrike = contract.StrikePrice
-
-	case models.LegOpen:
-		// TODO: Exit logic.
-	case models.LegClosed:
-		return nil
-	default:
-		return fmt.Errorf("invalid leg status: %s", state.Status)
 	}
-	return nil
 }
 
 func (e *Engine) backtestEquity(ctx context.Context, strategy *models.Strategy) error {
