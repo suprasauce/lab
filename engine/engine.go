@@ -47,15 +47,15 @@ func (e *Engine) backtestOptions(ctx context.Context, strategy *models.Strategy)
 	expiries, err := e.marketDataRepository.GetExpiries(
 		ctx,
 		strategy.UnderlyingID,
-		strategy.StartTime,
-		strategy.EndTime,
+		strategy.StartDate,
+		strategy.EndDate,
 	)
 	if err != nil {
 		return fmt.Errorf("backtest options: fetch expiries for underlying %d: %w", strategy.UnderlyingID, err)
 	}
 	if len(expiries) == 0 {
 		return fmt.Errorf("backtest options: no expiries found for underlying %d between %s and %s",
-			strategy.UnderlyingID, strategy.StartTime.Format(time.DateOnly), strategy.EndTime.Format(time.DateOnly))
+			strategy.UnderlyingID, strategy.StartDate.Format(time.DateOnly), strategy.EndDate.Format(time.DateOnly))
 	}
 	for _, expiry := range expiries {
 		if err := e.backtestExpiry(ctx, strategy, expiry); err != nil {
@@ -127,7 +127,7 @@ func (e *Engine) backtestEquity(ctx context.Context, strategy *models.Strategy) 
 // Run accepts candles already obtained for the strategy's configured time range.
 // It will record trades on the supplied strategy. It is not implemented yet.
 func (e *Engine) Run(strategy *models.Strategy, candles []models.Candle) error {
-	// TODO: Iterate over candles chronologically within StartTime and EndTime.
+	// TODO: Iterate over candles chronologically within StartDate and EndDate.
 	// TODO: At each timestamp, evaluate each leg independently:
 	//   - Not entered: check entry criteria, select the instrument, and record
 	//     one full entry trade for the configured quantity when triggered.

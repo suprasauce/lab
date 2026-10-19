@@ -14,7 +14,8 @@ type Strategy struct {
 	ID           string
 	Name         string
 	Type         StrategyType
-	StartTime    time.Time
-	EndTime      time.Time
-	Legs         []Leg
+	// StartDate and EndDate are inclusive calendar-date boundaries for expiry selection.
+	StartDate time.Time
+	EndDate   time.Time
+	Legs      []Leg
 }
