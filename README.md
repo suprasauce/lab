@@ -23,6 +23,11 @@ paise before assigning prices. Quantities count units rather than lots.
 Option and Underlying are concrete market-data models. Leg configuration does
 not reference a generic instrument abstraction.
 
+OptionExpiry stores each underlying's expiry date and explicit MONTHLY/WEEKLY
+classification. Option.ExpiryID references it; Option.Expiry is resolved by a join.
+For an existing database, follow the [expiry migration instructions](scripts/migrations/README.md)
+before running the updated repository queries. Fresh databases use `scripts/lab_schema.sql`.
+
 OptionLeg configures OptionType (CALL/PUT), EntryDTE, EntryHour, EntryMinute,
 ExitDTE, ExitTime, and an InstrumentSelector. Entry clock components use
 Asia/Kolkata, loaded once by the engine; ExitTime retains HH:mm format.

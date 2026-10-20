@@ -101,6 +101,7 @@ func (r *MarketDataRepository) GetOptionContract(
 	err := r.db.QueryRowContext(ctx, queryGetOptionContract, underlyingID, expiry, strikePrice, optionType).Scan(
 		&contract.ID,
 		&contract.UnderlyingID,
+		&contract.ExpiryID,
 		&contract.Expiry,
 		&contract.StrikePrice,
 		&contract.OptionType,

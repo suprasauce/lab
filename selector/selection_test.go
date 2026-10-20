@@ -93,8 +93,8 @@ func TestOffsetSelectorSelectionWindow(t *testing.T) {
 				if args[0].Value != int64(1) || !args[1].Value.(time.Time).Equal(input.Expiry) || args[2].Value != int64(2265000) || args[3].Value != "CALL" {
 					t.Fatalf("unexpected contract args: %+v", args)
 				}
-				return &testRows{columns: []string{"id", "underlying_id", "expiry", "strike_price", "option_type"},
-					values: []driver.Value{int64(7), int64(1), input.Expiry, int64(2265000), "CALL"}}, nil
+				return &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"},
+					values: []driver.Value{int64(7), int64(1), int64(42), input.Expiry, int64(2265000), "CALL"}}, nil
 			}})
 			t.Cleanup(func() { db.Close() })
 			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -103,7 +103,7 @@ func TestOffsetSelectorSelectionWindow(t *testing.T) {
 				if err == nil || queries != 1 {
 					t.Fatalf("invalid candle accepted or contract queried: err=%v, queries=%d", err, queries)
 				}
-			} else if err != nil || queries != 2 || contract.ID != 7 || contract.StrikePrice != 2265000 {
+			} else if err != nil || queries != 2 || contract.ID != 7 || contract.ExpiryID != 42 || !contract.Expiry.Equal(input.Expiry) || contract.StrikePrice != 2265000 {
 				t.Fatalf("selection = %+v, %v; queries=%d", contract, err, queries)
 			}
 		})

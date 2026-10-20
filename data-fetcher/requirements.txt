@@ -1,0 +1,5 @@
+breeze-connect>=1.0.68,<2
+requests>=2.31,<3
+psycopg[binary]>=3.2,<4
+python-dotenv>=1,<2
+tzdata>=2025.1

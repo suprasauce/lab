@@ -7,20 +7,22 @@ const queryGetAllUnderlyings = `
 `
 
 const queryGetExpiries = `
-	SELECT DISTINCT expiry
-	FROM lab.option_contracts
+	SELECT expiry_date
+	FROM lab.option_expiry
 	WHERE underlying_id = $1
-	  AND expiry BETWEEN $2::date AND $3::date
-	ORDER BY expiry ASC;
+	  AND expiry_date BETWEEN $2::date AND $3::date
+	ORDER BY expiry_date ASC;
 `
 
 const queryGetOptionContract = `
-	SELECT id, underlying_id, expiry, strike_price, option_type
-	FROM lab.option_contracts
-	WHERE underlying_id = $1
-	  AND expiry = $2
-	  AND strike_price = $3
-	  AND option_type = $4;
+	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
+	FROM lab.option_contracts AS c
+	JOIN lab.option_expiry AS e ON e.id = c.expiry_id
+	WHERE c.underlying_id = $1
+	  AND e.underlying_id = $1
+	  AND e.expiry_date = $2::date
+	  AND c.strike_price = $3
+	  AND c.option_type = $4;
 `
 
 const queryGetUnderlyingCandle = `
