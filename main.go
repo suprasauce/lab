@@ -53,7 +53,7 @@ func main() {
 		OptionType:         models.Call,
 		PositionSide:       models.Short,
 		Quantity:           1,
-		EntryDTE:           45,
+		EntryDTE:           21,
 		EntryHour:          9,
 		EntryMinute:        30,
 		InstrumentSelector: selector.NewOffsetSelector(marketDataRepository, 2),

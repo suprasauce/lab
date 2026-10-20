@@ -55,7 +55,7 @@ func TestPendingLegEntryTarget(t *testing.T) {
 					t.Fatal(err)
 				}
 				wantExit := time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 15, 30, 0, 0, marketLocation)
-				if !strings.Contains(query, "FROM lab.option_candles") || len(args) != 4 || args[0].Value != int64(10) || args[1].Value != "1m" || !args[2].Value.(time.Time).Equal(wantEntry) || !args[3].Value.(time.Time).Equal(wantExit) {
+				if !strings.Contains(query, "FROM lab.option_candles") || len(args) != 4 || args[0].Value != int64(10) || args[1].Value != "5m" || !args[2].Value.(time.Time).Equal(wantEntry) || !args[3].Value.(time.Time).Equal(wantExit) {
 					t.Fatalf("unexpected candle request: %s, %+v", query, args)
 				}
 				return &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}, nil
@@ -72,7 +72,7 @@ func TestPendingLegEntryTarget(t *testing.T) {
 				t.Fatalf("target = %s; want %s", got, tt.want)
 			}
 			if selector.input.UnderlyingID != 1 || !selector.input.Expiry.Equal(expiry) ||
-				!selector.input.EntryTime.Equal(execution.State.EntryTargetTime) || selector.input.Timeframe != models.Timeframe1m || selector.input.OptionType != models.Call {
+				!selector.input.EntryTime.Equal(execution.State.EntryTargetTime) || selector.input.Timeframe != models.Timeframe5m || selector.input.OptionType != models.Call {
 				t.Fatalf("unexpected selection input: %+v", selector.input)
 			}
 			if execution.State.Status != models.LegClosed || execution.State.SelectedContract == nil || execution.State.SelectedContract.ID != 10 {

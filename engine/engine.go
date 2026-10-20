@@ -99,7 +99,7 @@ func (e *Engine) backtestOptionLeg(ctx context.Context, leg *models.OptionLeg, s
 				Expiry:       expiry,
 				EntryTime:    state.EntryTargetTime,
 				OptionType:   leg.OptionType,
-				Timeframe:    models.Timeframe1m,
+				Timeframe:    models.Timeframe5m,
 			})
 			if err != nil {
 				return fmt.Errorf("select option contract: %w", err)
@@ -118,7 +118,7 @@ func (e *Engine) backtestOptionLeg(ctx context.Context, leg *models.OptionLeg, s
 				state.SelectedContract.ID,
 				state.EntryTargetTime,
 				exitTime,
-				models.Timeframe1m,
+				models.Timeframe5m,
 			)
 			if err != nil {
 				return fmt.Errorf("fetch option candles: %w", err)
