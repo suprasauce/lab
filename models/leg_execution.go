@@ -1,7 +1,5 @@
 package models
 
-import "time"
-
 type LegStatus string
 
 const (
@@ -10,15 +8,9 @@ const (
 	LegClosed  LegStatus = "CLOSED"
 )
 
-type LegState struct {
-	Status           LegStatus
-	EntryTargetTime  time.Time
-	SelectedStrike   Price
-	SelectedContract *Option
-}
-
-// LegExecution associates leg configuration with its state for one expiry cycle.
+// LegExecution stores runtime status and position history for one leg during an expiry.
 type LegExecution struct {
-	Leg   *OptionLeg
-	State LegState
+	Leg    *OptionLeg
+	Status LegStatus
+	Trades []Trade
 }

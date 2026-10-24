@@ -32,13 +32,18 @@ OptionLeg configures OptionType (CALL/PUT), EntryDTE, EntryHour, EntryMinute,
 ExitDTE, ExitTime, and an InstrumentSelector. Entry clock components use
 Asia/Kolkata, loaded once by the engine; ExitTime retains HH:mm format.
 Leg configuration is assumed to be validated before backtesting.
-The engine calculates the target entry timestamp and delegates contract selection.
-OffsetSelector fetches the first available 1-minute underlying candle, validates
+For each expiry, the engine starts at expiry minus the maximum leg EntryDTE and
+queries each calendar day's 5-minute underlying candles through expiry, inclusive.
+It initializes fresh pending leg executions and iterates days, candles, then legs.
+The innermost leg loop is empty; no selector calls or leg execution occur yet.
+
+OffsetSelector remains available independently: it fetches the first underlying candle
+at the requested timeframe, validates
 that it is between the target timestamp and the end of the Kolkata expiry date,
 and rounds its open price to the nearest INR 50 strike (halfway rounds up).
 Its signed StrikeOffset counts intervals above or below ATM. It then resolves
-the option contract. LegState stores the target timestamp, selected contract,
-and strike; status remains PENDING. Trade execution is not implemented.
+the option contract. LegState can store the target timestamp, selected contract,
+and strike when leg processing is implemented. Trade execution is not implemented.
 
 Construct selectors with the same repository passed to the engine:
 

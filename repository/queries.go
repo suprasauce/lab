@@ -35,6 +35,16 @@ const queryGetUnderlyingCandle = `
 	LIMIT 1;
 `
 
+const queryGetUnderlyingCandles = `
+	SELECT start_time, timeframe, open, high, low, close, volume
+	FROM lab.underlying_candles
+	WHERE underlying_id = $1
+	  AND timeframe = $2
+	  AND start_time >= $3
+	  AND start_time < $4
+	ORDER BY start_time ASC;
+`
+
 const queryGetOptionCandles = `
 	SELECT start_time, timeframe, open, high, low, close, volume
 	FROM lab.option_candles

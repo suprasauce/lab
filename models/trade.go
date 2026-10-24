@@ -2,21 +2,26 @@ package models
 
 import "time"
 
-type TradeSide string
+type TradeStatus string
 
 const (
-	Buy  TradeSide = "BUY"
-	Sell TradeSide = "SELL"
+	TradeOpen   TradeStatus = "OPEN"
+	TradeClosed TradeStatus = "CLOSED"
 )
 
-// Trade can allocate part of an execution to a leg. Allocations from the same
-// execution share ExecutionID, but each has its own ID and Quantity.
+// Trade records the complete lifecycle of a position in one option contract.
 type Trade struct {
-	ID          string
-	ExecutionID string
-	LegID       string
-	Side        TradeSide
-	Price       Price
-	Quantity    int64
-	Timestamp   time.Time
+	ContractID int64
+
+	Side     PositionSide
+	Quantity int64
+
+	EntryTime  time.Time
+	EntryPrice Price
+
+	ExitTime  time.Time
+	ExitPrice Price
+
+	Status TradeStatus
+	PnL    Price
 }

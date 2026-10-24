@@ -15,98 +15,127 @@ import (
 	"optionsbacktest/repository"
 )
 
-type recordingSelector struct {
-	input models.SelectionInput
-	err   error
+type forbiddenSelector struct{ calls int }
+
+func (s *forbiddenSelector) Select(context.Context, models.SelectionInput) (models.Option, error) {
+	s.calls++
+	return models.Option{}, errors.New("leg processing must not run")
 }
 
-func (s *recordingSelector) Select(ctx context.Context, input models.SelectionInput) (models.Option, error) {
-	s.input = input
-	return models.Option{ID: 10, StrikePrice: 22500 * 100, OptionType: input.OptionType}, s.err
-}
-
-func TestPendingLegEntryTarget(t *testing.T) {
-	tests := []struct {
-		name, expiry, want string
-		dte, hour, minute  int
+func TestExpirySimulationClock(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		expiry time.Time
+		dtes   []int
+		dates  []string
 	}{
-		{"calendar days include weekends", "2024-10-31", "2024-09-16T09:20:00+05:30", 45, 9, 20},
-		{"expiry day", "2024-10-31", "2024-10-31T15:00:00+05:30", 0, 15, 0},
-		{"leap day", "2024-03-01", "2024-02-29T09:20:00+05:30", 1, 9, 20},
-		{"year boundary", "2025-01-01", "2024-12-31T00:00:00+05:30", 1, 0, 0},
-	}
-	for _, tt := range tests {
+		{"maximum DTE and leap day", time.Date(2024, 3, 1, 18, 0, 0, 0, time.UTC), []int{1, 3, 2}, []string{"2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01"}},
+		{"expiry day only", time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC), []int{0}, []string{"2026-09-29"}},
+		{"year boundary", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), []int{2, 0}, []string{"2025-12-30", "2025-12-31", "2026-01-01"}},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			expiry, err := time.Parse(time.DateOnly, tt.expiry)
-			if err != nil {
-				t.Fatal(err)
-			}
-			selector := &recordingSelector{}
-			execution := models.LegExecution{
-				Leg: &models.OptionLeg{EntryDTE: tt.dte, EntryHour: tt.hour, EntryMinute: tt.minute,
-					OptionType: models.Call, InstrumentSelector: selector},
-				State: models.LegState{Status: models.LegPending},
+			selector := &forbiddenSelector{}
+			strategy := models.Strategy{UnderlyingID: 7}
+			for _, dte := range tt.dtes {
+				strategy.Legs = append(strategy.Legs, models.OptionLeg{EntryDTE: dte, InstrumentSelector: selector})
 			}
 			queries := 0
 			db := sql.OpenDB(testConnector{query: func(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-				queries++
-				wantEntry, err := time.Parse(time.RFC3339, tt.want)
+				if queries >= len(tt.dates) {
+					t.Fatal("simulation passed expiry day")
+				}
+				if !strings.Contains(query, "FROM lab.underlying_candles") || !strings.Contains(query, "start_time >= $3") || !strings.Contains(query, "start_time < $4") || !strings.Contains(query, "ORDER BY start_time ASC") {
+					t.Fatalf("unexpected simulation query: %s", query)
+				}
+				start := args[2].Value.(time.Time)
+				end := args[3].Value.(time.Time)
+				want, err := time.ParseInLocation(time.DateOnly, tt.dates[queries], marketLocation)
 				if err != nil {
 					t.Fatal(err)
 				}
-				wantExit := time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 15, 30, 0, 0, marketLocation)
-				if !strings.Contains(query, "FROM lab.option_candles") || len(args) != 4 || args[0].Value != int64(10) || args[1].Value != "5m" || !args[2].Value.(time.Time).Equal(wantEntry) || !args[3].Value.(time.Time).Equal(wantExit) {
-					t.Fatalf("unexpected candle request: %s, %+v", query, args)
+				if args[0].Value != int64(7) || args[1].Value != "5m" || !start.Equal(want) || !end.Equal(want.AddDate(0, 0, 1)) {
+					t.Fatalf("unexpected daily bounds: %+v; want %s", args, want)
 				}
-				return &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}, nil
+				queries++
+				rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
+				// Include an empty calendar day and multiple timestamps on others.
+				if queries != 2 {
+					for _, minute := range []int{15, 20} {
+						rows.records = append(rows.records, []driver.Value{want.Add(9*time.Hour + time.Duration(minute)*time.Minute), "5m", int64(100), int64(110), int64(90), int64(105), int64(0)})
+					}
+				}
+				return rows, nil
 			}})
-			t.Cleanup(func() { db.Close() })
+			defer db.Close()
 			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			if err := NewEngine(repo).backtestOptionLeg(context.Background(), execution.Leg, &execution.State, expiry, 1); err != nil {
+			if err := NewEngine(repo).backtestExpiry(context.Background(), &strategy, tt.expiry); err != nil {
 				t.Fatal(err)
 			}
-			if queries != 1 {
-				t.Fatalf("expected one candle query, got %d", queries)
-			}
-			if got := execution.State.EntryTargetTime.Format(time.RFC3339); got != tt.want {
-				t.Fatalf("target = %s; want %s", got, tt.want)
-			}
-			if selector.input.UnderlyingID != 1 || !selector.input.Expiry.Equal(expiry) ||
-				!selector.input.EntryTime.Equal(execution.State.EntryTargetTime) || selector.input.Timeframe != models.Timeframe5m || selector.input.OptionType != models.Call {
-				t.Fatalf("unexpected selection input: %+v", selector.input)
-			}
-			if execution.State.Status != models.LegClosed || execution.State.SelectedContract == nil || execution.State.SelectedContract.ID != 10 {
-				t.Fatalf("unexpected runtime state: %+v", execution.State)
+			if queries != len(tt.dates) || selector.calls != 0 {
+				t.Fatalf("queries=%d selector calls=%d", queries, selector.calls)
 			}
 		})
 	}
 }
 
-func TestPendingLegSelectorError(t *testing.T) {
-	failure := errors.New("selection failed")
-	leg := &models.OptionLeg{
-		EntryDTE: 1, EntryHour: 9, EntryMinute: 20,
-		OptionType: models.Put, InstrumentSelector: &recordingSelector{err: failure},
-	}
-	state := models.LegState{Status: models.LegPending}
-	err := new(Engine).backtestOptionLeg(context.Background(), leg, &state, time.Date(2024, 10, 31, 0, 0, 0, 0, time.UTC), 1)
-	if !errors.Is(err, failure) {
-		t.Fatalf("error lost selection cause: %v", err)
-	}
-	if state.SelectedContract != nil || state.Status != models.LegPending {
-		t.Fatal("failure changed execution state")
+func TestExpirySimulationStopsOnQueryFailure(t *testing.T) {
+	failure := errors.New("database unavailable")
+	queries := 0
+	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+		queries++
+		return nil, failure
+	}})
+	defer db.Close()
+	repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	strategy := models.Strategy{UnderlyingID: 7, Legs: []models.OptionLeg{{EntryDTE: 2}}}
+	err := NewEngine(repo).backtestExpiry(context.Background(), &strategy, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC))
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "2026-09-27") || !strings.Contains(err.Error(), "2026-09-29") || queries != 1 {
+		t.Fatalf("unexpected fail-fast result: err=%v queries=%d", err, queries)
 	}
 }
 
-func TestOptionsExpiryPropagatesLegFailure(t *testing.T) {
-	failure := errors.New("selection failed")
-	strategy := &models.Strategy{UnderlyingID: 1, Legs: []models.OptionLeg{
-		{EntryHour: 9, EntryMinute: 20, OptionType: models.Call, InstrumentSelector: &recordingSelector{err: failure}},
-		{}, // Must not execute after the first leg fails.
-	}}
-	err := new(Engine).backtestExpiry(context.Background(), strategy, time.Date(2024, 10, 31, 0, 0, 0, 0, time.UTC))
-	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "leg 0") {
-		t.Fatalf("expected first leg selection failure, got %v", err)
+func TestUnderlyingCandleRangeResultsAndErrors(t *testing.T) {
+	failure := errors.New("iteration failed")
+	for _, name := range []string{"empty", "candles", "scan error", "iteration error"} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Date(2026, 9, 1, 0, 0, 0, 0, marketLocation)
+			rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
+			switch name {
+			case "candles":
+				for _, minute := range []int{15, 20} {
+					rows.records = append(rows.records, []driver.Value{start.Add(9*time.Hour + time.Duration(minute)*time.Minute), "5m", int64(100), int64(110), int64(90), int64(105), int64(0)})
+				}
+			case "scan error":
+				rows.values = []driver.Value{start, "5m", "invalid price", int64(110), int64(90), int64(105), int64(0)}
+			case "iteration error":
+				rows.iterationErr = failure
+			}
+			db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return rows, nil }})
+			defer db.Close()
+			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			candles, err := repo.GetUnderlyingCandles(context.Background(), 7, start, start.AddDate(0, 0, 1), models.Timeframe5m)
+			switch name {
+			case "empty":
+				if err != nil || candles == nil || len(candles) != 0 {
+					t.Fatalf("expected non-nil empty slice, got %+v %v", candles, err)
+				}
+			case "candles":
+				if err != nil || len(candles) != 2 || !candles[0].Timestamp.Before(candles[1].Timestamp) || candles[0].Open != 100 {
+					t.Fatalf("unexpected candles: %+v %v", candles, err)
+				}
+			case "scan error":
+				if err == nil || !strings.Contains(err.Error(), "scan underlying candle") {
+					t.Fatalf("expected scan error, got %v", err)
+				}
+			case "iteration error":
+				if !errors.Is(err, failure) {
+					t.Fatalf("iteration cause lost: %v", err)
+				}
+			}
+			if !rows.closed {
+				t.Fatal("rows were not closed")
+			}
+		})
 	}
 }
 
@@ -128,35 +157,28 @@ func (c testConn) QueryContext(ctx context.Context, query string, args []driver.
 }
 
 type testRows struct {
-	columns []string
-	values  []driver.Value
+	columns      []string
+	values       []driver.Value
+	records      [][]driver.Value
+	iterationErr error
+	closed       bool
 }
 
 func (r *testRows) Columns() []string { return r.columns }
-func (r *testRows) Close() error      { return nil }
+func (r *testRows) Close() error      { r.closed = true; return nil }
 func (r *testRows) Next(dest []driver.Value) error {
+	if len(r.records) > 0 {
+		copy(dest, r.records[0])
+		r.records = r.records[1:]
+		return nil
+	}
 	if r.values == nil {
+		if r.iterationErr != nil {
+			return r.iterationErr
+		}
 		return io.EOF
 	}
 	copy(dest, r.values)
 	r.values = nil
 	return nil
-}
-
-func TestOpenLegCandleQueryError(t *testing.T) {
-	failure := errors.New("candle query failed")
-	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
-		return nil, failure
-	}})
-	defer db.Close()
-	repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	expiry := time.Date(2024, 10, 31, 0, 0, 0, 0, time.UTC)
-	state := models.LegState{Status: models.LegOpen, EntryTargetTime: expiry, SelectedContract: &models.Option{ID: 10}}
-	err := NewEngine(repo).backtestOptionLeg(context.Background(), &models.OptionLeg{}, &state, expiry, 1)
-	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "fetch option candles") {
-		t.Fatalf("expected wrapped fetch error, got %v", err)
-	}
-	if state.Status != models.LegOpen {
-		t.Fatalf("status changed to %s", state.Status)
-	}
 }

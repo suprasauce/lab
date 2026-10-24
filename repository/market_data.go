@@ -143,6 +143,52 @@ func (r *MarketDataRepository) GetUnderlyingCandle(
 	return candle, nil
 }
 
+// GetUnderlyingCandles returns candles in [startTime, endTime), ordered by timestamp.
+// Missing candles return an empty, non-nil slice.
+func (r *MarketDataRepository) GetUnderlyingCandles(
+	ctx context.Context,
+	underlyingID int64,
+	startTime time.Time,
+	endTime time.Time,
+	timeframe models.Timeframe,
+) ([]models.Candle, error) {
+	if startTime.After(endTime) {
+		return nil, fmt.Errorf("get underlying candles: start time must not be after end time")
+	}
+	r.logger.DebugContext(ctx, "fetching underlying candles",
+		"underlying_id", underlyingID,
+		"start_time", startTime,
+		"end_time", endTime,
+		"timeframe", timeframe,
+	)
+	rows, err := r.db.QueryContext(ctx, queryGetUnderlyingCandles, underlyingID, timeframe, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("query underlying candles: %w", err)
+	}
+	defer rows.Close()
+
+	candles := make([]models.Candle, 0)
+	for rows.Next() {
+		var candle models.Candle
+		if err := rows.Scan(
+			&candle.Timestamp,
+			&candle.Timeframe,
+			&candle.Open,
+			&candle.High,
+			&candle.Low,
+			&candle.Close,
+			&candle.Volume,
+		); err != nil {
+			return nil, fmt.Errorf("scan underlying candle: %w", err)
+		}
+		candles = append(candles, candle)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate underlying candles: %w", err)
+	}
+	return candles, nil
+}
+
 // GetOptionCandles returns available candles in the inclusive timestamp interval,
 // ordered chronologically. Missing candles are not filled or treated as errors.
 func (r *MarketDataRepository) GetOptionCandles(

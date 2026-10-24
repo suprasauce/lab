@@ -66,72 +66,44 @@ func (e *Engine) backtestOptions(ctx context.Context, strategy *models.Strategy)
 }
 
 func (e *Engine) backtestExpiry(ctx context.Context, strategy *models.Strategy, expiry time.Time) error {
+	maxEntryDTE := 0
+	for i := range strategy.Legs {
+		maxEntryDTE = max(maxEntryDTE, strategy.Legs[i].EntryDTE)
+	}
+
+	expiryDate := time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 0, 0, 0, 0, marketLocation)
+	simulationStartDate := expiryDate.AddDate(0, 0, -maxEntryDTE)
 	executions := make([]models.LegExecution, len(strategy.Legs))
 	for i := range strategy.Legs {
 		executions[i] = models.LegExecution{
-			Leg: &strategy.Legs[i],
-			State: models.LegState{
-				Status: models.LegPending,
-			},
+			Leg:    &strategy.Legs[i],
+			Status: models.LegPending,
 		}
 	}
-	for i := range executions {
 
-		if err := e.backtestOptionLeg(ctx, executions[i].Leg, &executions[i].State, expiry, strategy.UnderlyingID); err != nil {
-			return fmt.Errorf("backtest expiry %s: leg %d: %w", expiry.Format(time.DateOnly), i, err)
+	for day := simulationStartDate; !day.After(expiryDate); day = day.AddDate(0, 0, 1) {
+		candles, err := e.marketDataRepository.GetUnderlyingCandles(
+			ctx, strategy.UnderlyingID, day, day.AddDate(0, 0, 1), models.Timeframe5m,
+		)
+		if err != nil {
+			return fmt.Errorf("backtest expiry %s: underlying candles for %s: %w", expiry.Format(time.DateOnly), day.Format(time.DateOnly), err)
+		}
+		for range candles {
+			for i := range executions {
+				execution := &executions[i]
+
+				if execution.Status == models.LegPending {
+				}
+
+				if execution.Status == models.LegOpen {
+				}
+
+				if execution.Status == models.LegClosed {
+				}
+			}
 		}
 	}
 	return nil
-}
-
-func (e *Engine) backtestOptionLeg(ctx context.Context, leg *models.OptionLeg, state *models.LegState, expiry time.Time, underlyingID int64) error {
-	for {
-		switch state.Status {
-		case models.LegPending:
-			entryDate := expiry.AddDate(0, 0, -leg.EntryDTE)
-			state.EntryTargetTime = time.Date(
-				entryDate.Year(), entryDate.Month(), entryDate.Day(),
-				leg.EntryHour, leg.EntryMinute, 0, 0, marketLocation,
-			)
-
-			contract, err := leg.InstrumentSelector.Select(ctx, models.SelectionInput{
-				UnderlyingID: underlyingID,
-				Expiry:       expiry,
-				EntryTime:    state.EntryTargetTime,
-				OptionType:   leg.OptionType,
-				Timeframe:    models.Timeframe5m,
-			})
-			if err != nil {
-				return fmt.Errorf("select option contract: %w", err)
-			}
-			state.SelectedContract = &contract
-			state.SelectedStrike = contract.StrikePrice
-			state.Status = models.LegOpen
-
-		case models.LegOpen:
-			exitTime := time.Date(
-				expiry.Year(), expiry.Month(), expiry.Day(),
-				15, 30, 0, 0, marketLocation,
-			)
-			candles, err := e.marketDataRepository.GetOptionCandles(
-				ctx,
-				state.SelectedContract.ID,
-				state.EntryTargetTime,
-				exitTime,
-				models.Timeframe5m,
-			)
-			if err != nil {
-				return fmt.Errorf("fetch option candles: %w", err)
-			}
-			// TODO: Simulate the leg candle by candle.
-			_ = candles
-			state.Status = models.LegClosed
-		case models.LegClosed:
-			return nil
-		default:
-			return fmt.Errorf("invalid leg status: %s", state.Status)
-		}
-	}
 }
 
 func (e *Engine) backtestEquity(ctx context.Context, strategy *models.Strategy) error {
