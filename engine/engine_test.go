@@ -15,29 +15,20 @@ import (
 	"optionsbacktest/repository"
 )
 
-type forbiddenSelector struct{ calls int }
-
-func (s *forbiddenSelector) SelectStrike(models.Candle) (models.Price, error) {
-	s.calls++
-	return 0, errors.New("leg processing must not run")
-}
-
 func TestExpirySimulationClock(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		expiry time.Time
-		dtes   []int
 		dates  []string
 	}{
-		{"maximum DTE and leap day", time.Date(2024, 3, 1, 18, 0, 0, 0, time.UTC), []int{1, 3, 2}, []string{"2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01"}},
-		{"expiry day only", time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC), []int{0}, []string{"2026-09-29"}},
-		{"year boundary", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), []int{2, 0}, []string{"2025-12-30", "2025-12-31", "2026-01-01"}},
+		{"leap day", time.Date(2024, 3, 1, 18, 0, 0, 0, time.UTC), []string{"2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01"}},
+		{"expiry day only", time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC), []string{"2026-09-29"}},
+		{"year boundary", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), []string{"2025-12-30", "2025-12-31", "2026-01-01"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			selector := &forbiddenSelector{}
-			strategy := models.Strategy{UnderlyingID: 7}
-			for _, dte := range tt.dtes {
-				strategy.Legs = append(strategy.Legs, models.OptionLeg{EntryDTE: dte, StrikeSelector: selector})
+			startDate, err := time.Parse(time.DateOnly, tt.dates[0])
+			if err != nil {
+				t.Fatal(err)
 			}
 			queries := 0
 			db := sql.OpenDB(testConnector{query: func(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
@@ -68,11 +59,11 @@ func TestExpirySimulationClock(t *testing.T) {
 			}})
 			defer db.Close()
 			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			if err := NewEngine(repo).backtestExpiry(context.Background(), &strategy, tt.expiry); err != nil {
+			if err := NewEngine(repo).backtestExpiry(context.Background(), 7, tt.expiry, startDate); err != nil {
 				t.Fatal(err)
 			}
-			if queries != len(tt.dates) || selector.calls != 0 {
-				t.Fatalf("queries=%d selector calls=%d", queries, selector.calls)
+			if queries != len(tt.dates) {
+				t.Fatalf("queries=%d; want %d", queries, len(tt.dates))
 			}
 		})
 	}
@@ -87,8 +78,8 @@ func TestExpirySimulationStopsOnQueryFailure(t *testing.T) {
 	}})
 	defer db.Close()
 	repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	strategy := models.Strategy{UnderlyingID: 7, Legs: []models.OptionLeg{{EntryDTE: 2}}}
-	err := NewEngine(repo).backtestExpiry(context.Background(), &strategy, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC))
+	startDate := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
+	err := NewEngine(repo).backtestExpiry(context.Background(), 7, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC), startDate)
 	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "2026-09-27") || !strings.Contains(err.Error(), "2026-09-29") || queries != 1 {
 		t.Fatalf("unexpected fail-fast result: err=%v queries=%d", err, queries)
 	}

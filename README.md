@@ -2,18 +2,19 @@
 
 Minimal Go models and a PostgreSQL market data repository.
 
-- `models`: underlying, instrument variants, strategy, leg, trade, and candle.
+- `models`: underlying, option, expiry, strategy, leg, trade, and candle.
 - `engine`: backtesting engine skeleton; evaluation and execution are unimplemented.
-- `selector`: option contract selection, with offset selection implemented and premium/delta placeholders.
+- `selector`: strike selection, with offset selection implemented and premium/delta placeholders.
 - `database`: reads DATABASE_URL and initializes and verifies the PostgreSQL pool using pgx.
 - `repository`: market data queries using an injected database/sql pool.
 - `logging`: configurable slog JSON logger writing to stdout; INFO by default in main.
 - `main.go`: initializes the pool and repository and closes the pool before returning.
 
-Underlying-to-instrument relationships use `UnderlyingID`. Strategies contain
-legs as concrete OptionLeg values containing their ID, position side, quantity,
-and option configuration. LegExecution points to an OptionLeg and associates it with
-fresh runtime state for each expiry. Trades identify their leg and source execution.
+Underlying-to-instrument relationships use `UnderlyingID`. Strategies retain run
+only ID and name metadata, without an underlying ID, dates, or a leg collection.
+OptionLeg and LegExecution remain standalone models for future script-driven
+configuration and runtime state. Each trade stores a position's
+contract, entry and exit details, side, quantity, status, and P&L field.
 Underlying IDs and option contract IDs use int64 to match PostgreSQL BIGINT;
 other IDs currently remain strings. No candle ownership mapping is defined yet.
 
@@ -28,14 +29,14 @@ classification. Option.ExpiryID references it; Option.Expiry is resolved by a jo
 For an existing database, follow the [expiry migration instructions](scripts/migrations/README.md)
 before running the updated repository queries. Fresh databases use `scripts/lab_schema.sql`.
 
-OptionLeg configures OptionType (CALL/PUT), EntryDTE, EntryHour, EntryMinute,
-ExitDTE, ExitTime, and an StrikeSelector. Entry clock components use
-Asia/Kolkata, loaded once by the engine; ExitTime retains HH:mm format.
-Leg configuration is assumed to be validated before backtesting.
-For each expiry, the engine starts at expiry minus the maximum leg EntryDTE and
+OptionLeg retains its ID, position side, quantity, OptionType (CALL/PUT), and EntryDTE.
+EntryDTE is no longer used by the simulation clock. Strategy-specific entry and exit
+times and selector configuration are no longer stored on the leg.
+For each expiry, the engine starts at the supplied start date and
 queries each calendar day's 5-minute underlying candles through expiry, inclusive.
-It initializes fresh pending leg executions and iterates days, candles, then legs.
-The innermost leg loop is empty; no selector calls or leg execution occur yet.
+It iterates days and candles, without initializing or processing leg executions.
+The supplied start and end dates also select expiries. No selector calls or trade
+execution occur yet.
 
 OffsetSelector calculates the nearest ATM strike from an already available
 underlying candle's Open, rounded to INR 50 intervals (halfway rounds up), then
@@ -43,16 +44,18 @@ applies its signed StrikeOffset. It returns an integer-paise strike and has no
 repository, timestamp validation, or contract resolution responsibilities.
 
 ```go
-leg.StrikeSelector = selector.NewOffsetSelector(2)
-strike, err := leg.StrikeSelector.SelectStrike(candle)
+var strikeSelector models.StrikeSelector = selector.NewOffsetSelector(2)
+strike, err := strikeSelector.SelectStrike(candle)
 ```
 
 PremiumSelector and DeltaSelector return explicit not-implemented errors.
 
-`engine.Engine.Run` accepts a strategy and historical candles already obtained
-for its time range. TODOs outline chronological processing and independent leg
-evaluation. V1 will allow one full entry and one full exit per leg, with no
-re-entry. Run currently returns an explicit not-implemented error.
+`engine.Engine.Backtest` remains the execution entry point and processes option
+expiries sequentially. It accepts the underlying ID and start and end dates as
+explicit arguments rather than strategy fields, ready for a future script caller.
+The application currently only initializes dependencies and
+checks database connectivity; it no longer constructs or runs a hardcoded strategy.
+Starlark integration is not implemented yet.
 
 Run checks with `go test ./...` and `go vet ./...`.
 
