@@ -17,9 +17,9 @@ import (
 
 type forbiddenSelector struct{ calls int }
 
-func (s *forbiddenSelector) Select(context.Context, models.SelectionInput) (models.Option, error) {
+func (s *forbiddenSelector) SelectStrike(models.Candle) (models.Price, error) {
 	s.calls++
-	return models.Option{}, errors.New("leg processing must not run")
+	return 0, errors.New("leg processing must not run")
 }
 
 func TestExpirySimulationClock(t *testing.T) {
@@ -37,7 +37,7 @@ func TestExpirySimulationClock(t *testing.T) {
 			selector := &forbiddenSelector{}
 			strategy := models.Strategy{UnderlyingID: 7}
 			for _, dte := range tt.dtes {
-				strategy.Legs = append(strategy.Legs, models.OptionLeg{EntryDTE: dte, InstrumentSelector: selector})
+				strategy.Legs = append(strategy.Legs, models.OptionLeg{EntryDTE: dte, StrikeSelector: selector})
 			}
 			queries := 0
 			db := sql.OpenDB(testConnector{query: func(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {

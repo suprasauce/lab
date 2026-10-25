@@ -30,7 +30,7 @@ func main() {
 	}()
 
 	marketDataRepository := repository.NewMarketDataRepository(db, logger)
-	
+
 	ctx := context.Background()
 	underlyings, err := marketDataRepository.GetAllUnderlyings(ctx)
 	if err != nil {
@@ -50,13 +50,13 @@ func main() {
 	}
 
 	leg := models.OptionLeg{
-		OptionType:         models.Call,
-		PositionSide:       models.Short,
-		Quantity:           1,
-		EntryDTE:           21,
-		EntryHour:          9,
-		EntryMinute:        30,
-		InstrumentSelector: selector.NewOffsetSelector(marketDataRepository, 2),
+		OptionType:     models.Call,
+		PositionSide:   models.Short,
+		Quantity:       1,
+		EntryDTE:       21,
+		EntryHour:      9,
+		EntryMinute:    30,
+		StrikeSelector: selector.NewOffsetSelector(2),
 	}
 	strategy := models.Strategy{
 		Type:         models.StrategyOptions,

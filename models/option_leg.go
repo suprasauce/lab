@@ -15,10 +15,10 @@ type OptionLeg struct {
 	OptionType OptionType
 	EntryDTE   int
 	// EntryHour and EntryMinute are clock components in Asia/Kolkata.
-	EntryHour   int
+	EntryHour   int	
 	EntryMinute int
 	ExitDTE     int
 	// ExitTime is an HH:mm clock time in Asia/Kolkata.
-	ExitTime           string
-	InstrumentSelector InstrumentSelector
+	ExitTime       string
+	StrikeSelector StrikeSelector
 }

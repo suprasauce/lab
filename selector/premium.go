@@ -1,7 +1,6 @@
 package selector
 
 import (
-	"context"
 	"errors"
 
 	"optionsbacktest/models"
@@ -9,6 +8,6 @@ import (
 
 type PremiumSelector struct{}
 
-func (s PremiumSelector) Select(ctx context.Context, input models.SelectionInput) (models.Option, error) {
-	return models.Option{}, errors.New("premium selection is not implemented")
+func (s PremiumSelector) SelectStrike(candle models.Candle) (models.Price, error) {
+	return 0, errors.New("premium selection is not implemented")
 }

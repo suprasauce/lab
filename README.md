@@ -29,7 +29,7 @@ For an existing database, follow the [expiry migration instructions](scripts/mig
 before running the updated repository queries. Fresh databases use `scripts/lab_schema.sql`.
 
 OptionLeg configures OptionType (CALL/PUT), EntryDTE, EntryHour, EntryMinute,
-ExitDTE, ExitTime, and an InstrumentSelector. Entry clock components use
+ExitDTE, ExitTime, and an StrikeSelector. Entry clock components use
 Asia/Kolkata, loaded once by the engine; ExitTime retains HH:mm format.
 Leg configuration is assumed to be validated before backtesting.
 For each expiry, the engine starts at expiry minus the maximum leg EntryDTE and
@@ -37,19 +37,14 @@ queries each calendar day's 5-minute underlying candles through expiry, inclusiv
 It initializes fresh pending leg executions and iterates days, candles, then legs.
 The innermost leg loop is empty; no selector calls or leg execution occur yet.
 
-OffsetSelector remains available independently: it fetches the first underlying candle
-at the requested timeframe, validates
-that it is between the target timestamp and the end of the Kolkata expiry date,
-and rounds its open price to the nearest INR 50 strike (halfway rounds up).
-Its signed StrikeOffset counts intervals above or below ATM. It then resolves
-the option contract. LegState can store the target timestamp, selected contract,
-and strike when leg processing is implemented. Trade execution is not implemented.
-
-Construct selectors with the same repository passed to the engine:
+OffsetSelector calculates the nearest ATM strike from an already available
+underlying candle's Open, rounded to INR 50 intervals (halfway rounds up), then
+applies its signed StrikeOffset. It returns an integer-paise strike and has no
+repository, timestamp validation, or contract resolution responsibilities.
 
 ```go
-backtestEngine := engine.NewEngine(marketDataRepository)
-leg.InstrumentSelector = selector.NewOffsetSelector(marketDataRepository, 2)
+leg.StrikeSelector = selector.NewOffsetSelector(2)
+strike, err := leg.StrikeSelector.SelectStrike(candle)
 ```
 
 PremiumSelector and DeltaSelector return explicit not-implemented errors.
