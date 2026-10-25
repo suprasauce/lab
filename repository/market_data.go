@@ -44,6 +44,16 @@ func (r *MarketDataRepository) GetAllUnderlyings(ctx context.Context) ([]models.
 	return underlyings, nil
 }
 
+// GetUnderlying resolves a symbol. Missing symbols return a wrapped sql.ErrNoRows.
+func (r *MarketDataRepository) GetUnderlying(ctx context.Context, symbol string) (models.Underlying, error) {
+	r.logger.DebugContext(ctx, "fetching underlying", "symbol", symbol)
+	var underlying models.Underlying
+	if err := r.db.QueryRowContext(ctx, queryGetUnderlying, symbol).Scan(&underlying.ID, &underlying.Symbol); err != nil {
+		return models.Underlying{}, fmt.Errorf("get underlying %q: %w", symbol, err)
+	}
+	return underlying, nil
+}
+
 // GetExpiries returns distinct expiry dates in ascending order within the inclusive range.
 // The expiry range selects contracts, not the strategy's trading timestamps.
 func (r *MarketDataRepository) GetExpiries(

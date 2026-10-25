@@ -1,3 +1,2 @@
-// Package engine defines the skeleton for historical strategy backtesting.
-// Evaluation and execution are not implemented yet.
+// Package engine drives expiry simulations and executes script-requested short calls.
 package engine

@@ -1,0 +1,144 @@
+package engine
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"optionsbacktest/models"
+	"optionsbacktest/repository"
+	"optionsbacktest/selector"
+)
+
+// Leg combines existing execution history with the current market-data snapshot.
+type Leg struct {
+	models.LegExecution
+	Contract *models.Option
+	Candle   *models.Candle
+}
+
+type order struct {
+	close bool
+	after time.Time
+}
+
+// Execution is a single expiry's runtime. It contains no scripting dependencies.
+type Execution struct {
+	UnderlyingCandle models.Candle
+	DTE              int
+	Legs             []*Leg
+	ctx              context.Context
+	repo             *repository.MarketDataRepository
+	underlyingID     int64
+	expiry           time.Time
+	orders           map[string]order
+}
+
+func newExecution(ctx context.Context, repo *repository.MarketDataRepository, underlyingID int64, expiry time.Time, configs []models.OptionLeg) *Execution {
+	e := &Execution{ctx: ctx, repo: repo, underlyingID: underlyingID, expiry: expiry, orders: make(map[string]order)}
+	for _, config := range configs {
+		leg := config
+		e.Legs = append(e.Legs, &Leg{LegExecution: models.LegExecution{Leg: &leg, Status: models.LegPending}})
+	}
+	return e
+}
+
+func (e *Execution) Leg(name string) (*Leg, error) {
+	for _, leg := range e.Legs {
+		if leg.Leg.ID == name {
+			return leg, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown leg %q", name)
+}
+
+// SellCall resolves a strike from the observed candle and queues a short entry.
+// A queued entry is still PENDING until filled at a subsequent candle's open.
+func (e *Execution) SellCall(name string, offset int) error {
+	leg, err := e.Leg(name)
+	if err != nil {
+		return err
+	}
+	if leg.Status != models.LegPending {
+		return nil
+	}
+	if _, exists := e.orders[name]; exists {
+		return nil
+	}
+	strike, err := selector.NewOffsetSelector(offset).SelectStrike(e.UnderlyingCandle)
+	if err != nil {
+		return err
+	}
+	contract, err := e.repo.GetOptionContract(e.ctx, e.underlyingID, e.expiry, strike, models.Call)
+	if err != nil {
+		return fmt.Errorf("select call for leg %s: %w", name, err)
+	}
+	leg.Contract = &contract
+	e.orders[name] = order{after: e.UnderlyingCandle.Timestamp.Add(5 * time.Minute)}
+	return nil
+}
+
+func (e *Execution) Close(name string) error {
+	leg, err := e.Leg(name)
+	if err != nil {
+		return err
+	}
+	if leg.Status != models.LegOpen {
+		return nil
+	}
+	if _, exists := e.orders[name]; !exists {
+		e.orders[name] = order{close: true, after: e.UnderlyingCandle.Timestamp.Add(5 * time.Minute)}
+	}
+	return nil
+}
+
+func (e *Execution) advance(candle models.Candle) error {
+	e.UnderlyingCandle = candle
+	day := calendarDate(candle.Timestamp.In(marketLocation))
+	e.DTE = int(calendarDate(e.expiry).Sub(day) / (24 * time.Hour))
+	for _, leg := range e.Legs {
+		leg.Candle = nil
+		pending, queued := e.orders[leg.Leg.ID]
+		fill := queued && !candle.Timestamp.Before(pending.after)
+		if leg.Status != models.LegOpen && !fill {
+			continue
+		}
+		// Exact timestamp lookup: never substitute a future bar or stale price.
+		candles, err := e.repo.GetOptionCandles(e.ctx, leg.Contract.ID, candle.Timestamp, candle.Timestamp, models.Timeframe5m)
+		if err != nil {
+			return fmt.Errorf("option candle for leg %s: %w", leg.Leg.ID, err)
+		}
+		if len(candles) == 0 {
+			return fmt.Errorf("missing option candle for leg %s at %s: %w", leg.Leg.ID, candle.Timestamp.Format(time.RFC3339), sql.ErrNoRows)
+		}
+		leg.Candle = &candles[0]
+		if !fill {
+			continue
+		}
+		if pending.close {
+			trade := &leg.Trades[len(leg.Trades)-1]
+			trade.ExitTime = leg.Candle.Timestamp
+			trade.ExitPrice = leg.Candle.Open
+			trade.PnL = (trade.EntryPrice - trade.ExitPrice) * models.Price(trade.Quantity)
+			trade.Status = models.TradeClosed
+			leg.Status = models.LegClosed
+		} else {
+			leg.Trades = append(leg.Trades, models.Trade{
+				ContractID: leg.Contract.ID, Side: models.Short, Quantity: leg.Leg.Quantity,
+				EntryTime: leg.Candle.Timestamp, EntryPrice: leg.Candle.Open, Status: models.TradeOpen,
+			})
+			leg.Status = models.LegOpen
+		}
+		delete(e.orders, leg.Leg.ID)
+	}
+	return nil
+}
+
+func (e *Execution) history() []models.LegExecution {
+	result := make([]models.LegExecution, len(e.Legs))
+	for i, leg := range e.Legs {
+		result[i] = leg.LegExecution
+	}
+	return result
+}

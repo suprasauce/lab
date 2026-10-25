@@ -59,7 +59,7 @@ func TestExpirySimulationClock(t *testing.T) {
 			}})
 			defer db.Close()
 			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			if err := NewEngine(repo).backtestExpiry(context.Background(), 7, tt.expiry, startDate); err != nil {
+			if err := NewEngine(repo).backtestExpiry(context.Background(), 7, tt.expiry, startDate, func(models.Candle) error { return nil }); err != nil {
 				t.Fatal(err)
 			}
 			if queries != len(tt.dates) {
@@ -79,7 +79,7 @@ func TestExpirySimulationStopsOnQueryFailure(t *testing.T) {
 	defer db.Close()
 	repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	startDate := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
-	err := NewEngine(repo).backtestExpiry(context.Background(), 7, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC), startDate)
+	err := NewEngine(repo).backtestExpiry(context.Background(), 7, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC), startDate, func(models.Candle) error { return nil })
 	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "2026-09-27") || !strings.Contains(err.Error(), "2026-09-29") || queries != 1 {
 		t.Fatalf("unexpected fail-fast result: err=%v queries=%d", err, queries)
 	}

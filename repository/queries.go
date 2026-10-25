@@ -6,6 +6,12 @@ const queryGetAllUnderlyings = `
 	ORDER BY symbol;
 `
 
+const queryGetUnderlying = `
+	SELECT id, symbol
+	FROM lab.underlyings
+	WHERE symbol = $1;
+`
+
 const queryGetExpiries = `
 	SELECT expiry_date
 	FROM lab.option_expiry
