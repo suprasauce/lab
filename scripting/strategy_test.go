@@ -48,7 +48,7 @@ def on_candle(ctx):
 `
 
 func TestExampleScriptLoads(t *testing.T) {
-	script, err := Load(context.Background(), "../strategies/short_call.star")
+	script, err := Load("../strategies/short_call.star")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestInitialization(t *testing.T) {
 		{"entry during initialization", setup + "    ctx.sell_call('CE', offset=2)\ndef on_candle(ctx):\n    pass\n", "only available during on_candle"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			script, err := load(context.Background(), "test.star", tt.source)
+			script, err := load("test.star", tt.source)
 			if tt.want != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.want) {
 					t.Fatalf("error=%v; want %s", err, tt.want)
@@ -85,7 +85,7 @@ func TestInitialization(t *testing.T) {
 
 func TestEntryExitAndExpiryIsolation(t *testing.T) {
 	f := newFixture(t)
-	script, err := load(context.Background(), "test.star", setup+trading)
+	script, err := load("test.star", setup+trading)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestEntryExitAndExpiryIsolation(t *testing.T) {
 
 func TestMissingUnderlying(t *testing.T) {
 	f := newFixture(t)
-	script, err := load(context.Background(), "test.star", strings.Replace(setup, "NIFTY", "UNKNOWN", 1)+trading)
+	script, err := load("test.star", strings.Replace(setup, "NIFTY", "UNKNOWN", 1)+trading)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestRuntimeErrors(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
-			script, err := load(context.Background(), "test.star", setup+"\ndef on_candle(ctx):\n    "+tt.body+"\n")
+			script, err := load("test.star", setup+"\ndef on_candle(ctx):\n    "+tt.body+"\n")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,7 +150,7 @@ func TestMissingOptionData(t *testing.T) {
 	for _, dte := range []int{45, 21} {
 		f := newFixture(t)
 		f.missingDTE = dte
-		script, err := load(context.Background(), "test.star", setup+trading)
+		script, err := load("test.star", setup+trading)
 		if err != nil {
 			t.Fatal(err)
 		}

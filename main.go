@@ -33,7 +33,7 @@ func main() {
 	marketDataRepository := repository.NewMarketDataRepository(db, logger)
 
 	ctx := context.Background()
-	script, err := scripting.Load(ctx, *strategyPath)
+	script, err := scripting.Load(*strategyPath)
 	if err != nil {
 		logger.Error("failed to load strategy", "error", err)
 		return

@@ -74,17 +74,11 @@ func calendarDate(t time.Time) time.Time {
 func (e *Engine) backtestExpiry(ctx context.Context, underlyingID int64, expiry, startDate time.Time, onCandle func(models.Candle) error) error {
 	expiryDate := calendarDate(expiry)
 	for day := calendarDate(startDate); !day.After(expiryDate); day = day.AddDate(0, 0, 1) {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		candles, err := e.marketDataRepository.GetUnderlyingCandles(ctx, underlyingID, day, day.AddDate(0, 0, 1), models.Timeframe5m)
 		if err != nil {
 			return fmt.Errorf("backtest expiry %s: underlying candles for %s: %w", expiry.Format(time.DateOnly), day.Format(time.DateOnly), err)
 		}
 		for _, candle := range candles {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
 			if err := onCandle(candle); err != nil {
 				return fmt.Errorf("candle %s: %w", candle.Timestamp.Format(time.RFC3339), err)
 			}

@@ -30,14 +30,12 @@ type strategyContext struct {
 }
 
 // Load compiles and evaluates the file once, then calls initialize once.
-func Load(ctx context.Context, filename string) (*Script, error) {
-	return load(ctx, filename, nil)
+func Load(filename string) (*Script, error) {
+	return load(filename, nil)
 }
 
-func load(ctx context.Context, filename string, source any) (*Script, error) {
+func load(filename string, source any) (*Script, error) {
 	thread := &starlark.Thread{Name: filename}
-	stop := context.AfterFunc(ctx, func() { thread.Cancel(ctx.Err().Error()) })
-	defer stop()
 	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, filename, source, nil)
 	if err != nil {
 		return nil, fmt.Errorf("load strategy: %w", err)
@@ -65,8 +63,6 @@ func load(ctx context.Context, filename string, source any) (*Script, error) {
 // Run passes script configuration and callbacks to the engine. Each engine
 // expiry has independent leg executions; the script globals stay frozen.
 func (s *Script) Run(ctx context.Context, e *engine.Engine) ([][]models.LegExecution, error) {
-	stop := context.AfterFunc(ctx, func() { s.thread.Cancel(ctx.Err().Error()) })
-	defer stop()
 	defer func() { s.context.execution = nil }()
 	return e.Backtest(ctx, s.context.underlying, s.context.start, s.context.end, s.context.legs, func(execution *engine.Execution) error {
 		s.context.execution = execution
