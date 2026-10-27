@@ -31,7 +31,7 @@ func NewEngine(repo *repository.MarketDataRepository) *Engine {
 // starts 45 calendar days before expiry, even if that precedes startDate.
 // onCandle observes completed 5-minute candles and queues orders for a later bar.
 // Returned executions retain trade histories, including positions left open.
-func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate time.Time, legs []models.OptionLeg, onCandle func(*Execution) error) ([][]models.LegExecution, error) {
+func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate time.Time, onCandle func(*Execution) error) ([][]models.LegExecution, error) {
 	if onCandle == nil {
 		return nil, fmt.Errorf("on_candle callback is required")
 	}
@@ -49,7 +49,7 @@ func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate
 	}
 	results := make([][]models.LegExecution, 0, len(expiries))
 	for _, expiry := range expiries {
-		execution := newExecution(ctx, e.marketDataRepository, underlyingID, expiry, legs)
+		execution := newExecution(ctx, e.marketDataRepository, underlyingID, expiry)
 		err := e.backtestExpiry(ctx, underlyingID, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(candle models.Candle) error {
 			if err := execution.advance(candle); err != nil {
 				return err

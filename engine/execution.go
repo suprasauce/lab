@@ -35,13 +35,8 @@ type Execution struct {
 	orders           map[string]order
 }
 
-func newExecution(ctx context.Context, repo *repository.MarketDataRepository, underlyingID int64, expiry time.Time, configs []models.OptionLeg) *Execution {
-	e := &Execution{ctx: ctx, repo: repo, underlyingID: underlyingID, expiry: expiry, orders: make(map[string]order)}
-	for _, config := range configs {
-		leg := config
-		e.Legs = append(e.Legs, &Leg{LegExecution: models.LegExecution{Leg: &leg, Status: models.LegPending}})
-	}
-	return e
+func newExecution(ctx context.Context, repo *repository.MarketDataRepository, underlyingID int64, expiry time.Time) *Execution {
+	return &Execution{ctx: ctx, repo: repo, underlyingID: underlyingID, expiry: expiry, orders: make(map[string]order)}
 }
 
 func (e *Execution) Leg(name string) (*Leg, error) {
@@ -55,16 +50,14 @@ func (e *Execution) Leg(name string) (*Leg, error) {
 
 // SellCall resolves a strike from the observed candle and queues a short entry.
 // A queued entry is still PENDING until filled at a subsequent candle's open.
-func (e *Execution) SellCall(name string, offset int) error {
-	leg, err := e.Leg(name)
-	if err != nil {
-		return err
+func (e *Execution) SellCall(name string, quantity int64, offset int) error {
+	if name == "" || quantity <= 0 {
+		return fmt.Errorf("leg name must be nonempty and quantity must be positive")
 	}
-	if leg.Status != models.LegPending {
-		return nil
-	}
-	if _, exists := e.orders[name]; exists {
-		return nil
+	for _, leg := range e.Legs {
+		if leg.Leg.ID == name {
+			return nil
+		}
 	}
 	strike, err := selector.NewOffsetSelector(offset).SelectStrike(e.UnderlyingCandle)
 	if err != nil {
@@ -74,7 +67,14 @@ func (e *Execution) SellCall(name string, offset int) error {
 	if err != nil {
 		return fmt.Errorf("select call for leg %s: %w", name, err)
 	}
-	leg.Contract = &contract
+	leg := &Leg{
+		LegExecution: models.LegExecution{
+			Leg:    &models.OptionLeg{ID: name, Quantity: quantity, PositionSide: models.Short, OptionType: models.Call},
+			Status: models.LegPending,
+		},
+		Contract: &contract,
+	}
+	e.Legs = append(e.Legs, leg)
 	e.orders[name] = order{after: e.UnderlyingCandle.Timestamp.Add(5 * time.Minute)}
 	return nil
 }

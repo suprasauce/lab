@@ -25,7 +25,6 @@ type strategyContext struct {
 	configured   bool
 	underlying   string
 	start, end   time.Time
-	legs         []models.OptionLeg
 	execution    *engine.Execution
 }
 
@@ -54,8 +53,8 @@ func load(filename string, source any) (*Script, error) {
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
 	c.initializing = false
-	if !c.configured || len(c.legs) == 0 {
-		return nil, fmt.Errorf("initialize must configure the strategy and register at least one leg")
+	if !c.configured {
+		return nil, fmt.Errorf("initialize must configure the strategy")
 	}
 	return &Script{thread: thread, onCandle: onCandle, context: c}, nil
 }
@@ -64,7 +63,7 @@ func load(filename string, source any) (*Script, error) {
 // expiry has independent leg executions; the script globals stay frozen.
 func (s *Script) Run(ctx context.Context, e *engine.Engine) ([][]models.LegExecution, error) {
 	defer func() { s.context.execution = nil }()
-	return e.Backtest(ctx, s.context.underlying, s.context.start, s.context.end, s.context.legs, func(execution *engine.Execution) error {
+	return e.Backtest(ctx, s.context.underlying, s.context.start, s.context.end, func(execution *engine.Execution) error {
 		s.context.execution = execution
 		_, err := starlark.Call(s.thread, s.onCandle, starlark.Tuple{s.context}, nil)
 		if err != nil {
@@ -82,15 +81,13 @@ func (*strategyContext) Hash() (uint32, error) {
 	return 0, fmt.Errorf("strategy context is unhashable")
 }
 func (*strategyContext) AttrNames() []string {
-	return []string{"configure", "register_leg", "sell_call", "close", "leg", "dte", "underlying_candle", "legs"}
+	return []string{"configure", "sell_call", "close", "leg", "dte", "underlying_candle", "legs"}
 }
 
 func (c *strategyContext) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "configure":
 		return starlark.NewBuiltin(name, c.configure), nil
-	case "register_leg":
-		return starlark.NewBuiltin(name, c.registerLeg), nil
 	case "sell_call", "close", "leg":
 		return starlark.NewBuiltin(name, c.operation), nil
 	case "dte":
@@ -104,7 +101,7 @@ func (c *strategyContext) Attr(name string) (starlark.Value, error) {
 		}
 		return starlark.None, nil
 	case "legs":
-		dict := starlark.NewDict(len(c.legs))
+		dict := starlark.NewDict(0)
 		if c.execution != nil {
 			for _, leg := range c.execution.Legs {
 				if err := dict.SetKey(starlark.String(leg.Leg.ID), legValue(leg)); err != nil {
@@ -141,36 +138,16 @@ func (c *strategyContext) configure(_ *starlark.Thread, b *starlark.Builtin, arg
 	return starlark.None, nil
 }
 
-func (c *strategyContext) registerLeg(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	if !c.initializing {
-		return nil, fmt.Errorf("register_leg is only allowed during initialize")
-	}
-	var name string
-	var quantity int64
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name, "quantity", &quantity); err != nil {
-		return nil, err
-	}
-	if name == "" || quantity <= 0 {
-		return nil, fmt.Errorf("leg name must be nonempty and quantity must be positive")
-	}
-	for _, leg := range c.legs {
-		if leg.ID == name {
-			return nil, fmt.Errorf("leg %q already registered", name)
-		}
-	}
-	c.legs = append(c.legs, models.OptionLeg{ID: name, Quantity: quantity})
-	return starlark.None, nil
-}
-
 func (c *strategyContext) operation(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if c.initializing || c.execution == nil {
 		return nil, fmt.Errorf("%s is only available during on_candle", b.Name())
 	}
 	var name string
 	var offset int
+	var quantity int64
 	var err error
 	if b.Name() == "sell_call" {
-		err = starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name, "offset?", &offset)
+		err = starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name, "quantity", &quantity, "offset?", &offset)
 	} else {
 		err = starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name)
 	}
@@ -179,7 +156,7 @@ func (c *strategyContext) operation(_ *starlark.Thread, b *starlark.Builtin, arg
 	}
 	switch b.Name() {
 	case "sell_call":
-		err = c.execution.SellCall(name, offset)
+		err = c.execution.SellCall(name, quantity, offset)
 	case "close":
 		err = c.execution.Close(name)
 	case "leg":

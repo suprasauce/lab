@@ -14,7 +14,7 @@ Go execution engine with Starlark strategy definitions and PostgreSQL market dat
 
 Underlying-to-instrument relationships use `UnderlyingID`. The optional Strategy
 metadata model contains only ID and name. The script supplies all run configuration.
-OptionLeg stores a registered logical leg's name and quantity; LegExecution stores
+OptionLeg stores a logical leg's name and quantity supplied on its first entry request; LegExecution stores
 independent status and trade history for each expiry. Each trade stores a position's
 contract, entry and exit details, side, quantity, status, and P&L field.
 Underlying IDs and option contract IDs use int64 to match PostgreSQL BIGINT;
@@ -50,18 +50,18 @@ strike, err := strikeSelector.SelectStrike(candle)
 PremiumSelector and DeltaSelector return explicit not-implemented errors.
 
 Scripts define `initialize(ctx)` and `on_candle(ctx)`. The script is compiled once,
-initialized once, and its globals are frozen. Configuration and leg registration
-are permitted only during initialization. The following strategy sells a call two
+initialized once, and its globals are frozen. Configuration is permitted only
+during initialization. Legs are created on their first entry request, with quantity
+specified in that call. The following strategy sells a call two
 INR 50 strike intervals above ATM at 45 DTE and requests closure at 21 DTE:
 
 ```python
 def initialize(ctx):
     ctx.configure(underlying="NIFTY", start_date="2025-01-01", end_date="2025-12-31")
-    ctx.register_leg("CE", quantity=75)
 
 def on_candle(ctx):
     if ctx.dte == 45:
-        ctx.sell_call("CE", offset=2)
+        ctx.sell_call("CE", quantity=75, offset=2)
     if ctx.dte == 21:
         ctx.close("CE")
 ```
@@ -82,8 +82,10 @@ timestamp matching is required: missing option data fails the backtest explicitl
 without forward-filling or looking ahead. Requested orders are queued until a
 subsequent candle; unfilled orders at expiry return an error.
 
-Repeated entries for open/closed legs and repeated closes for non-open legs are
-no-ops. Unknown names are errors. There is no re-entry, rolling, adjustment, forced
+Each expiry starts with an empty leg collection. Repeated entries for an existing
+leg are no-ops and preserve its original quantity. Repeated closes for non-open
+legs are no-ops. Looking up or closing a name before its first entry request is an
+error; use `"CE" in ctx.legs` to check existence. There is no re-entry, rolling, adjustment, forced
 expiry closure, fee model, or slippage model. Closed short trades record gross
 PnL as `(entry_price - exit_price) * quantity` in paise. Open positions remain in
 the returned trade histories. If no candle exists on exactly 45 or 21 DTE, that

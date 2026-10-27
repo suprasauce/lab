@@ -19,19 +19,19 @@ import (
 const setup = `
 def initialize(ctx):
     ctx.configure(underlying="NIFTY", start_date="2026-09-01", end_date="2026-10-31")
-    ctx.register_leg("CE", quantity=75)
 `
 
 const trading = `
 def on_candle(ctx):
-    leg = ctx.leg("CE")
     if ctx.dte == 45:
         if ctx.underlying_candle.start_time.endswith("09:15:00+05:30"):
-            if leg.status != "PENDING" or leg.selected_contract != None or leg.entry_price != None:
+            if len(ctx.legs) != 0:
                 fail("state leaked across expiry cycles")
+        ctx.sell_call("CE", quantity=75, offset=2)
+        ctx.sell_call("CE", quantity=150, offset=3)  # Existing leg stays unchanged.
+        if ctx.leg("CE").status == "PENDING":
             ctx.close("CE")  # Closing a pending leg is a no-op.
-        ctx.sell_call("CE", offset=2)
-        ctx.sell_call("CE", offset=2)
+    leg = ctx.leg("CE")
     if ctx.dte == 21:
         ctx.close("CE")
         ctx.close("CE")
@@ -42,7 +42,7 @@ def on_candle(ctx):
             fail("incorrect selected strike")
     if leg.status == "CLOSED":
         ctx.close("CE")
-        ctx.sell_call("CE", offset=2)
+        ctx.sell_call("CE", quantity=75, offset=2)
     if ctx.legs["CE"].status != ctx.leg("CE").status:
         fail("inconsistent leg views")
 `
@@ -52,7 +52,7 @@ func TestExampleScriptLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if script.context.underlying != "NIFTY" || script.context.legs[0].Quantity != 75 {
+	if script.context.underlying != "NIFTY" || !script.context.configured {
 		t.Fatal("example script configuration was not loaded")
 	}
 }
@@ -62,9 +62,7 @@ func TestInitialization(t *testing.T) {
 		{"valid", setup + "\ndef on_candle(ctx):\n    pass\n", ""},
 		{"missing initialize", "def on_candle(ctx):\n    pass\n", "initialize(ctx)"},
 		{"missing callback", setup, "on_candle(ctx)"},
-		{"missing configuration", "def initialize(ctx):\n    ctx.register_leg('CE', 1)\ndef on_candle(ctx):\n    pass\n", "configure"},
-		{"duplicate leg", setup + "    ctx.register_leg('CE', 2)\ndef on_candle(ctx):\n    pass\n", "already registered"},
-		{"invalid quantity", strings.Replace(setup, "quantity=75", "quantity=0", 1) + "\ndef on_candle(ctx):\n    pass\n", "positive"},
+		{"missing configuration", "def initialize(ctx):\n    pass\ndef on_candle(ctx):\n    pass\n", "configure"},
 		{"invalid dates", strings.Replace(setup, "2026-09-01", "2027-09-01", 1) + "\ndef on_candle(ctx):\n    pass\n", "start_date"},
 		{"entry during initialization", setup + "    ctx.sell_call('CE', offset=2)\ndef on_candle(ctx):\n    pass\n", "only available during on_candle"},
 	} {
@@ -76,10 +74,25 @@ func TestInitialization(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || !script.context.configured || script.context.initializing || len(script.context.legs) != 1 {
+			if err != nil || !script.context.configured || script.context.initializing {
 				t.Fatalf("initialization failed: %v", err)
 			}
 		})
+	}
+}
+
+func TestNoEntryCreatesNoLegs(t *testing.T) {
+	f := newFixture(t)
+	script, err := load("test.star", setup+"\ndef on_candle(ctx):\n    if len(ctx.legs) != 0:\n        fail('unexpected leg')\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || len(results[0]) != 0 || len(results[1]) != 0 || f.contractQueries != 0 {
+		t.Fatalf("created legs or fetched contracts without entry requests: %+v", results)
 	}
 }
 
@@ -126,9 +139,11 @@ func TestMissingUnderlying(t *testing.T) {
 
 func TestRuntimeErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
-		{"late registration", "ctx.register_leg('late', 1)", "only allowed during initialize"},
 		{"late configuration", "ctx.configure(underlying='NIFTY', start_date='2026-01-01', end_date='2026-12-31')", "allowed once during initialize"},
-		{"unknown entry", "ctx.sell_call('unknown', offset=2)", "unknown leg"},
+		{"invalid quantity", "ctx.sell_call('CE', quantity=0, offset=2)", "positive"},
+		{"negative quantity", "ctx.sell_call('CE', quantity=-1, offset=2)", "positive"},
+		{"missing quantity", "ctx.sell_call('CE', offset=2)", "quantity"},
+		{"empty leg name", "ctx.sell_call('', quantity=75, offset=2)", "nonempty"},
 		{"unknown close", "ctx.close('unknown')", "unknown leg"},
 		{"unknown lookup", "ctx.leg('unknown')", "unknown leg"},
 	} {
