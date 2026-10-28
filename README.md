@@ -78,9 +78,10 @@ fill at the open of the next available underlying timestamp's matching option
 candle, never at the already-observed candle's open. Thus a 09:15 candle's OHLC is
 observed at 09:20, and its order can fill at the 09:20 option candle's open.
 Each open leg's current option candle is updated before the callback. Exact
-timestamp matching is required: missing option data fails the backtest explicitly,
-without forward-filling or looking ahead. Requested orders are queued until a
-subsequent candle; unfilled orders at expiry return an error.
+timestamp matching is required: when an option candle is missing, the leg's current
+option candle is `None` and its queued order waits for the next simulation timestamp
+with matching option data. Trade timestamps use the actual available candle.
+Requested orders remain queued until filled; unfilled orders at expiry return an error.
 
 Each expiry starts with an empty leg collection. Repeated entries for an existing
 leg are no-ops and preserve its original quantity. Repeated closes for non-open

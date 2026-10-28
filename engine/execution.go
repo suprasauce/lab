@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -104,13 +103,13 @@ func (e *Execution) advance(candle models.Candle) error {
 		if leg.Status != models.LegOpen && !fill {
 			continue
 		}
-		// Exact timestamp lookup: never substitute a future bar or stale price.
+		// Missing data leaves orders pending until a later simulation candle.
 		candles, err := e.repo.GetOptionCandles(e.ctx, leg.Contract.ID, candle.Timestamp, candle.Timestamp, models.Timeframe5m)
 		if err != nil {
 			return fmt.Errorf("option candle for leg %s: %w", leg.Leg.ID, err)
 		}
 		if len(candles) == 0 {
-			return fmt.Errorf("missing option candle for leg %s at %s: %w", leg.Leg.ID, candle.Timestamp.Format(time.RFC3339), sql.ErrNoRows)
+			continue
 		}
 		leg.Candle = &candles[0]
 		if !fill {

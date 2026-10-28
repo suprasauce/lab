@@ -161,23 +161,32 @@ func TestRuntimeErrors(t *testing.T) {
 	}
 }
 
-func TestMissingOptionData(t *testing.T) {
+func TestMissingOptionCandleWaitsForNextAvailable(t *testing.T) {
 	for _, dte := range []int{45, 21} {
 		f := newFixture(t)
 		f.missingDTE = dte
-		script, err := load("test.star", setup+trading)
+		f.missingMinute = 20
+		// The current option candle is unavailable during the gap.
+		body := strings.Replace(trading, " or leg.option_candle == None", "", 1)
+		script, err := load("test.star", setup+body)
 		if err != nil {
 			t.Fatal(err)
 		}
 		result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-		if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), "missing option candle") {
-			t.Fatalf("missing data was not explicit: %v", err)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if dte == 45 && len(result[0][0].Trades) != 0 {
-			t.Fatal("missing entry candle created a trade")
-		}
-		if dte == 21 && result[0][0].Trades[0].Status != models.TradeOpen {
-			t.Fatal("missing exit data closed a trade")
+		for _, cycle := range result {
+			trade := cycle[0].Trades[0]
+			entryMinute, exitMinute := 20, 20
+			if dte == 45 {
+				entryMinute = 25
+			} else {
+				exitMinute = 25
+			}
+			if len(cycle[0].Trades) != 1 || trade.Status != models.TradeClosed || trade.EntryTime.Minute() != entryMinute || trade.ExitTime.Minute() != exitMinute {
+				t.Fatalf("did not wait for the next available candle: %+v", trade)
+			}
 		}
 	}
 }
@@ -188,6 +197,7 @@ type fixture struct {
 	expiries        []time.Time
 	contractQueries int
 	missingDTE      int
+	missingMinute   int
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -254,7 +264,7 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		expiry := f.expiries[args[0].Value.(int64)-100]
 		day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
 		dte := int(expiry.Sub(day) / (24 * time.Hour))
-		if dte != f.missingDTE {
+		if dte != f.missingDTE || at.Minute() != f.missingMinute {
 			price := int64(10000)
 			if dte == 21 {
 				price = 6000
