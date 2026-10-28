@@ -100,8 +100,37 @@ go run . -strategy strategies/short_call.star
 ```
 
 Edit that script to change the underlying, dates, quantity, offset, or conditions.
-The database must already contain the relevant underlying, expiry cycles,
-contracts, and historical 5-minute underlying and option candles.
+The database must already contain the underlying, classified expiry cycles,
+and historical 5-minute underlying candles. Underlying ingestion remains manual.
+Option contracts already in PostgreSQL are returned directly. When a contract
+is missing, the repository can synchronously request its ingestion from the
+Python data fetcher, then query PostgreSQL again.
+
+Start the [Python service](data-fetcher/README.md) and set its base URL before
+starting Go:
+
+```powershell
+$env:DATA_FETCHER_URL = "http://127.0.0.1:8000"
+```
+
+`DATA_FETCHER_URL` is read when the repository is constructed; it is only required
+on a contract miss. The reusable HTTP client has a 30-minute timeout, with earlier
+cancellation/deadlines supported through the caller's context. Redirects are not
+followed and there are no application retries.
+
+The request is `POST /options/fetch` with `underlying`, `expiry`, `strike`, and
+`option_type`. Strikes are converted from integer paise to an exact JSON decimal
+in rupees (2500005 paise becomes 25000.05). Python must return a synchronous 2xx
+JSON response with status `ingested` or `already_exists` and a positive
+`contract_id`. Go then re-runs the original contract query rather than trusting
+the response as contract data. Missing data after successful ingestion, HTTP
+failures, and database errors are propagated; an existing contract never makes
+an HTTP request.
+
+Both processes must use the same database/schema. Python owns all ingestion
+rules and writes, including fixed 45-DTE/5-minute history and atomic commits.
+Its existing expiry-catalog and historical-data restrictions still apply.
+Go never calls `/underlyings/fetch`.
 Use `postgres://localhost:5432/your_database` to select a database explicitly.
 Keyword/value connection strings are also supported:
 

@@ -3,22 +3,32 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"os"
 	"time"
 
 	"optionsbacktest/models"
 )
 
 type MarketDataRepository struct {
-	db     *sql.DB
-	logger *slog.Logger
+	db         *sql.DB
+	logger     *slog.Logger
+	fetcherURL string
+	httpClient *http.Client
 }
 
 func NewMarketDataRepository(db *sql.DB, logger *slog.Logger) *MarketDataRepository {
 	return &MarketDataRepository{
-		db:     db,
-		logger: logger.With("component", "market_data_repository"),
+		db:         db,
+		logger:     logger.With("component", "market_data_repository"),
+		fetcherURL: os.Getenv("DATA_FETCHER_URL"),
+		httpClient: &http.Client{
+			Timeout:       30 * time.Minute,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 	}
 }
 
@@ -92,7 +102,7 @@ func (r *MarketDataRepository) GetExpiries(
 }
 
 // GetOptionContract resolves a unique contract. Strike prices are in paise.
-// If no contract matches, the returned error wraps sql.ErrNoRows.
+// Missing contracts are synchronously ingested by the Python fetcher, then queried again.
 func (r *MarketDataRepository) GetOptionContract(
 	ctx context.Context,
 	underlyingID int64,
@@ -106,7 +116,31 @@ func (r *MarketDataRepository) GetOptionContract(
 		"strike_price", strikePrice,
 		"option_type", optionType,
 	)
+	contract, err := r.queryOptionContract(ctx, underlyingID, expiry, strikePrice, optionType)
+	if !errors.Is(err, sql.ErrNoRows) {
+		return contract, err
+	}
 
+	var symbol string
+	if err := r.db.QueryRowContext(ctx, queryGetUnderlyingSymbol, underlyingID).Scan(&symbol); err != nil {
+		return models.Option{}, fmt.Errorf("resolve underlying symbol for %d: %w", underlyingID, err)
+	}
+	r.logger.DebugContext(ctx, "ingesting missing option contract", "symbol", symbol, "expiry", expiry,
+		"strike_price", strikePrice, "option_type", optionType)
+	if err := r.fetchOptionContract(ctx, symbol, expiry, strikePrice, optionType); err != nil {
+		return models.Option{}, fmt.Errorf("fetch missing option contract: %w", err)
+	}
+	contract, err = r.queryOptionContract(ctx, underlyingID, expiry, strikePrice, optionType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Option{}, fmt.Errorf("option contract still missing after successful ingestion: %w", err)
+	}
+	if err != nil {
+		return models.Option{}, fmt.Errorf("query option contract after ingestion: %w", err)
+	}
+	return contract, nil
+}
+
+func (r *MarketDataRepository) queryOptionContract(ctx context.Context, underlyingID int64, expiry time.Time, strikePrice models.Price, optionType models.OptionType) (models.Option, error) {
 	var contract models.Option
 	err := r.db.QueryRowContext(ctx, queryGetOptionContract, underlyingID, expiry, strikePrice, optionType).Scan(
 		&contract.ID,
