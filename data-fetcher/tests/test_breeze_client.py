@@ -26,7 +26,7 @@ class BreezeTests(unittest.TestCase):
     @patch("breeze_client.time.sleep")
     def test_nifty_cash_parameters_and_rate_spacing(self, sleep):
         self.sdk.get_historical_data_v2.return_value = {"Status": 200, "Error": None, "Success": []}
-        self.assertEqual(self.client.historical_underlying("NIFTY", self.start, self.end, "5minute"), [])
+        self.assertEqual(self.client.historical_underlying("NIFTY", self.start, self.end), [])
         self.sdk.generate_session.assert_called_once_with(api_secret="test-secret", session_token="test-token")
         self.sdk.get_historical_data_v2.assert_called_once_with(
             interval="5minute", from_date="2026-09-01T09:15:00.000Z", to_date="2026-09-01T11:59:59.000Z",
@@ -42,12 +42,12 @@ class BreezeTests(unittest.TestCase):
             with self.subTest(response_type=type(response).__name__):
                 self.sdk.get_historical_data_v2.return_value = response
                 with self.assertRaises(RuntimeError):
-                    self.client.historical_underlying("NIFTY", self.start, self.end, "5minute")
+                    self.client.historical_underlying("NIFTY", self.start, self.end)
 
     def test_daily_budget(self):
         self.client._daily_requests = 5000
         with self.assertRaisesRegex(RuntimeError, "daily request budget"):
-            self.client.historical_underlying("NIFTY", self.start, self.end, "5minute")
+            self.client.historical_underlying("NIFTY", self.start, self.end)
         self.sdk.get_historical_data_v2.assert_not_called()
 
     @patch("breeze_client.time.sleep")

@@ -1,260 +1,164 @@
-# Underlying data fetcher
+# Historical data ingestion service
 
-Independent Python 3.11+ command. It shares PostgreSQL with Go but imports no Go
-code and has its own environment and dependencies. `main.py` ingests NIFTY index
-candles; `ingest_options.py` independently ingests option contracts and candles.
+Independent Python 3.11+ service sharing the Go application's existing PostgreSQL
+`lab` schema. Exactly two synchronous application endpoints. The Go code and
+database schema are unchanged.
 
-From the repository root, on Windows PowerShell:
+## Install and start
+
+From the repository root, in PowerShell:
 
 ```powershell
 cd data-fetcher
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
-```
-
-Set the PostgreSQL connection string in the OS environment before running:
-
-```powershell
 $env:DATABASE_URL = "host=localhost port=5432 user=postgres password=replace_me dbname=optionsbacktest sslmode=disable"
-```
-
-`DATABASE_URL` is read only from the OS environment, never from `.env`.
-Edit `.env` with your Breeze API key, secret, and current session token.
-Existing process environment variables take precedence over `.env`.
-Obtain a fresh token through the Breeze login/session flow when it
-expires. Keep `.env` private; it and the local virtual environment are ignored.
-
-### Get the Breeze session token
-
-Open the [Breeze API login](https://api.icicidirect.com/apiuser/login?api_key=YOUR_API_KEY),
-replacing `YOUR_API_KEY` with your URL-encoded Breeze API key. Complete the ICICI
-Direct login and use the resulting API session token as `BREEZE_SESSION_TOKEN`
-in `.env` (not your API secret).
-
-If the API key contains special characters, generate the login URL locally:
-
-```python
-from urllib.parse import quote_plus
-
-api_key = "YOUR_API_KEY"
-print("https://api.icicidirect.com/apiuser/login?api_key=" + quote_plus(api_key))
-```
-
-Then update `.env`:
-
-```dotenv
-BREEZE_SESSION_TOKEN=YOUR_API_SESSION_TOKEN
-```
-
-See the official [Breeze SDK authentication example](https://github.com/Idirect-Tech/Breeze-Python-SDK#api-usage).
-
-The database must already contain `lab.underlyings` with `symbol = 'NIFTY'` and
-`lab.underlying_candles`, as used by the Go queries. The schema script lists the
-columns and constraints but does not qualify a schema; this fetcher explicitly
-uses the application's `lab` tables. It never creates tables or underlying rows.
-
-```powershell
 .\.venv\Scripts\python.exe main.py
 ```
 
-Defaults: NIFTY, September 1–30, 2026 inclusive, 5-minute candles. Override them:
+The service listens on `http://127.0.0.1:8000`. Keep one process and one request
+thread (`main.py` already does this), so the shared Breeze session and request
+budget cover all calls. Requests block until ingestion finishes; configure calling
+clients with sufficiently long timeouts. There are no workers or scheduled jobs.
 
-```powershell
-.\.venv\Scripts\python.exe main.py --underlying NIFTY --start-date 2026-09-01 --end-date 2026-09-30 --timeframe 5minute
-```
-
-Direct callers can import `fetch_underlying` from `pipelines.underlying`, set the
-environment variables, and call:
-
-```python
-from pipelines.underlying import fetch_underlying
-
-fetch_underlying(underlying="NIFTY", start_date="2026-09-01", end_date="2026-09-30", timeframe="5minute")
-```
-
-## Input examples
-
-Run the following commands from `data-fetcher`. Breeze credentials belong in `.env`
-and `DATABASE_URL` belongs in the OS environment;
-underlying, date range, and timeframe are command-line inputs.
-
-| Input | Default | Accepted values |
+| Variable | Source | Purpose |
 | --- | --- | --- |
-| `--underlying` | `NIFTY` | `NIFTY` |
-| `--start-date` | `2026-09-01` | Calendar date in `YYYY-MM-DD` format |
-| `--end-date` | `2026-09-30` | Calendar date on or after start date, inclusive |
-| `--timeframe` | `5minute` | `1minute`, `5minute`, `1day` |
+| `DATABASE_URL` | OS environment only | PostgreSQL keyword/value DSN or URL |
+| `BREEZE_API_KEY` | OS environment or `.env` | Breeze application key |
+| `BREEZE_API_SECRET` | OS environment or `.env` | Breeze application secret |
+| `BREEZE_SESSION_TOKEN` | OS environment or `.env` | Current API session token |
 
-Fetch one day of 1-minute candles:
+Existing OS values take precedence. `.env` is read by `python main.py` and only
+its three Breeze fields are loaded. Credentials are never returned in responses.
+Get a session token through the [Breeze portal](https://api.icicidirect.com/apiuser/home)
+or the [SDK login flow](https://github.com/Idirect-Tech/Breeze-Python-SDK#api-usage).
+Restart the service after updating the token; automatic renewal is not implemented.
+
+## POST /options/fetch
+
+```json
+{
+  "underlying": "NIFTY",
+  "expiry": "2025-12-30",
+  "strike": 25000,
+  "option_type": "CALL"
+}
+```
+
+`strike` is in **rupees** at the HTTP boundary (`25000` becomes `2500000` paise).
+`option_type` is `CALL` or `PUT`. Dates use `YYYY-MM-DD`. Supported symbol mappings
+are NIFTY -> NIFTY and BANKNIFTY -> CNXBAN; the underlying must already exist in
+`lab.underlyings`. The matching `lab.option_expiry` row must also already exist,
+with its explicit MONTHLY/WEEKLY classification. The service does not guess it.
+
+PowerShell curl example:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --start-date 2026-09-01 --end-date 2026-09-01 --timeframe 1minute
+@'
+{"underlying":"NIFTY","expiry":"2025-12-30","strike":25000,"option_type":"CALL"}
+'@ | curl.exe -X POST http://127.0.0.1:8000/options/fetch -H "Content-Type: application/json" --data-binary "@-"
 ```
 
-Fetch one week of 5-minute candles, with each input shown separately:
+An existing contract returns HTTP 200 immediately, without authenticating with
+Breeze or fetching candles:
+
+```json
+{"status":"already_exists","contract_id":123,"fetched":0,"inserted":0}
+```
+
+For a missing contract, `MAX_DTE = 45` and `5minute` are fixed. The example fetches
+November 15 through December 30, 2025, inclusive (46 calendar dates). There are no
+DTE, timeframe, strike-range, or padding request fields. Unknown fields are rejected.
+
+All Breeze windows are fetched and validated before the write transaction opens.
+Then one transaction inserts the contract, obtains its generated ID, and inserts
+all candles in batches. Any insertion or commit failure prevents success and
+rolls back the contract and its candles. Unique constraints prevent duplicate
+contracts/candles; a concurrent winner is reused after its transaction commits.
+A new successful ingestion returns HTTP 200 only after commit:
+
+```json
+{"status":"ingested","contract_id":123,"fetched":3400,"inserted":3400}
+```
+
+New contracts with an expiry today or later are rejected: future historical data
+would be incomplete while existence is used as the completion indicator. An empty
+option history also fails without inserting a contract. No status table is used.
+
+## POST /underlyings/fetch
+
+```json
+{
+  "underlying": "NIFTY",
+  "start_date": "2025-01-01",
+  "end_date": "2025-12-31"
+}
+```
 
 ```powershell
-.\.venv\Scripts\python.exe main.py `
-    --underlying NIFTY `
-    --start-date 2026-09-01 `
-    --end-date 2026-09-07 `
-    --timeframe 5minute
+@'
+{"underlying":"NIFTY","start_date":"2025-01-01","end_date":"2025-12-31"}
+'@ | curl.exe -X POST http://127.0.0.1:8000/underlyings/fetch -H "Content-Type: application/json" --data-binary "@-"
 ```
 
-Fetch daily candles for September:
+Dates are inclusive. The underlying must exist. This manually invoked endpoint
+fetches only 5-minute cash/index data and inserts into `lab.underlying_candles`.
+Overlapping requests skip existing `(underlying_id, timeframe, start_time)` rows.
+It returns HTTP 200 with `status`, `fetched`, and newly `inserted` candle counts.
+An empty underlying response is successful with zero inserts and can be retried.
 
-```powershell
-.\.venv\Scripts\python.exe main.py --start-date 2026-09-01 --end-date 2026-09-30 --timeframe 1day
-```
+Both APIs return JSON errors: 400 for invalid input or missing catalog records,
+502 for Breeze/runtime failures, and 500 for unexpected/database failures. A
+failure must not be treated by callers as completed option ingestion.
 
-Show available arguments without fetching data:
+## Breeze and database conventions
 
-```powershell
-.\.venv\Scripts\python.exe main.py --help
-```
+- The existing official SDK authentication and request parameters are preserved:
+  underlying data uses NSE/cash; options use NFO/options and explicit expiry,
+  right, and strike. Breeze requests use `5minute`; PostgreSQL stores `5m`.
+- Requests use the existing 12-hour windows and inclusive-second Breeze bounds.
+  This is below the SDK's documented [1000-interval limit](https://github.com/Idirect-Tech/Breeze-Python-SDK).
+  Responses reaching 1000 rows are rejected as potentially truncated.
+- Existing pacing remains one request/second with a 5000-request daily process
+  budget, respecting the documented [100/minute and 5000/day limits](https://api.icicidirect.com/breezeapi/documents/index.html).
+  Options retry transient failures up to three attempts with 2/4-second backoff.
+  The cash request path retains its existing immediate error propagation.
+- Budget accounting is process-local, resets on restart, and cannot account for
+  other applications using the same credentials. Run a single service process.
+- Naive Breeze timestamps are interpreted as Asia/Kolkata. Aware timestamps are
+  converted to that zone. Candle timestamps are preserved, never shifted by five
+  minutes. The existing SDK convention formats local clock values with `.000Z`
+  in requests; this refactor intentionally preserves that working behavior.
+- Decimal conversion produces integer-paise BIGINT OHLC/strike values and
+  validates integral, nonnegative BIGINT volumes. No float-based rupee rounding,
+  resampling, synthetic candles, market-hour filters, or holiday calendar is added.
+- Completeness means every requested window succeeded; availability is determined
+  by Breeze. Empty successful windows are allowed, but API errors are not silently
+  treated as holidays. The API cannot independently detect silent upstream gaps.
+- **Legacy data:** the old bulk generator committed contracts before fetching
+  their history. Existing contracts may therefore be incomplete. Audit/repair
+  those rows before using existence as the completion indicator. This service
+  deliberately trusts existing contracts and does not refetch or repair them.
+- Fetching is synchronous and buffered in memory before writing. A failure before
+  commit requires a fresh fetch on retry; SQLite checkpoints and bulk generation
+  have been removed.
 
-To change defaults permanently, edit the `default=` values in `main.py`'s
-`parser.add_argument(...)` calls. Command-line arguments override those defaults.
+The Go engine can later query a contract, call `/options/fetch` only when missing,
+wait for HTTP 200, then query PostgreSQL again. That Go change is outside this task.
 
-For a standalone Python script inside `data-fetcher`, load `.env` explicitly:
+## Files and tests
 
-```python
-import os
-from dotenv import dotenv_values
-from pipelines.underlying import fetch_underlying
-
-values = dotenv_values(".env")
-for name in ("BREEZE_API_KEY", "BREEZE_API_SECRET", "BREEZE_SESSION_TOKEN"):
-    if values.get(name) is not None:
-        os.environ.setdefault(name, values[name])
-result = fetch_underlying(
-    underlying="NIFTY",
-    start_date="2026-09-01",
-    end_date="2026-09-07",
-    timeframe="5minute",
-)
-print(result)  # {"fetched": ..., "inserted": ...}
-```
-
-Rerun any command to fetch the same range again; existing candles are skipped.
-
-The official [Breeze SDK](https://github.com/Idirect-Tech/Breeze-Python-SDK)
-provides historical V2 data. Requests use `stock_code=NIFTY`, `exchange_code=NSE`,
-and `product_type=cash`, without option expiry, strike, or right parameters.
-Following its historical examples, request timestamps use market wall-clock
-values with the API's literal `.000Z` suffix. Naive response timestamps are
-interpreted as Asia/Kolkata; explicitly offset response timestamps are converted
-to that zone. PostgreSQL receives timezone-aware datetime values.
-
-Intraday requests use nonoverlapping 12-hour calendar windows, including weekends
-and holidays, keeping even 1-minute requests below the documented 1,000-candle
-limit. Daily requests cover one calendar day. No trading-calendar assumptions,
-resampling, or missing-candle generation are applied. A response reaching the
-limit is rejected instead of silently accepting possibly truncated data.
-
-Timeframe mapping: `1minute → 1m`, `5minute → 5m`, `1day → 1d`. Breeze V2 does
-not offer `15minute`; it is rejected rather than aggregated or mislabeled.
-OHLC values pass through `Decimal(str(value))` and are stored as integer paise;
-sub-paise, negative, nonfinite, and out-of-BIGINT values are rejected. Index volume
-is stored as returned, including zero.
-
-Inserts use batches of up to 500 rows and the existing unique key
-`(underlying_id, timeframe, start_time)` with `ON CONFLICT DO NOTHING`. Each window
-commits independently; on a later failure, rerunning safely skips committed rows.
-Existing candles are not overwritten. Logs include fetched and newly inserted
-counts, so reruns can report fetched rows but zero inserts.
-
-The [Breeze API limits](https://api.icicidirect.com/breezeapi/documents/index.html)
-are 100 requests/minute and 5,000/day. This client spaces historical calls at
-least one second apart and caps its own daily request count, including its
-session request. It cannot count calls made by other processes or earlier runs:
-run one fetcher per account and account for other Breeze usage. API failures stop
-the underlying run. The options command retries transient failures as described
-below. Neither command uses background workers.
-
-Run offline tests (no authentication or database access):
+`main.py` contains HTTP/configuration; `ingestion.py` contains the two flows and
+candle conversion; `database.py` contains SQL; `breeze_client.py` owns SDK access
+and pacing. There is no generic pipeline framework.
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-## Independent options ingestion
-
-The underlying and expiry must already exist in `lab.underlyings` and
-`lab.option_expiry`. Apply the Go project's expiry relationship migration first
-if the database still uses `option_contracts.expiry`. This command never creates
-or classifies expiry rows, and never invokes the underlying pipeline.
-
-Underlying candles for the full requested range must already be available.
-The command queries their overall minimum low and maximum high once, across
-stored timeframes. It fails if no underlying candles exist; it does not fetch
-missing underlying data or assert that every day is present.
-
-Supply the strike interval and symmetric padding as command-line inputs.
-`--strike-interval-paise 5000` means INR 50; `--strike-padding 20` adds 20
-intervals below the rounded minimum and above the rounded maximum. Neither
-value is read from an environment variable or hardcoded in the pipeline.
-
-With `DATABASE_URL` already set in the OS and Breeze credentials configured:
-
-```powershell
-.\.venv\Scripts\python.exe ingest_options.py `
-    --underlying NIFTY `
-    --expiry 2026-09-29 `
-    --start-date 2026-09-01 `
-    --end-date 2026-09-30 `
-    --strike-interval-paise 5000 `
-    --strike-padding 20
-```
-
-All six arguments are required. The interval must be a positive integer in
-paise; padding must be a nonnegative integer (zero adds no extra intervals). Dates are inclusive, in Asia/Kolkata. The
-interval `[start_date, end_date + 1 day)` may span at most one calendar month
-from the start date (with month-end clamping). September 1-30 and September 15
-through October 14 are valid; September 1 through October 1 is too long.
-
-The range is calculated in paise:
-
-```text
-lower = floor(overall_low / interval) * interval - padding * interval
-upper = ceil(overall_high / interval) * interval + padding * interval
-```
-
-Every interval-aligned strike from lower through upper produces a CALL and PUT.
-Contracts use the existing `expiry_id`, skip duplicates, and resolve both new
-and existing IDs. Invalid negative expanded strikes are rejected, not clamped.
-
-Every contract uses the same supplied start/end range, even if end_date is after
-expiry. No expiry clipping or market-hours filter is applied. Twelve-hour
-requests use `5minute`, exchange `NFO`, product `options`, the explicit expiry,
-`call`/`put`, and a rupee strike string derived with Decimal from integer paise.
-Successful responses are inserted in batches into `lab.option_candles` as `5m`.
-All returned candles within the requested windows are retained, including those
-outside normal market hours. Existing candle rows are not overwritten.
-
-Supported stock-code mappings are NIFTY to `NIFTY` and BANKNIFTY to `CNXBAN`.
-For BANKNIFTY, supply its interval using `--strike-interval-paise`. Other symbols
-fail rather than guessing their Breeze code or exchange.
-
-Transient network errors, HTTP/API 429, and selected 5xx errors receive at most
-three attempts, with 2- and 4-second backoff plus normal request pacing.
-Permanent API errors and exhausted retries stop the run with contract/window
-context. Logs show the strike range, contract count, request progress, fetched
-rows, inserted rows, failures, and skipped completed windows.
-
-Successful historical windows are checkpointed in local SQLite metadata at
-`.state/options.sqlite3`, **after PostgreSQL commits**. This is ingestion progress,
-not a new PostgreSQL table. Existing candle counts alone never imply completion.
-Empty successful historical responses are also recorded as completed; failed
-requests are not. Windows ending less than five minutes before request time are
-not checkpointed, so recent or future ranges can be fetched again later.
-
-Rerun the identical command after a failure. Completed contract/windows for that
-database are skipped; unfinished windows are fetched again, and duplicate
-inserts are harmless. An already completed rerun does not authenticate to Breeze.
-Keep the local progress file to retain this benefit. If you restore/delete
-PostgreSQL candle data or want to recheck successful empty responses, remove the
-local `.state/options.sqlite3` file before rerunning. Run one options ingestion
-process at a time; account-wide quotas across other processes remain your
-responsibility. A large strike range may need multiple daily runs.
+Tests use mocked Breeze and a transactional SQL double, including the actual
+persistence helper functions. They cover existing contracts, fetching before a
+transaction, rollback after a later insert fails, commit failure, duplicate/racing
+requests, overlapping ranges, paise/IST conversion, and fixed 45-DTE/5m behavior.
+No live Breeze session or PostgreSQL credentials are required by these tests.

@@ -1,4 +1,4 @@
-"""Breeze authentication and read-only NSE index historical requests."""
+"""Existing Breeze authentication, rate pacing, and historical requests."""
 
 import logging
 import os
@@ -16,6 +16,18 @@ class RetryableBreezeError(RuntimeError):
 
 MARKET_ZONE = ZoneInfo("Asia/Kolkata")
 MAX_CANDLES = 1000
+_client = None
+
+
+def get_client():
+    """Reuse authentication and the rate budget in this single-threaded service."""
+    global _client
+    if _client is None:
+        try:
+            _client = BreezeClient()
+        except ValueError as exc:
+            raise RuntimeError("Breeze credentials are missing; configure the service environment") from exc
+    return _client
 
 
 class BreezeClient:
@@ -76,9 +88,9 @@ class BreezeClient:
             raise RuntimeError("Breeze candle limit reached; refusing potentially truncated data")
         return candles
 
-    def historical_underlying(self, symbol, start, end, timeframe):
+    def historical_underlying(self, symbol, start, end):
         return self._historical_request(
-            interval=timeframe,
+            interval="5minute",
             from_date=start.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             to_date=end.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             stock_code=symbol, exchange_code="NSE", product_type="cash",
