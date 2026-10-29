@@ -9,7 +9,7 @@ from breeze_client import MARKET_ZONE, get_client
 
 logger = logging.getLogger(__name__)
 MAX_DTE = 45
-REQUEST_WINDOW = timedelta(hours=12)
+REQUEST_WINDOW = timedelta(days=13)
 BATCH_SIZE = 500
 BREEZE_CODES = {"NIFTY": "NIFTY", "BANKNIFTY": "CNXBAN"}
 

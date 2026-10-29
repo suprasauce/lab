@@ -117,8 +117,8 @@ failure must not be treated by callers as completed option ingestion.
 - The existing official SDK authentication and request parameters are preserved:
   underlying data uses NSE/cash; options use NFO/options and explicit expiry,
   right, and strike. Breeze requests use `5minute`; PostgreSQL stores `5m`.
-- Requests use the existing 12-hour windows and inclusive-second Breeze bounds.
-  This is below the SDK's documented [1000-interval limit](https://github.com/Idirect-Tech/Breeze-Python-SDK).
+- Requests use shared 13-calendar-day windows and inclusive-second Breeze bounds.
+  The SDK documents a [1000-interval limit](https://github.com/Idirect-Tech/Breeze-Python-SDK).
   Responses reaching 1000 rows are rejected as potentially truncated.
 - Existing pacing remains one request/second with a 5000-request daily process
   budget, respecting the documented [100/minute and 5000/day limits](https://api.icicidirect.com/breezeapi/documents/index.html).

@@ -143,7 +143,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.store.connections, 0, "connection held while fetching")
         self.assertFalse(self.store.in_transaction, "transaction open while fetching")
         self.assertEqual(self.store.commits, 0)
-        self.assertLess(end - start, timedelta(hours=12))
+        self.assertLess(end - start, timedelta(days=13))
         self.calls.append((start, end))
         return [candle(start + timedelta(minutes=15))]
 
@@ -157,7 +157,17 @@ class ServiceTests(unittest.TestCase):
         commits = self.store.commits
         self.store.commits = 0
         try:
-            return self.check_fetch(start, end)
+            self.check_fetch(start, end)
+            # A fixed candle series must not change when request boundaries move.
+            rows = []
+            day = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            while day <= end:
+                for hour in (0, 12):
+                    timestamp = day + timedelta(hours=hour, minutes=15)
+                    if start <= timestamp <= end:
+                        rows.append(candle(timestamp))
+                day += timedelta(days=1)
+            return rows
         finally:
             self.store.commits = commits
 
@@ -179,9 +189,9 @@ class ServiceTests(unittest.TestCase):
     def test_new_contract_fetches_all_before_atomic_insert(self):
         response = self.post_option()
         self.assertEqual(response.status_code, 200, response.json)
-        self.assertEqual(response.json, {"status": "ingested", "contract_id": 42, "fetched": 92, "inserted": 92})
+        self.assertEqual(response.json, {"status": "ingested", "contract_id": 42, "fetched": 4, "inserted": 4})
         self.assertEqual(self.store.commits, 1)
-        self.assertEqual(len(self.calls), 92)
+        self.assertEqual(len(self.calls), 4)
         self.assertEqual(self.calls[0][0], datetime(2025, 11, 15, tzinfo=MARKET_ZONE))
         self.assertEqual(self.calls[-1][1], datetime(2025, 12, 30, 23, 59, 59, tzinfo=MARKET_ZONE))
         for previous, following in zip(self.calls, self.calls[1:]):
@@ -230,7 +240,7 @@ class ServiceTests(unittest.TestCase):
         response = self.post_option()
         self.assertEqual(response.json["status"], "already_exists")
         self.assertEqual(self.breeze.historical_option.call_count, calls)
-        self.assertEqual((len(self.store.contracts), len(self.store.options)), (1, 92))
+        self.assertEqual((len(self.store.contracts), len(self.store.options)), (1, 4))
 
     def test_concurrent_winner_is_reused(self):
         def window(*args):

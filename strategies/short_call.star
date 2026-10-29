@@ -1,8 +1,8 @@
 def initialize(ctx):
     ctx.configure(
         underlying="NIFTY",
-        start_date="2026-01-01",
-        end_date="2026-03-31",
+        start_date="2026-04-01",
+        end_date="2026-06-30",
     )
 
 def on_candle(ctx):
