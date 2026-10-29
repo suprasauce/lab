@@ -91,7 +91,7 @@ func TestNoEntryCreatesNoLegs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 2 || len(results[0]) != 0 || len(results[1]) != 0 || f.contractQueries != 0 {
+	if len(results.Executions) != 2 || len(results.Executions[0]) != 0 || len(results.Executions[1]) != 0 || f.contractQueries != 0 {
 		t.Fatalf("created legs or fetched contracts without entry requests: %+v", results)
 	}
 }
@@ -106,21 +106,24 @@ func TestEntryExitAndExpiryIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 2 || f.contractQueries != 2 {
-		t.Fatalf("cycles=%d contract queries=%d", len(results), f.contractQueries)
+	if results.Underlying != "NIFTY" || len(results.Executions) != 2 || f.contractQueries != 2 {
+		t.Fatalf("result=%+v contract queries=%d", results, f.contractQueries)
 	}
-	for i, cycle := range results {
+	for i, cycle := range results.Executions {
 		if len(cycle) != 1 || cycle[0].Status != models.LegClosed || len(cycle[0].Trades) != 1 {
 			t.Fatalf("unexpected lifecycle: %+v", cycle)
 		}
 		trade := cycle[0].Trades[0]
+		if cycle[0].Contract == nil || cycle[0].Contract.ID != trade.ContractID || cycle[0].Contract.StrikePrice != 2265000 || !cycle[0].Contract.Expiry.Equal(f.expiries[i]) {
+			t.Fatalf("result lost contract metadata: %+v", cycle[0].Contract)
+		}
 		entry := f.expiries[i].AddDate(0, 0, -45).Add(9*time.Hour + 20*time.Minute)
 		exit := f.expiries[i].AddDate(0, 0, -21).Add(9*time.Hour + 20*time.Minute)
 		if trade.ContractID != int64(100+i) || trade.Side != models.Short || trade.Quantity != 75 || trade.Status != models.TradeClosed || !trade.EntryTime.Equal(entry) || !trade.ExitTime.Equal(exit) || trade.EntryPrice != 10000 || trade.ExitPrice != 6000 || trade.PnL != 300000 {
 			t.Fatalf("incorrect trade: %+v", trade)
 		}
 	}
-	if results[0][0].Leg == results[1][0].Leg {
+	if results.Executions[0][0].Leg == results.Executions[1][0].Leg {
 		t.Fatal("expiry cycles share leg configuration pointers")
 	}
 }
@@ -176,7 +179,7 @@ func TestMissingOptionCandleWaitsForNextAvailable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, cycle := range result {
+		for _, cycle := range result.Executions {
 			trade := cycle[0].Trades[0]
 			entryMinute, exitMinute := 20, 20
 			if dte == 45 {

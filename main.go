@@ -11,6 +11,7 @@ import (
 	"optionsbacktest/logging"
 	"optionsbacktest/repository"
 	"optionsbacktest/scripting"
+	"optionsbacktest/utils"
 )
 
 func main() {
@@ -43,5 +44,25 @@ func main() {
 		logger.Error("backtest failed", "error", err)
 		return
 	}
-	logger.Info("backtest completed", "expiry_cycles", len(results))
+	if err := os.MkdirAll("results", 0755); err != nil {
+		logger.Error("failed to create results directory", "error", err)
+		return
+	}
+	const outputPath = "results/backtest.csv"
+	output, err := os.Create(outputPath) // Truncate the previous run's CSV.
+	if err != nil {
+		logger.Error("failed to create backtest CSV", "error", err)
+		return
+	}
+	writeErr := utils.WriteBacktestCSV(output, results)
+	closeErr := output.Close()
+	if writeErr != nil {
+		logger.Error("failed to write backtest CSV", "error", writeErr)
+		return
+	}
+	if closeErr != nil {
+		logger.Error("failed to close backtest CSV", "error", closeErr)
+		return
+	}
+	logger.Info("backtest completed", "expiry_cycles", len(results.Executions), "csv", outputPath)
 }

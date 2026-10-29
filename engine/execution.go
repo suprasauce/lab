@@ -133,11 +133,3 @@ func (e *Execution) advance(candle models.Candle) error {
 	}
 	return nil
 }
-
-func (e *Execution) history() []models.LegExecution {
-	result := make([]models.LegExecution, len(e.Legs))
-	for i, leg := range e.Legs {
-		result[i] = leg.LegExecution
-	}
-	return result
-}

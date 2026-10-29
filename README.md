@@ -100,6 +100,18 @@ Set `DATABASE_URL` to the PostgreSQL connection string and run:
 go run . -strategy strategies/short_call.star
 ```
 
+After a successful backtest, the application writes `results/backtest.csv`,
+creating the directory if necessary and overwriting the previous CSV. Columns are
+`expiry,underlying,strike,option_type,side,entry_timestamp,exit_timestamp,entry_price,exit_price,quantity,pnl`.
+Monetary values are exact rupee decimals; timestamps use RFC3339 with the IST
+offset. Each trade has one row. Open trades have blank exit timestamp, exit price,
+and realized P&L. A run with no trades writes only the header.
+
+CSV generation lives in `utils.WriteBacktestCSV(io.Writer, *engine.BacktestResult)`;
+the engine and scripting packages do not create files or depend on CSV export.
+Results retain the existing runtime legs, including their selected contracts and
+trade histories, rather than duplicating contract metadata in models.
+
 Edit that script to change the underlying, dates, quantity, offset, or conditions.
 The database must already contain the underlying, classified expiry cycles,
 and historical 5-minute underlying candles. Underlying ingestion remains manual.

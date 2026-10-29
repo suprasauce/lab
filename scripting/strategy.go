@@ -61,7 +61,7 @@ func load(filename string, source any) (*Script, error) {
 
 // Run passes script configuration and callbacks to the engine. Each engine
 // expiry has independent leg executions; the script globals stay frozen.
-func (s *Script) Run(ctx context.Context, e *engine.Engine) ([][]models.LegExecution, error) {
+func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestResult, error) {
 	defer func() { s.context.execution = nil }()
 	return e.Backtest(ctx, s.context.underlying, s.context.start, s.context.end, func(execution *engine.Execution) error {
 		s.context.execution = execution
