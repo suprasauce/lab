@@ -24,9 +24,11 @@ def initialize(ctx):
 const trading = `
 def on_candle(ctx):
     if ctx.dte == 45:
-        if ctx.underlying_candle.start_time.endswith("09:15:00+05:30"):
+        if ctx.time == "09:15":
             if len(ctx.legs) != 0:
                 fail("state leaked across expiry cycles")
+            if ctx.underlying_candle != None:
+                fail("unfinished opening candle was exposed")
         ctx.sell_call("CE", quantity=75, offset=2)
         ctx.sell_call("CE", quantity=150, offset=3)  # Existing leg stays unchanged.
         if ctx.leg("CE").status == "PENDING":
@@ -36,10 +38,15 @@ def on_candle(ctx):
         ctx.close("CE")
         ctx.close("CE")
     if leg.status == "OPEN":
-        if leg.entry_price != 10000 or leg.quantity != 75 or leg.option_candle == None:
+        if leg.entry_price != 10000 or leg.quantity != 75:
             fail("incorrect open leg snapshot")
         if leg.selected_contract.strike_price != 2265000:
             fail("incorrect selected strike")
+    if ctx.time == "09:25":
+        if not ctx.underlying_candle.start_time.endswith("09:20:00+05:30"):
+            fail("strategy saw the wrong completed underlying candle")
+        if leg.status == "OPEN" and not leg.option_candle.start_time.endswith("09:20:00+05:30"):
+            fail("strategy saw the wrong completed option candle")
     if leg.status == "CLOSED":
         ctx.close("CE")
         ctx.sell_call("CE", quantity=75, offset=2)
@@ -102,6 +109,11 @@ func TestEntryExitAndExpiryIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.onContractQuery = func() {
+		if script.context.execution.Time.Format("15:04") != "09:20" {
+			t.Fatal("entry requested at 09:15 was processed before the next advance")
+		}
+	}
 	results, err := script.Run(context.Background(), engine.NewEngine(f.repo))
 	if err != nil {
 		t.Fatal(err)
@@ -117,14 +129,40 @@ func TestEntryExitAndExpiryIsolation(t *testing.T) {
 		if cycle[0].Contract == nil || cycle[0].Contract.ID != trade.ContractID || cycle[0].Contract.StrikePrice != 2265000 || !cycle[0].Contract.Expiry.Equal(f.expiries[i]) {
 			t.Fatalf("result lost contract metadata: %+v", cycle[0].Contract)
 		}
-		entry := f.expiries[i].AddDate(0, 0, -45).Add(9*time.Hour + 20*time.Minute)
-		exit := f.expiries[i].AddDate(0, 0, -21).Add(9*time.Hour + 20*time.Minute)
+		entry := f.expiries[i].AddDate(0, 0, -45).Add(9*time.Hour + 15*time.Minute)
+		exit := f.expiries[i].AddDate(0, 0, -21).Add(9*time.Hour + 15*time.Minute)
 		if trade.ContractID != int64(100+i) || trade.Side != models.Short || trade.Quantity != 75 || trade.Status != models.TradeClosed || !trade.EntryTime.Equal(entry) || !trade.ExitTime.Equal(exit) || trade.EntryPrice != 10000 || trade.ExitPrice != 6000 || trade.PnL != 300000 {
 			t.Fatalf("incorrect trade: %+v", trade)
 		}
 	}
 	if results.Executions[0][0].Leg == results.Executions[1][0].Leg {
 		t.Fatal("expiry cycles share leg configuration pointers")
+	}
+}
+
+func TestSessionCloseAdvancesWithoutStrategyCallback(t *testing.T) {
+	f := newFixture(t)
+	script, err := load("test.star", setup+`
+def on_candle(ctx):
+    if ctx.time >= "15:30":
+        fail("script must not run at session close")
+    if ctx.dte == 45 and ctx.time == "15:25":
+        ctx.sell_call("CE", quantity=75, offset=2)
+    if ctx.dte == 21 and ctx.time == "15:25":
+        ctx.close("CE")
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cycle := range result.Executions {
+		trade := cycle[0].Trades[0]
+		if trade.Status != models.TradeClosed || trade.EntryTime.Format("15:04") != "15:25" || trade.ExitTime.Format("15:04") != "15:25" {
+			t.Fatalf("final advance did not process the 15:25 orders: %+v", trade)
+		}
 	}
 }
 
@@ -164,28 +202,37 @@ func TestRuntimeErrors(t *testing.T) {
 	}
 }
 
-func TestMissingOptionCandleWaitsForNextAvailable(t *testing.T) {
+func TestMissingOptionCandleHandling(t *testing.T) {
 	for _, dte := range []int{45, 21} {
 		f := newFixture(t)
 		f.missingDTE = dte
-		f.missingMinute = 20
-		// The current option candle is unavailable during the gap.
-		body := strings.Replace(trading, " or leg.option_candle == None", "", 1)
-		script, err := load("test.star", setup+body)
+		f.missingMinute = 15
+		script, err := load("test.star", setup+trading)
 		if err != nil {
 			t.Fatal(err)
 		}
 		result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+		if dte == 21 {
+			// An open position requires its completed candle even while its
+			// close order is waiting for an eligible execution candle.
+			if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), "missing completed option candle") {
+				t.Fatalf("expected explicit missing completed candle error: %v", err)
+			}
+			if result.Executions[0][0].Candle != nil || result.Executions[0][0].Trades[0].Status != models.TradeOpen {
+				t.Fatal("missing completed candle retained a snapshot or closed the position")
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, cycle := range result.Executions {
 			trade := cycle[0].Trades[0]
-			entryMinute, exitMinute := 20, 20
+			entryMinute, exitMinute := 15, 15
 			if dte == 45 {
-				entryMinute = 25
+				entryMinute = 20
 			} else {
-				exitMinute = 25
+				exitMinute = 20
 			}
 			if len(cycle[0].Trades) != 1 || trade.Status != models.TradeClosed || trade.EntryTime.Minute() != entryMinute || trade.ExitTime.Minute() != exitMinute {
 				t.Fatalf("did not wait for the next available candle: %+v", trade)
@@ -199,6 +246,7 @@ type fixture struct {
 	repo            *repository.MarketDataRepository
 	expiries        []time.Time
 	contractQueries int
+	onContractQuery func()
 	missingDTE      int
 	missingMinute   int
 }
@@ -237,6 +285,9 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		}
 	case strings.Contains(query, "FROM lab.option_contracts"):
 		f.contractQueries++
+		if f.onContractQuery != nil {
+			f.onContractQuery()
+		}
 		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
 		for i, expiry := range f.expiries {
 			if expiry.Equal(args[1].Value.(time.Time)) {
@@ -249,30 +300,50 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 	case strings.Contains(query, "FROM lab.underlying_candles"):
 		r.columns = candleColumns()
 		start := args[2].Value.(time.Time)
+		var first []driver.Value
 		for _, expiry := range f.expiries {
 			for _, dte := range []int{45, 21} {
-				if start.Equal(expiry.AddDate(0, 0, -dte)) {
-					for _, minute := range []int{15, 20, 25} {
-						r.values = append(r.values, candleRow(start.Add(9*time.Hour+time.Duration(minute)*time.Minute), 2253000))
+				for slot := 0; slot < 75; slot++ {
+					at := expiry.AddDate(0, 0, -dte).Add(9*time.Hour + 15*time.Minute + time.Duration(slot)*5*time.Minute)
+					if at.Before(start) {
+						continue
+					}
+					if len(args) == 3 {
+						if first == nil || at.Before(first[0].(time.Time)) {
+							first = candleRow(at, 2253000)
+						}
+					} else if at.Before(args[3].Value.(time.Time)) {
+						r.values = append(r.values, candleRow(at, 2253000))
 					}
 				}
 			}
 		}
+		if len(args) == 3 && first != nil {
+			r.values = [][]driver.Value{first}
+		}
 	case strings.Contains(query, "FROM lab.option_candles"):
 		r.columns = candleColumns()
 		at := args[2].Value.(time.Time)
-		if !at.Equal(args[3].Value.(time.Time)) || args[1].Value != "5m" {
-			f.t.Fatal("option query could expose future candles")
+		if args[1].Value != "5m" {
+			f.t.Fatal("unexpected timeframe")
 		}
-		expiry := f.expiries[args[0].Value.(int64)-100]
-		day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
-		dte := int(expiry.Sub(day) / (24 * time.Hour))
-		if dte != f.missingDTE || at.Minute() != f.missingMinute {
-			price := int64(10000)
-			if dte == 21 {
-				price = 6000
+		end := args[3].Value.(time.Time)
+		rounded := at.Truncate(5 * time.Minute)
+		if rounded.Before(at) {
+			rounded = rounded.Add(5 * time.Minute)
+		}
+		for at = rounded; !at.After(end); at = at.Add(5 * time.Minute) {
+			expiry := f.expiries[args[0].Value.(int64)-100]
+			day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
+			dte := int(expiry.Sub(day) / (24 * time.Hour))
+			if dte != f.missingDTE || at.Hour() != 9 || at.Minute() != f.missingMinute {
+				price := int64(10000)
+				if dte == 21 {
+					price = 6000
+				}
+				r.values = [][]driver.Value{candleRow(at, price)}
+				break
 			}
-			r.values = [][]driver.Value{candleRow(at, price)}
 		}
 	default:
 		f.t.Fatalf("unexpected query: %s", query)

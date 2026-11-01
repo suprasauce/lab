@@ -66,6 +66,15 @@ def on_candle(ctx):
         ctx.close("CE")
 ```
 
+`ctx.time` is the Asia/Kolkata simulation time as a zero-padded 24-hour `HH:mm`
+string. Scripts can check `ctx.time >= "09:15"` or `ctx.time >= "15:20"`.
+Use quotes and two-digit hours/minutes so string comparisons follow time order.
+The clock advances independently of candle gaps, every five minutes from 09:15
+through 15:30 inclusive. Strategy callbacks run only through 15:25; the 15:30
+advance loads the final completed candles and processes pending orders without
+calling the script. A day is simulated only if the database contains at least
+one underlying candle starting within [09:15, 15:30). No holiday calendar is used.
+
 `ctx.dte` counts calendar days. `ctx.underlying_candle` exposes `open`, `high`,
 `low`, `close` in paise and `start_time` as an RFC3339 timestamp. `ctx.leg("CE")`
 and `ctx.legs["CE"]` provide read-only snapshots with `status`, `selected_contract`,
@@ -73,15 +82,32 @@ and `ctx.legs["CE"]` provide read-only snapshots with `status`, `selected_contra
 The selected contract exposes `id`, `strike_price` in paise, `expiry`, and
 `option_type`. The option candle has the same fields as the underlying candle.
 
-Callbacks observe completed underlying candles. Orders requested by a callback
-fill at the open of the next available underlying timestamp's matching option
-candle, never at the already-observed candle's open. Thus a 09:15 candle's OHLC is
-observed at 09:20, and its order can fill at the 09:20 option candle's open.
-Each open leg's current option candle is updated before the callback. Exact
-timestamp matching is required: when an option candle is missing, the leg's current
-option candle is `None` and its queued order waits for the next simulation timestamp
-with matching option data. Trade timestamps use the actual available candle.
-Requested orders remain queued until filled; unfilled orders at expiry return an error.
+At time T, callbacks see only completed underlying/option candles. At 09:25, the
+latest bar is 09:20-09:25, never 09:25-09:30. At 09:15 there is no completed candle
+from that session, so candle attributes are `None`. All candle snapshots are cleared
+on every simulation tick. A missing required completed underlying candle or an
+open leg's completed option candle stops the backtest with an explicit error;
+previous candles are never reused. Data is fetched by timestamp as the clock advances,
+without preloading a daily candle slice.
+
+`sell_call` and `close` queue market orders with `PlacedAt = ctx.time`. Orders are
+processed only inside the next `advance()`, before the next script callback;
+there is no post-callback fill pass. The first available option candle with start >= PlacedAt and
+start <= simulation time provides the fill Open. An order placed at 09:15 can
+record a 09:15 fill when processed at 09:20; a 09:17 placement waits for 09:20. Actual execution times
+are recorded separately in Trade.EntryTime/ExitTime. The fill candle's unfinished
+High/Low/Close are never published to the script. Position changes are visible
+at the next callback, without duplicate fills.
+
+For offset selection, Go reuses the completed underlying candle already loaded
+by `advance()` and selects from its Open, without another underlying lookup.
+If that snapshot is `None`, the order stays pending for a later advance. A selected
+contract is retained while waiting for option data. Missing required completed
+candles still produce the errors described above.
+Missing option bars also leave orders pending, without filling at earlier opens
+or advancing the script into the future. Only regular-session opens are eligible;
+15:30 completes the 15:25 bar and is not a new executable candle open. Unfilled
+orders carry to the next available session or return an error at expiry.
 
 Each expiry starts with an empty leg collection. Repeated entries for an existing
 leg are no-ops and preserve its original quantity. Repeated closes for non-open

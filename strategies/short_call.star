@@ -6,7 +6,7 @@ def initialize(ctx):
     )
 
 def on_candle(ctx):
-    if ctx.dte <= 45:
+    if ctx.dte <= 45 and ctx.time >= "09:30":
         ctx.sell_call("CE", quantity=75, offset=2)
     if ctx.dte <= 21:
         ctx.close("CE")

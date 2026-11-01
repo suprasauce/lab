@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"optionsbacktest/selector"
 )
 
-// Leg combines existing execution history with the current market-data snapshot.
+// Leg combines execution history with the latest completed option candle.
 type Leg struct {
 	models.LegExecution
 	Contract *models.Option
@@ -18,13 +19,17 @@ type Leg struct {
 }
 
 type order struct {
-	close bool
-	after time.Time
+	close    bool
+	offset   int
+	PlacedAt time.Time
+	// Prevent a newly selected contract from filling at an earlier historical open.
+	selectedAt time.Time
 }
 
-// Execution is a single expiry's runtime. It contains no scripting dependencies.
+// Execution is one expiry's runtime, independent of the scripting language.
 type Execution struct {
-	UnderlyingCandle models.Candle
+	Time             time.Time
+	UnderlyingCandle *models.Candle
 	DTE              int
 	Legs             []*Leg
 	ctx              context.Context
@@ -47,8 +52,8 @@ func (e *Execution) Leg(name string) (*Leg, error) {
 	return nil, fmt.Errorf("unknown leg %q", name)
 }
 
-// SellCall resolves a strike from the observed candle and queues a short entry.
-// A queued entry is still PENDING until filled at a subsequent candle's open.
+// SellCall queues a market entry for the next advance(). PlacedAt preserves
+// the earliest eligible execution timestamp independently of processing time.
 func (e *Execution) SellCall(name string, quantity int64, offset int) error {
 	if name == "" || quantity <= 0 {
 		return fmt.Errorf("leg name must be nonempty and quantity must be positive")
@@ -58,23 +63,11 @@ func (e *Execution) SellCall(name string, quantity int64, offset int) error {
 			return nil
 		}
 	}
-	strike, err := selector.NewOffsetSelector(offset).SelectStrike(e.UnderlyingCandle)
-	if err != nil {
-		return err
-	}
-	contract, err := e.repo.GetOptionContract(e.ctx, e.underlyingID, e.expiry, strike, models.Call)
-	if err != nil {
-		return fmt.Errorf("select call for leg %s: %w", name, err)
-	}
-	leg := &Leg{
-		LegExecution: models.LegExecution{
-			Leg:    &models.OptionLeg{ID: name, Quantity: quantity, PositionSide: models.Short, OptionType: models.Call},
-			Status: models.LegPending,
-		},
-		Contract: &contract,
-	}
-	e.Legs = append(e.Legs, leg)
-	e.orders[name] = order{after: e.UnderlyingCandle.Timestamp.Add(5 * time.Minute)}
+	e.Legs = append(e.Legs, &Leg{LegExecution: models.LegExecution{
+		Leg:    &models.OptionLeg{ID: name, Quantity: quantity, PositionSide: models.Short, OptionType: models.Call},
+		Status: models.LegPending,
+	}})
+	e.orders[name] = order{PlacedAt: e.Time, offset: offset}
 	return nil
 }
 
@@ -87,49 +80,125 @@ func (e *Execution) Close(name string) error {
 		return nil
 	}
 	if _, exists := e.orders[name]; !exists {
-		e.orders[name] = order{close: true, after: e.UnderlyingCandle.Timestamp.Add(5 * time.Minute)}
+		e.orders[name] = order{close: true, PlacedAt: e.Time}
 	}
 	return nil
 }
 
-func (e *Execution) advance(candle models.Candle) error {
-	e.UnderlyingCandle = candle
-	day := calendarDate(candle.Timestamp.In(marketLocation))
-	e.DTE = int(calendarDate(e.expiry).Sub(day) / (24 * time.Hour))
+// advance publishes completed bars only, then fills previously queued orders
+// before the next strategy evaluation. Missing required completed bars are errors.
+func (e *Execution) advance(at time.Time) error {
+	day := calendarDate(at)
+	e.UnderlyingCandle = nil
 	for _, leg := range e.Legs {
 		leg.Candle = nil
-		pending, queued := e.orders[leg.Leg.ID]
-		fill := queued && !candle.Timestamp.Before(pending.after)
-		if leg.Status != models.LegOpen && !fill {
+	}
+	e.Time = at
+	e.DTE = int(calendarDate(e.expiry).Sub(day) / (24 * time.Hour))
+	if err := e.loadCompletedCandles(); err != nil {
+		return err
+	}
+	return e.fillOrders()
+}
+
+func (e *Execution) loadCompletedCandles() error {
+	start := e.Time.Add(-candleInterval)
+	// loads the candles having close at or before ctx.time, before we callt the script for this ctx.time with updated candles
+	if startTime, _ := time.Parse(timeLayout, start.Format(timeLayout)); startTime.Before(sessionStartTime) {
+		return nil
+	}
+	// A microsecond-wide range is an exact PostgreSQL timestamp lookup.
+	candles, err := e.repo.GetUnderlyingCandles(e.ctx, e.underlyingID, start, start.Add(time.Microsecond), models.Timeframe5m)
+	if err != nil {
+		return fmt.Errorf("completed underlying candle: %w", err)
+	}
+	if len(candles) == 0 {
+		return fmt.Errorf("missing completed underlying candle for underlying %d at %s: %w", e.underlyingID, start.Format(time.RFC3339), sql.ErrNoRows)
+	}
+	e.UnderlyingCandle = &candles[0]
+	for _, leg := range e.Legs {
+		if leg.Status != models.LegOpen {
 			continue
 		}
-		// Missing data leaves orders pending until a later simulation candle.
-		candles, err := e.repo.GetOptionCandles(e.ctx, leg.Contract.ID, candle.Timestamp, candle.Timestamp, models.Timeframe5m)
+		candles, err := e.repo.GetOptionCandles(e.ctx, leg.Contract.ID, start, start, models.Timeframe5m)
 		if err != nil {
-			return fmt.Errorf("option candle for leg %s: %w", leg.Leg.ID, err)
+			return fmt.Errorf("completed option candle for leg %s: %w", leg.Leg.ID, err)
 		}
 		if len(candles) == 0 {
-			continue
+			return fmt.Errorf("missing completed option candle for leg %s contract %d at %s: %w", leg.Leg.ID, leg.Contract.ID, start.Format(time.RFC3339), sql.ErrNoRows)
 		}
 		leg.Candle = &candles[0]
-		if !fill {
-			continue
-		}
-		if pending.close {
-			trade := &leg.Trades[len(leg.Trades)-1]
-			trade.ExitTime = leg.Candle.Timestamp
-			trade.ExitPrice = leg.Candle.Open
-			trade.PnL = (trade.EntryPrice - trade.ExitPrice) * models.Price(trade.Quantity)
-			trade.Status = models.TradeClosed
-			leg.Status = models.LegClosed
-		} else {
-			leg.Trades = append(leg.Trades, models.Trade{
-				ContractID: leg.Contract.ID, Side: models.Short, Quantity: leg.Leg.Quantity,
-				EntryTime: leg.Candle.Timestamp, EntryPrice: leg.Candle.Open, Status: models.TradeOpen,
-			})
-			leg.Status = models.LegOpen
-		}
-		delete(e.orders, leg.Leg.ID)
 	}
 	return nil
+}
+
+// fillOrders never publishes the fill candle's unfinished OHLC to the script.
+// A fill's actual timestamp is stored in Trade.EntryTime or Trade.ExitTime,
+// separately from the queued order's PlacedAt.
+func (e *Execution) fillOrders() error {
+	for _, leg := range e.Legs {
+		if pending, queued := e.orders[leg.Leg.ID]; queued {
+			if err := e.fillOrder(leg, pending); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// fillOrder leaves the order pending when a required candle is unavailable,
+// allowing it to fill using a subsequent candle on a later advance.
+func (e *Execution) fillOrder(leg *Leg, pending order) error {
+	if !pending.close { // Open a position.
+		if leg.Contract == nil {
+			underlying := e.UnderlyingCandle
+			if underlying == nil {
+				return nil
+			}
+			contract, err := e.selectOptionContract(leg.Leg.ID, pending.offset, *underlying, leg.Leg.OptionType)
+			if err != nil {
+				return err
+			}
+			leg.Contract = &contract
+			pending.selectedAt = underlying.Timestamp
+			e.orders[leg.Leg.ID] = pending
+		}
+		candles, err := e.repo.GetOptionCandles(e.ctx, leg.Contract.ID, pending.selectedAt, e.Time, models.Timeframe5m)
+		if err != nil {
+			return fmt.Errorf("order fill candle for leg %s: %w", leg.Leg.ID, err)
+		}
+		if len(candles) == 0 {
+			return nil
+		}
+		fill := candles[0]
+		leg.Trades = append(leg.Trades, models.Trade{
+			ContractID: leg.Contract.ID, Side: models.Short, Quantity: leg.Leg.Quantity,
+			EntryTime: fill.Timestamp, EntryPrice: fill.Open, Status: models.TradeOpen,
+		})
+		leg.Status = models.LegOpen
+		if fill.Timestamp.Equal(e.Time.Add(-candleInterval)) {
+			leg.Candle = &fill // This fill candle has completed by processing time.
+		}
+	} else { // Close a position.
+		if leg.Candle == nil {
+			return nil
+		}
+		trade := &leg.Trades[len(leg.Trades)-1]
+		trade.ExitTime, trade.ExitPrice = leg.Candle.Timestamp, leg.Candle.Open
+		trade.PnL = (trade.EntryPrice - trade.ExitPrice) * models.Price(trade.Quantity)
+		trade.Status, leg.Status = models.TradeClosed, models.LegClosed
+	}
+	delete(e.orders, leg.Leg.ID)
+	return nil
+}
+func (e *Execution) selectOptionContract(legID string, offset int, underlying models.Candle, optionType models.OptionType) (models.Option, error) {
+	strike, err := selector.NewOffsetSelector(offset).SelectStrike(models.Candle{Open: underlying.Open})
+	if err != nil {
+		return models.Option{}, err
+	}
+	contract, err := e.repo.GetOptionContract(e.ctx, e.underlyingID, e.expiry, strike, optionType)
+	if err != nil {
+		return models.Option{}, fmt.Errorf("select option contract for leg %s: %w", legID, err)
+	}
+	return contract, nil
 }
