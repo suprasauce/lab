@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -24,34 +25,14 @@ def initialize(ctx):
 const trading = `
 def on_candle(ctx):
     if ctx.dte == 45:
+        ctx.open("CE", option_type="CE", side="SHORT", quantity=75, offset=2)
+        ctx.open("CE", option_type="CE", side="SHORT", quantity=150, offset=3)  # Existing leg stays unchanged.
         if ctx.time == "09:15":
-            if len(ctx.legs) != 0:
-                fail("state leaked across expiry cycles")
-            if ctx.underlying_candle != None:
-                fail("unfinished opening candle was exposed")
-        ctx.sell_call("CE", quantity=75, offset=2)
-        ctx.sell_call("CE", quantity=150, offset=3)  # Existing leg stays unchanged.
-        if ctx.leg("CE").status == "PENDING":
             ctx.close("CE")  # Closing a pending leg is a no-op.
-    leg = ctx.leg("CE")
-    if ctx.dte == 21:
+    if ctx.dte <= 21:
         ctx.close("CE")
         ctx.close("CE")
-    if leg.status == "OPEN":
-        if leg.entry_price != 10000 or leg.quantity != 75:
-            fail("incorrect open leg snapshot")
-        if leg.selected_contract.strike_price != 2265000:
-            fail("incorrect selected strike")
-    if ctx.time == "09:25":
-        if not ctx.underlying_candle.start_time.endswith("09:20:00+05:30"):
-            fail("strategy saw the wrong completed underlying candle")
-        if leg.status == "OPEN" and not leg.option_candle.start_time.endswith("09:20:00+05:30"):
-            fail("strategy saw the wrong completed option candle")
-    if leg.status == "CLOSED":
-        ctx.close("CE")
-        ctx.sell_call("CE", quantity=75, offset=2)
-    if ctx.legs["CE"].status != ctx.leg("CE").status:
-        fail("inconsistent leg views")
+        ctx.open("CE", option_type="CE", side="SHORT", quantity=75, offset=2)  # No re-entry after closing.
 `
 
 func TestExampleScriptLoads(t *testing.T) {
@@ -71,7 +52,7 @@ func TestInitialization(t *testing.T) {
 		{"missing callback", setup, "on_candle(ctx)"},
 		{"missing configuration", "def initialize(ctx):\n    pass\ndef on_candle(ctx):\n    pass\n", "configure"},
 		{"invalid dates", strings.Replace(setup, "2026-09-01", "2027-09-01", 1) + "\ndef on_candle(ctx):\n    pass\n", "start_date"},
-		{"entry during initialization", setup + "    ctx.sell_call('CE', offset=2)\ndef on_candle(ctx):\n    pass\n", "only available during on_candle"},
+		{"entry during initialization", setup + "    ctx.open('CE', option_type='CE', side='SHORT', offset=2)\ndef on_candle(ctx):\n    pass\n", "only available during on_candle"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			script, err := load("test.star", tt.source)
@@ -90,7 +71,7 @@ func TestInitialization(t *testing.T) {
 
 func TestNoEntryCreatesNoLegs(t *testing.T) {
 	f := newFixture(t)
-	script, err := load("test.star", setup+"\ndef on_candle(ctx):\n    if len(ctx.legs) != 0:\n        fail('unexpected leg')\n")
+	script, err := load("test.star", setup+"\ndef on_candle(ctx):\n    pass\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +128,7 @@ def on_candle(ctx):
     if ctx.time >= "15:30":
         fail("script must not run at session close")
     if ctx.dte == 45 and ctx.time == "15:25":
-        ctx.sell_call("CE", quantity=75, offset=2)
+        ctx.open("CE", option_type="CE", side="SHORT", quantity=75, offset=2)
     if ctx.dte == 21 and ctx.time == "15:25":
         ctx.close("CE")
 `)
@@ -181,12 +162,16 @@ func TestMissingUnderlying(t *testing.T) {
 func TestRuntimeErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
 		{"late configuration", "ctx.configure(underlying='NIFTY', start_date='2026-01-01', end_date='2026-12-31')", "allowed once during initialize"},
-		{"invalid quantity", "ctx.sell_call('CE', quantity=0, offset=2)", "positive"},
-		{"negative quantity", "ctx.sell_call('CE', quantity=-1, offset=2)", "positive"},
-		{"missing quantity", "ctx.sell_call('CE', offset=2)", "quantity"},
-		{"empty leg name", "ctx.sell_call('', quantity=75, offset=2)", "nonempty"},
+		{"invalid quantity", "ctx.open('CE', option_type='CE', side='SHORT', quantity=0, offset=2)", "positive"},
+		{"negative quantity", "ctx.open('CE', option_type='CE', side='SHORT', quantity=-1, offset=2)", "positive"},
+		{"missing quantity", "ctx.open('CE', option_type='CE', side='SHORT', offset=2)", "quantity"},
+		{"empty leg name", "ctx.open('', option_type='CE', side='SHORT', quantity=75, offset=2)", "nonempty"},
+		{"invalid option type", "ctx.open('L', option_type='CALL', side='SHORT', quantity=75)", "option_type"},
+		{"invalid side", "ctx.open('L', option_type='CE', side='BUY', quantity=75)", "side"},
+		{"invalid leg type", "ctx.open(1, option_type='CE', side='SHORT', quantity=75)", "leg_id"},
+		{"missing option type", "ctx.open('L', side='SHORT', quantity=75)", "option_type"},
+		{"missing side", "ctx.open('L', option_type='CE', quantity=75)", "side"},
 		{"unknown close", "ctx.close('unknown')", "unknown leg"},
-		{"unknown lookup", "ctx.leg('unknown')", "unknown leg"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -249,6 +234,8 @@ type fixture struct {
 	onContractQuery func()
 	missingDTE      int
 	missingMinute   int
+	expectedStrike  int64
+	expectedType    string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -258,6 +245,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, expiries: []time.Time{time.Date(2026, 9, 29, 0, 0, 0, 0, location), time.Date(2026, 10, 27, 0, 0, 0, 0, location)}}
+	f.expectedStrike, f.expectedType = 2265000, "CALL"
 	db := sql.OpenDB(connector{query: f.query})
 	t.Cleanup(func() { db.Close() })
 	f.repo = repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -291,10 +279,10 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
 		for i, expiry := range f.expiries {
 			if expiry.Equal(args[1].Value.(time.Time)) {
-				if args[2].Value != int64(2265000) || args[3].Value != "CALL" {
+				if args[2].Value != f.expectedStrike || args[3].Value != f.expectedType {
 					f.t.Fatalf("offset selection not used: %+v", args)
 				}
-				r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, int64(2265000), "CALL"}}
+				r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType}}
 			}
 		}
 	case strings.Contains(query, "FROM lab.underlying_candles"):
@@ -388,4 +376,44 @@ func (r *rows) Next(dest []driver.Value) error {
 	copy(dest, r.values[0])
 	r.values = r.values[1:]
 	return nil
+}
+
+func TestOpenTypesSidesAndDefaultOffset(t *testing.T) {
+	for _, option := range []struct {
+		input string
+		model models.OptionType
+	}{{"CE", models.Call}, {"PE", models.Put}} {
+		for _, side := range []models.PositionSide{models.Long, models.Short} {
+			t.Run(option.input+"/"+string(side), func(t *testing.T) {
+				f := newFixture(t)
+				f.expectedStrike, f.expectedType = 2255000, string(option.model)
+				source := setup + fmt.Sprintf(`
+def on_candle(ctx):
+    if ctx.dte == 45:
+        ctx.open(leg_id="L", option_type=%q, side=%q, quantity=75)
+    if ctx.dte == 21:
+        ctx.close("L")
+`, option.input, string(side))
+				script, err := load("test.star", source)
+				if err != nil {
+					t.Fatal(err)
+				}
+				result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, cycle := range result.Executions {
+					leg := cycle[0]
+					trade := leg.Trades[0]
+					want := models.Price(300000)
+					if side == models.Long {
+						want = -want
+					}
+					if len(leg.Trades) != 1 || leg.Contract.OptionType != option.model || leg.Contract.StrikePrice != 2255000 || trade.Side != side || trade.Status != models.TradeClosed || trade.PnL != want {
+						t.Fatalf("incorrect open/close: %+v", leg)
+					}
+				}
+			})
+		}
+	}
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
 
 	"optionsbacktest/engine"
@@ -81,14 +80,14 @@ func (*strategyContext) Hash() (uint32, error) {
 	return 0, fmt.Errorf("strategy context is unhashable")
 }
 func (*strategyContext) AttrNames() []string {
-	return []string{"configure", "sell_call", "close", "leg", "time", "dte", "underlying_candle", "legs"}
+	return []string{"configure", "open", "close", "time", "dte"}
 }
 
 func (c *strategyContext) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "configure":
 		return starlark.NewBuiltin(name, c.configure), nil
-	case "sell_call", "close", "leg":
+	case "open", "close":
 		return starlark.NewBuiltin(name, c.operation), nil
 	case "dte":
 		if c.execution != nil {
@@ -100,22 +99,7 @@ func (c *strategyContext) Attr(name string) (starlark.Value, error) {
 			return starlark.String(c.execution.Time.Format("15:04")), nil
 		}
 		return starlark.None, nil
-	case "underlying_candle":
-		if c.execution != nil {
-			return candleValue(c.execution.UnderlyingCandle), nil
-		}
-		return starlark.None, nil
-	case "legs":
-		dict := starlark.NewDict(0)
-		if c.execution != nil {
-			for _, leg := range c.execution.Legs {
-				if err := dict.SetKey(starlark.String(leg.Leg.ID), legValue(leg)); err != nil {
-					return nil, err
-				}
-			}
-		}
-		dict.Freeze()
-		return dict, nil
+
 	}
 	return nil, nil
 }
@@ -147,63 +131,25 @@ func (c *strategyContext) operation(_ *starlark.Thread, b *starlark.Builtin, arg
 	if c.initializing || c.execution == nil {
 		return nil, fmt.Errorf("%s is only available during on_candle", b.Name())
 	}
-	var name string
-	var offset int
-	var quantity int64
-	var err error
-	if b.Name() == "sell_call" {
-		err = starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name, "quantity", &quantity, "offset?", &offset)
-	} else {
-		err = starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name)
-	}
-	if err != nil {
-		return nil, err
-	}
 	switch b.Name() {
-	case "sell_call":
-		err = c.execution.SellCall(name, quantity, offset)
-	case "close":
-		err = c.execution.Close(name)
-	case "leg":
-		leg, lookupErr := c.execution.Leg(name)
-		if lookupErr != nil {
-			return nil, lookupErr
+	case "open":
+		var legID, optionType, side string
+		var quantity int64
+		var offset int
+		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "leg_id", &legID, "option_type", &optionType, "side", &side, "quantity", &quantity, "offset?", &offset); err != nil {
+			return nil, err
 		}
-		return legValue(leg), nil
-	}
-	if err != nil {
-		return nil, err
+		if err := c.execution.Open(legID, optionType, models.PositionSide(side), quantity, offset); err != nil {
+			return nil, err
+		}
+	case "close":
+		var name string
+		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name); err != nil {
+			return nil, err
+		}
+		if err := c.execution.Close(name); err != nil {
+			return nil, err
+		}
 	}
 	return starlark.None, nil
-}
-
-func candleValue(c *models.Candle) starlark.Value {
-	if c == nil {
-		return starlark.None
-	}
-	return starlarkstruct.FromStringDict(starlark.String("candle"), starlark.StringDict{
-		"open": starlark.MakeInt64(int64(c.Open)), "high": starlark.MakeInt64(int64(c.High)),
-		"low": starlark.MakeInt64(int64(c.Low)), "close": starlark.MakeInt64(int64(c.Close)),
-		"start_time": starlark.String(c.Timestamp.Format(time.RFC3339)),
-	})
-}
-
-func legValue(leg *engine.Leg) starlark.Value {
-	var contract, entryPrice starlark.Value = starlark.None, starlark.None
-	if leg.Contract != nil {
-		contract = starlarkstruct.FromStringDict(starlark.String("option"), starlark.StringDict{
-			"id":           starlark.MakeInt64(leg.Contract.ID),
-			"strike_price": starlark.MakeInt64(int64(leg.Contract.StrikePrice)),
-			"expiry":       starlark.String(leg.Contract.Expiry.Format(time.DateOnly)),
-			"option_type":  starlark.String(leg.Contract.OptionType),
-		})
-	}
-	if len(leg.Trades) != 0 {
-		entryPrice = starlark.MakeInt64(int64(leg.Trades[len(leg.Trades)-1].EntryPrice))
-	}
-	return starlarkstruct.FromStringDict(starlark.String("leg"), starlark.StringDict{
-		"status": starlark.String(leg.Status), "selected_contract": contract,
-		"entry_price": entryPrice, "quantity": starlark.MakeInt64(leg.Leg.Quantity),
-		"option_candle": candleValue(leg.Candle),
-	})
 }

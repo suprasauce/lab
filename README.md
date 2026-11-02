@@ -61,7 +61,7 @@ def initialize(ctx):
 
 def on_candle(ctx):
     if ctx.dte == 45:
-        ctx.sell_call("CE", quantity=75, offset=2)
+        ctx.open("CE", option_type="CE", side="SHORT", quantity=75, offset=2)
     if ctx.dte == 21:
         ctx.close("CE")
 ```
@@ -75,14 +75,11 @@ advance loads the final completed candles and processes pending orders without
 calling the script. A day is simulated only if the database contains at least
 one underlying candle starting within [09:15, 15:30). No holiday calendar is used.
 
-`ctx.dte` counts calendar days. `ctx.underlying_candle` exposes `open`, `high`,
-`low`, `close` in paise and `start_time` as an RFC3339 timestamp. `ctx.leg("CE")`
-and `ctx.legs["CE"]` provide read-only snapshots with `status`, `selected_contract`,
-`entry_price`, `quantity`, and `option_candle`. Unavailable values are `None`.
-The selected contract exposes `id`, `strike_price` in paise, `expiry`, and
-`option_type`. The option candle has the same fields as the underlying candle.
+`ctx.dte` counts calendar days. The script context exposes only `configure`,
+`open`, `close`, `time`, and `dte`. Market candles and leg state remain internal
+to the Go engine.
 
-At time T, callbacks see only completed underlying/option candles. At 09:25, the
+At time T, the engine loads only completed underlying/option candles. At 09:25, the
 latest bar is 09:20-09:25, never 09:25-09:30. At 09:15 there is no completed candle
 from that session, so candle attributes are `None`. All candle snapshots are cleared
 on every simulation tick. A missing required completed underlying candle or an
@@ -90,7 +87,14 @@ open leg's completed option candle stops the backtest with an explicit error;
 previous candles are never reused. Data is fetched by timestamp as the clock advances,
 without preloading a daily candle slice.
 
-`sell_call` and `close` queue market orders with `PlacedAt = ctx.time`. Orders are
+`ctx.open(leg_id, option_type, side, quantity, offset=0)` opens a logical leg.
+Use `option_type="CE"` for calls or `"PE"` for puts, and `side="LONG"` or
+`"SHORT"`. Quantity must be positive; offset counts ?50 strike intervals from
+ATM. Existing logical legs are unchanged by repeated open requests. Closing a
+LONG position calculates `(exit - entry) ? quantity`; SHORT uses
+`(entry - exit) ? quantity`, in integer paise.
+
+`open` and `close` queue market orders with `PlacedAt = ctx.time`. Orders are
 processed only inside the next `advance()`, before the next script callback;
 there is no post-callback fill pass. The first available option candle with start >= PlacedAt and
 start <= simulation time provides the fill Open. An order placed at 09:15 can
@@ -112,7 +116,7 @@ orders carry to the next available session or return an error at expiry.
 Each expiry starts with an empty leg collection. Repeated entries for an existing
 leg are no-ops and preserve its original quantity. Repeated closes for non-open
 legs are no-ops. Looking up or closing a name before its first entry request is an
-error; use `"CE" in ctx.legs` to check existence. There is no re-entry, rolling, adjustment, forced
+error. There is no re-entry, rolling, adjustment, forced
 expiry closure, fee model, or slippage model. Closed short trades record gross
 PnL as `(entry_price - exit_price) * quantity` in paise. Open positions remain in
 the returned trade histories. If no candle exists on exactly 45 or 21 DTE, that

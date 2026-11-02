@@ -25,7 +25,7 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 		if strings.Contains(query, "FROM lab.option_contracts") {
 			return &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type"},
-				values: []driver.Value{int64(101), int64(7), int64(9), execution.expiry, args[2].Value, "CALL"}}, nil
+				values: []driver.Value{int64(101), int64(7), int64(9), execution.expiry, args[2].Value, args[3].Value}}, nil
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
 		start := args[2].Value.(time.Time)
@@ -78,7 +78,7 @@ func TestMarketOrderUsesPlacedAt(t *testing.T) {
 			if err := e.advance(placedAt); err != nil {
 				t.Fatal(err)
 			}
-			if err := e.SellCall("CE", 75, 2); err != nil {
+			if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 				t.Fatal(err)
 			}
 			if !e.orders["CE"].PlacedAt.Equal(placedAt) || len(e.Legs[0].Trades) != 0 {
@@ -110,7 +110,7 @@ func TestQueuedOrdersFillOnlyOnNextAdvance(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.SellCall("CE", 75, 2); err != nil {
+	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 		t.Fatal(err)
 	}
 	if len(e.Legs[0].Trades) != 0 || len(e.orders) != 1 {
@@ -157,7 +157,7 @@ func TestCompletedCandlesAndPositionBeforeNextEvaluation(t *testing.T) {
 	if e.UnderlyingCandle != nil {
 		t.Fatal("09:15 exposes an unfinished candle")
 	}
-	if err := e.SellCall("CE", 75, 2); err != nil {
+	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.fillOrders(); err != nil {
@@ -198,7 +198,7 @@ func TestMissingOptionBarWaitsWithoutLeakOrDuplicate(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.SellCall("CE", 75, 2); err != nil {
+	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.fillOrders(); err != nil {
@@ -229,7 +229,7 @@ func TestMissingOptionBarWaitsWithoutLeakOrDuplicate(t *testing.T) {
 	if e.Legs[0].Contract != selected || e.Legs[0].Contract.StrikePrice != 2260000 {
 		t.Fatal("pending entry reselected its contract as the underlying price changed")
 	}
-	if err := e.SellCall("CE", 75, 2); err != nil {
+	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
@@ -248,7 +248,7 @@ func TestStrikeSelectionUsesLoadedUnderlyingOpen(t *testing.T) {
 	if e.UnderlyingCandle.Open != 2250000 {
 		t.Fatal("expected the completed 09:15 candle")
 	}
-	if err := e.SellCall("CE", 75, 2); err != nil {
+	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 25)); err != nil {
@@ -271,7 +271,7 @@ func TestMissingLoadedUnderlyingKeepsOrderPending(t *testing.T) {
 	if e.UnderlyingCandle != nil {
 		t.Fatal("no completed underlying candle should exist at session start")
 	}
-	if err := e.SellCall("CE", 75, 2); err != nil {
+	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.fillOrders(); err != nil {
@@ -293,7 +293,7 @@ func TestDelayedSelectionDoesNotFillBeforeSelectionTime(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.SellCall("CE", 75, 2); err != nil {
+	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.fillOrders(); err != nil {
@@ -332,7 +332,7 @@ func TestAdvanceClearsSnapshotsAndErrorsOnMissingCompletedCandles(t *testing.T) 
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if err := e.SellCall("CE", 75, 2); err != nil {
+		if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.fillOrders(); err != nil {
@@ -353,6 +353,47 @@ func TestAdvanceClearsSnapshotsAndErrorsOnMissingCompletedCandles(t *testing.T) 
 		}
 		if e.Legs[0].Status != models.LegOpen || len(e.Legs[0].Trades) != 1 {
 			t.Fatal("candle reset changed position history")
+		}
+	}
+}
+
+func TestOpenOptionTypesAndSides(t *testing.T) {
+	for _, optionType := range []models.OptionType{models.Call, models.Put} {
+		for _, side := range []models.PositionSide{models.Long, models.Short} {
+			t.Run(string(optionType)+"/"+string(side), func(t *testing.T) {
+				e := executionFixture(t, nil, nil)
+				if err := e.advance(marketTime(9, 15)); err != nil {
+					t.Fatal(err)
+				}
+				input := "CE"
+				if optionType == models.Put {
+					input = "PE"
+				}
+				if err := e.Open("leg", input, side, 75, 2); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.advance(marketTime(9, 20)); err != nil {
+					t.Fatal(err)
+				}
+				leg := e.Legs[0]
+				if leg.Contract.OptionType != optionType || leg.Leg.PositionSide != side || leg.Trades[0].Side != side {
+					t.Fatalf("incorrect option or side: %+v", leg)
+				}
+				if err := e.Close("leg"); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.advance(marketTime(9, 25)); err != nil {
+					t.Fatal(err)
+				}
+				trade := leg.Trades[0]
+				want := models.Price(37500)
+				if side == models.Long {
+					want = -want
+				}
+				if trade.PnL != want || trade.Status != models.TradeClosed || !trade.EntryTime.Equal(marketTime(9, 15)) || !trade.ExitTime.Equal(marketTime(9, 20)) {
+					t.Fatalf("incorrect lifecycle: %+v", trade)
+				}
+			})
 		}
 	}
 }

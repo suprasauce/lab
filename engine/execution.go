@@ -52,22 +52,34 @@ func (e *Execution) Leg(name string) (*Leg, error) {
 	return nil, fmt.Errorf("unknown leg %q", name)
 }
 
-// SellCall queues a market entry for the next advance(). PlacedAt preserves
+// Open queues a market entry for the next advance(). PlacedAt preserves
 // the earliest eligible execution timestamp independently of processing time.
-func (e *Execution) SellCall(name string, quantity int64, offset int) error {
-	if name == "" || quantity <= 0 {
+func (e *Execution) Open(legID string, optionType string, side models.PositionSide, quantity int64, offset int) error {
+	if legID == "" || quantity <= 0 {
 		return fmt.Errorf("leg name must be nonempty and quantity must be positive")
 	}
+	var contractType models.OptionType
+	switch optionType {
+	case "CE":
+		contractType = models.Call
+	case "PE":
+		contractType = models.Put
+	default:
+		return fmt.Errorf("invalid option_type %q: expected CE or PE", optionType)
+	}
+	if side != models.Long && side != models.Short {
+		return fmt.Errorf("invalid side: %s", side)
+	}
 	for _, leg := range e.Legs {
-		if leg.Leg.ID == name {
+		if leg.Leg.ID == legID {
 			return nil
 		}
 	}
 	e.Legs = append(e.Legs, &Leg{LegExecution: models.LegExecution{
-		Leg:    &models.OptionLeg{ID: name, Quantity: quantity, PositionSide: models.Short, OptionType: models.Call},
+		Leg:    &models.OptionLeg{ID: legID, Quantity: quantity, PositionSide: side, OptionType: contractType},
 		Status: models.LegPending,
 	}})
-	e.orders[name] = order{PlacedAt: e.Time, offset: offset}
+	e.orders[legID] = order{PlacedAt: e.Time, offset: offset}
 	return nil
 }
 
@@ -172,7 +184,7 @@ func (e *Execution) fillOrder(leg *Leg, pending order) error {
 		}
 		fill := candles[0]
 		leg.Trades = append(leg.Trades, models.Trade{
-			ContractID: leg.Contract.ID, Side: models.Short, Quantity: leg.Leg.Quantity,
+			ContractID: leg.Contract.ID, Side: leg.Leg.PositionSide, Quantity: leg.Leg.Quantity,
 			EntryTime: fill.Timestamp, EntryPrice: fill.Open, Status: models.TradeOpen,
 		})
 		leg.Status = models.LegOpen
@@ -186,6 +198,9 @@ func (e *Execution) fillOrder(leg *Leg, pending order) error {
 		trade := &leg.Trades[len(leg.Trades)-1]
 		trade.ExitTime, trade.ExitPrice = leg.Candle.Timestamp, leg.Candle.Open
 		trade.PnL = (trade.EntryPrice - trade.ExitPrice) * models.Price(trade.Quantity)
+		if trade.Side == models.Long {
+			trade.PnL = -trade.PnL
+		}
 		trade.Status, leg.Status = models.TradeClosed, models.LegClosed
 	}
 	delete(e.orders, leg.Leg.ID)
