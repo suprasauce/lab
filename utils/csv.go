@@ -30,35 +30,33 @@ func WriteBacktestCSV(w io.Writer, result *engine.BacktestResult) error {
 	}); err != nil {
 		return fmt.Errorf("write CSV header: %w", err)
 	}
+
 	for _, cycle := range result.Executions {
-		for _, leg := range cycle {
-			if leg == nil {
-				return fmt.Errorf("CSV result contains a nil leg")
+		for _, position := range cycle {
+			if position == nil {
+				return fmt.Errorf("CSV result contains a nil position")
 			}
-			if len(leg.Trades) == 0 {
-				continue
+			if position.Contract == nil {
+				return fmt.Errorf("CSV position has no contract")
 			}
-			if leg.Contract == nil {
-				return fmt.Errorf("CSV leg with trades has no selected contract")
+			trade := position.Trade
+			exitTime, exitPrice, pnl := "", "", ""
+			if trade.Status == models.TradeClosed {
+				exitTime = trade.ExitTime.In(location).Format(time.RFC3339)
+				exitPrice = formatPrice(trade.ExitPrice)
+				pnl = formatPrice(trade.PnL)
 			}
-			for _, trade := range leg.Trades {
-				exitTime, exitPrice, pnl := "", "", ""
-				if trade.Status == models.TradeClosed {
-					exitTime = trade.ExitTime.In(location).Format(time.RFC3339)
-					exitPrice = formatPrice(trade.ExitPrice)
-					pnl = formatPrice(trade.PnL)
-				}
-				if err := writer.Write([]string{
-					leg.Contract.Expiry.Format(time.DateOnly), result.Underlying,
-					formatPrice(leg.Contract.StrikePrice), string(leg.Contract.OptionType), string(trade.Side),
-					trade.EntryTime.In(location).Format(time.RFC3339), exitTime,
-					formatPrice(trade.EntryPrice), exitPrice, strconv.FormatInt(trade.Quantity, 10), pnl,
-				}); err != nil {
-					return fmt.Errorf("write CSV trade: %w", err)
-				}
+			if err := writer.Write([]string{
+				position.Contract.Expiry.Format(time.DateOnly), result.Underlying,
+				formatPrice(position.Contract.StrikePrice), string(position.Contract.OptionType), string(trade.Side),
+				trade.EntryTime.In(location).Format(time.RFC3339), exitTime,
+				formatPrice(trade.EntryPrice), exitPrice, strconv.FormatInt(trade.Quantity, 10), pnl,
+			}); err != nil {
+				return fmt.Errorf("write CSV trade: %w", err)
 			}
 		}
 	}
+
 	writer.Flush()
 	if err := writer.Error(); err != nil {
 		return fmt.Errorf("flush CSV: %w", err)

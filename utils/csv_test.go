@@ -16,18 +16,16 @@ import (
 
 func csvResult() *engine.BacktestResult {
 	contract := &models.Option{ID: 101, StrikePrice: 2500005, OptionType: models.Call, Expiry: time.Date(2026, 1, 27, 0, 0, 0, 0, time.UTC)}
-	return &engine.BacktestResult{Underlying: "NIFTY", Executions: [][]*engine.Leg{{{
-		Contract: contract,
-		LegExecution: models.LegExecution{Trades: []models.Trade{
-			{ContractID: 101, Side: models.Short, Quantity: 75,
-				EntryTime: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), EntryPrice: 12705,
-				ExitTime: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), ExitPrice: 8010,
-				Status: models.TradeClosed, PnL: 352125},
-			{ContractID: 101, Side: models.Long, Quantity: 1,
-				EntryTime: time.Date(2026, 1, 7, 3, 45, 0, 0, time.UTC), EntryPrice: 29,
-				Status: models.TradeOpen},
-		}},
-	}}}}
+
+	return &engine.BacktestResult{Underlying: "NIFTY", Executions: [][]*engine.Position{{
+		{Contract: contract, Trade: models.Trade{ContractID: 101, Side: models.Short, Quantity: 75,
+			EntryTime: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), EntryPrice: 12705,
+			ExitTime: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), ExitPrice: 8010,
+			Status: models.TradeClosed, PnL: 352125}},
+		{Contract: contract, Trade: models.Trade{ContractID: 101, Side: models.Long, Quantity: 1,
+			EntryTime: time.Date(2026, 1, 7, 3, 45, 0, 0, time.UTC), EntryPrice: 29, Status: models.TradeOpen}},
+	}}}
+
 }
 
 func TestWriteBacktestCSV(t *testing.T) {

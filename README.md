@@ -2,8 +2,8 @@
 
 Go execution engine with Starlark strategy definitions and PostgreSQL market data.
 
-- `models`: underlying, option, expiry, strategy, leg, trade, and candle.
-- `engine`: expiry simulation clock, short-call execution, position state, and trade history.
+- `models`: underlying, option, expiry, strategy, trade, position side, and candle.
+- `engine`: expiry simulation clock, option orders, position state, and trade history.
 - `scripting`: Starlark loading, initialization, context bindings, and candle callbacks.
 - `strategies`: strategy scripts, including the 45-DTE entry / 21-DTE exit example.
 - `selector`: strike selection, with offset selection implemented and premium/delta placeholders.
@@ -14,8 +14,8 @@ Go execution engine with Starlark strategy definitions and PostgreSQL market dat
 
 Underlying-to-instrument relationships use `UnderlyingID`. The optional Strategy
 metadata model contains only ID and name. The script supplies all run configuration.
-OptionLeg stores a logical leg's name and quantity supplied on its first entry request; LegExecution stores
-independent status and trade history for each expiry. Each trade stores a position's
+The engine keeps independent order and position histories for each expiry.
+Each trade stores a position's
 contract, entry and exit details, side, quantity, status, and P&L field.
 Underlying IDs and option contract IDs use int64 to match PostgreSQL BIGINT;
 other IDs currently remain strings. No candle ownership mapping is defined yet.
@@ -23,8 +23,8 @@ other IDs currently remain strings. No candle ownership mapping is defined yet.
 Prices use int64 amounts in paise (100 paise = 1 rupee). Convert rupees to
 paise before assigning prices. Quantities count units rather than lots.
 
-Option and Underlying are concrete market-data models. Leg configuration does
-not reference a generic instrument abstraction.
+Option and Underlying are concrete market-data models; no generic instrument
+interface is required.
 
 OptionExpiry stores each underlying's expiry date and explicit MONTHLY/WEEKLY
 classification. Option.ExpiryID references it; Option.Expiry is resolved by a join.
@@ -34,8 +34,8 @@ before running the updated repository queries. Fresh databases use `scripts/lab_
 The configured start/end dates select expiry cycles, inclusively. For each expiry,
 the simulation starts 45 calendar days before expiry and continues through expiry.
 This can require historical candles before the configured start date. The engine
-fetches each day's 5-minute underlying candles in order and skips empty days.
-Leg state is recreated for each expiry; EntryDTE on OptionLeg is not used.
+advances the simulation clock through sessions identified from available underlying
+data. Order, position, and script state are recreated for each expiry.
 
 OffsetSelector calculates the nearest ATM strike from an already available
 underlying candle's Open, rounded to INR 50 intervals (halfway rounds up), then
@@ -49,78 +49,95 @@ strike, err := strikeSelector.SelectStrike(candle)
 
 PremiumSelector and DeltaSelector return explicit not-implemented errors.
 
-Scripts define `initialize(ctx)` and `on_candle(ctx)`. The script is compiled once,
-initialized once, and its globals are frozen. Configuration is permitted only
-during initialization. Legs are created on their first entry request, with quantity
-specified in that call. The following strategy sells a call two
-INR 50 strike intervals above ATM at 45 DTE and requests closure at 21 DTE:
+Scripts define `initialize(ctx)` and `on_candle(ctx)`. Scripts are compiled and
+initialized once. Globals stay frozen; mutable per-expiry values belong in
+`ctx.state`. The example submits one short call and one full closing order:
 
 ```python
 def initialize(ctx):
-    ctx.configure(underlying="NIFTY", start_date="2025-01-01", end_date="2025-12-31")
+    ctx.configure(
+        underlying="NIFTY",
+        start_date="2026-01-01",
+        end_date="2026-06-30",
+    )
+
 
 def on_candle(ctx):
-    if ctx.dte == 45:
-        ctx.open("CE", option_type="CE", side="SHORT", quantity=75, offset=2)
-    if ctx.dte == 21:
-        ctx.close("CE")
+    if ctx.dte <= 45 and ctx.time >= "09:30":
+        if "entry_order_id" not in ctx.state:
+            ctx.state["entry_order_id"] = ctx.place_order(
+                contract=atm_option("CALL", offset=2),
+                side="SELL",
+                quantity=75,
+            )
+
+    if ctx.dte <= 21 and ctx.time >= "15:15":
+        if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
+            entry = ctx.order(ctx.state["entry_order_id"])
+            if entry.status == "FILLED":
+                ctx.state["exit_order_id"] = ctx.place_order(
+                    contract=entry.contract_id,
+                    side="BUY",
+                    quantity=75,
+                )
 ```
 
+`ctx.place_order(contract, side, quantity)` returns a new string order ID on every
+call. Side must be `BUY` or `SELL`, and quantity must be a positive integer.
+`contract` accepts either a positive database contract ID or
+`atm_option("CALL", offset=2)` / `atm_option("PUT", offset=-2)`. Offset defaults
+to zero and counts INR 50 intervals above or below nearest ATM. The helper only
+creates an immutable specification; it performs no market-data lookup.
+
+Orders are queued independently in submission order. There are no logical legs
+or implicit duplicate suppression. Use `ctx.state` to submit once. The dictionary
+persists across callbacks within an expiry and starts completely empty for each
+new expiry. Values assigned during `initialize` are not carried into expiry state.
+State uses standard Starlark dictionary rules, with no additional restrictions on
+keys or values; nested dictionaries, lists, tuples, and other values are allowed. Orders and positions are also independent per expiry.
+Order IDs are unique within a backtest, not persistent across separate runs.
+
+`ctx.order(order_id)` returns a read-only snapshot with `id`, `status` (`PENDING`
+or `FILLED`), and `contract_id` (`None` until resolved). Use a filled entry's
+contract ID for the exit so that a changed ATM does not select another contract.
+Unknown order IDs are errors. No position-inspection scripting API is exposed.
+The context exposes `configure`, `place_order`, `order`, `state`, `time`, and `dte`.
+
 `ctx.time` is the Asia/Kolkata simulation time as a zero-padded 24-hour `HH:mm`
-string. Scripts can check `ctx.time >= "09:15"` or `ctx.time >= "15:20"`.
-Use quotes and two-digit hours/minutes so string comparisons follow time order.
-The clock advances independently of candle gaps, every five minutes from 09:15
-through 15:30 inclusive. Strategy callbacks run only through 15:25; the 15:30
-advance loads the final completed candles and processes pending orders without
-calling the script. A day is simulated only if the database contains at least
-one underlying candle starting within [09:15, 15:30). No holiday calendar is used.
+string. Use comparisons such as `ctx.time >= "09:30"`. DTE counts calendar days.
+The clock advances every five minutes from 09:15 through 15:30. Strategy callbacks
+stop at 15:25; the final 15:30 advance processes orders without a new callback.
+Session existence is determined by PostgreSQL underlying candles, with no holiday
+calendar. Each expiry starts 45 calendar days before expiry; configured dates
+select expiry cycles rather than restricting these earlier simulation days.
 
-`ctx.dte` counts calendar days. The script context exposes only `configure`,
-`open`, `close`, `time`, and `dte`. Market candles and leg state remain internal
-to the Go engine.
+All selection and execution happens on the next advance, before the next script
+callback. An ATM request placed at 09:20 is processed at 09:25 using the completed
+09:20-09:25 underlying candle's Open. Strike selection reuses that loaded candle.
+The option candle's Open supplies the fill price, so the actual execution timestamp
+can be 09:20 even though processing occurs at 09:25. Exact contract IDs skip strike
+selection and are resolved at execution; they must belong to the current underlying
+and expiry. A minimal repository lookup resolves IDs not already in position history.
 
-At time T, the engine loads only completed underlying/option candles. At 09:25, the
-latest bar is 09:20-09:25, never 09:25-09:30. At 09:15 there is no completed candle
-from that session, so candle attributes are `None`. All candle snapshots are cleared
-on every simulation tick. A missing required completed underlying candle or an
-open leg's completed option candle stops the backtest with an explicit error;
-previous candles are never reused. Data is fetched by timestamp as the clock advances,
-without preloading a daily candle slice.
+Only completed OHLC snapshots are loaded, and snapshots are cleared on each tick.
+At 09:25 the completed bar starts at 09:20. At 09:15 no same-session candle has
+completed. Missing required underlying or open-position completed candles still
+stop the backtest with an explicit error. Pending entries can wait for available
+option candles without reselecting their resolved contract. Fill prices use the
+first eligible completed option candle Open: at 09:20, the latest eligible candle
+starts at 09:15. If it is missing, the order waits; the 09:20 candle is not eligible
+until 09:25. Neither placement nor selection timestamps are backdated.
+Unfilled orders remaining at expiry produce an error.
 
-`ctx.open(leg_id, option_type, side, quantity, offset=0)` opens a logical leg.
-Use `option_type="CE"` for calls or `"PE"` for puts, and `side="LONG"` or
-`"SHORT"`. Quantity must be positive; offset counts ?50 strike intervals from
-ATM. Existing logical legs are unchanged by repeated open requests. Closing a
-LONG position calculates `(exit - entry) ? quantity`; SHORT uses
-`(entry - exit) ? quantity`, in integer paise.
-
-`open` and `close` queue market orders with `PlacedAt = ctx.time`. Orders are
-processed only inside the next `advance()`, before the next script callback;
-there is no post-callback fill pass. The first available option candle with start >= PlacedAt and
-start <= simulation time provides the fill Open. An order placed at 09:15 can
-record a 09:15 fill when processed at 09:20; a 09:17 placement waits for 09:20. Actual execution times
-are recorded separately in Trade.EntryTime/ExitTime. The fill candle's unfinished
-High/Low/Close are never published to the script. Position changes are visible
-at the next callback, without duplicate fills.
-
-For offset selection, Go reuses the completed underlying candle already loaded
-by `advance()` and selects from its Open, without another underlying lookup.
-If that snapshot is `None`, the order stays pending for a later advance. A selected
-contract is retained while waiting for option data. Missing required completed
-candles still produce the errors described above.
-Missing option bars also leave orders pending, without filling at earlier opens
-or advancing the script into the future. Only regular-session opens are eligible;
-15:30 completes the 15:25 bar and is not a new executable candle open. Unfilled
-orders carry to the next available session or return an error at expiry.
-
-Each expiry starts with an empty leg collection. Repeated entries for an existing
-leg are no-ops and preserve its original quantity. Repeated closes for non-open
-legs are no-ops. Looking up or closing a name before its first entry request is an
-error. There is no re-entry, rolling, adjustment, forced
-expiry closure, fee model, or slippage model. Closed short trades record gross
-PnL as `(entry_price - exit_price) * quantity` in paise. Open positions remain in
-the returned trade histories. If no candle exists on exactly 45 or 21 DTE, that
-equality condition does not trigger on another day.
+Positions retain exact contract metadata and reuse the existing Trade entry/exit
+fields and integer-paise prices. SELL opens SHORT and BUY opens LONG when no
+position is open in that contract. An opposite-side order must match the entire
+open quantity to close it; the exit reuses its loaded option candle. Scaling,
+partial exits, and reversals are rejected at execution. P&L is `(entry - exit) *
+quantity` for SHORT and `(exit - entry) * quantity` for LONG. Closed positions stay
+in history; another order is a new request, so scripts must manage their intent.
+CSV output keeps its existing columns and includes open and closed positions.
+No stop losses, adjustments, forced expiry closure, fees, or slippage are added.
 
 Run checks with `go test ./...` and `go vet ./...`.
 

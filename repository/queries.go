@@ -37,6 +37,13 @@ const queryGetOptionContract = `
 	  AND c.option_type = $4;
 `
 
+const queryGetOptionContractByID = `
+	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
+	FROM lab.option_contracts AS c
+	JOIN lab.option_expiry AS e ON e.id = c.expiry_id
+	WHERE c.id = $1;
+`
+
 const queryGetUnderlyingCandle = `
 	SELECT start_time, timeframe, open, high, low, close, volume
 	FROM lab.underlying_candles

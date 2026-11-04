@@ -140,6 +140,19 @@ func (r *MarketDataRepository) GetOptionContract(
 	return contract, nil
 }
 
+// GetOptionContractByID resolves an existing contract without triggering ingestion.
+func (r *MarketDataRepository) GetOptionContractByID(ctx context.Context, contractID int64) (models.Option, error) {
+	r.logger.DebugContext(ctx, "fetching option contract by ID", "contract_id", contractID)
+	var contract models.Option
+	if err := r.db.QueryRowContext(ctx, queryGetOptionContractByID, contractID).Scan(
+		&contract.ID, &contract.UnderlyingID, &contract.ExpiryID, &contract.Expiry,
+		&contract.StrikePrice, &contract.OptionType,
+	); err != nil {
+		return models.Option{}, fmt.Errorf("get option contract %d: %w", contractID, err)
+	}
+	return contract, nil
+}
+
 func (r *MarketDataRepository) queryOptionContract(ctx context.Context, underlyingID int64, expiry time.Time, strikePrice models.Price, optionType models.OptionType) (models.Option, error) {
 	var contract models.Option
 	err := r.db.QueryRowContext(ctx, queryGetOptionContract, underlyingID, expiry, strikePrice, optionType).Scan(

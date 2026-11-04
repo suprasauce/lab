@@ -54,7 +54,7 @@ func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate
 	if len(expiries) == 0 {
 		return nil, fmt.Errorf("no expiries found for underlying %d", underlyingID)
 	}
-	results := &BacktestResult{Underlying: underlying.Symbol, Executions: make([][]*Leg, 0, len(expiries))}
+	results := &BacktestResult{Underlying: underlying.Symbol, Executions: make([][]*Position, 0, len(expiries))}
 	for _, expiry := range expiries {
 		execution := newExecution(ctx, e.marketDataRepository, underlyingID, expiry)
 		err := e.backtestExpiry(ctx, underlyingID, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
@@ -66,9 +66,14 @@ func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate
 			}
 			return onCandle(execution)
 		})
-		results.Executions = append(results.Executions, execution.Legs)
-		if err == nil && len(execution.orders) != 0 {
-			err = fmt.Errorf("unfilled orders remain at expiry")
+		results.Executions = append(results.Executions, execution.Positions)
+		if err == nil {
+			for _, order := range execution.Orders {
+				if order.Status == models.OrderPending {
+					err = fmt.Errorf("unfilled order %s remains at expiry", order.ID)
+					break
+				}
+			}
 		}
 		if err != nil {
 			return results, fmt.Errorf("expiry %s: %w", expiry.Format(time.DateOnly), err)

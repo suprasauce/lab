@@ -24,6 +24,21 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 	var execution *Execution
 	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 		if strings.Contains(query, "FROM lab.option_contracts") {
+			if len(args) == 1 {
+				rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type"}}
+				id := args[0].Value.(int64)
+				if id >= 101 && id <= 103 {
+					underlyingID, expiry := int64(7), execution.expiry
+					if id == 102 {
+						underlyingID = 8
+					}
+					if id == 103 {
+						expiry = expiry.AddDate(0, 1, 0)
+					}
+					rows.values = []driver.Value{id, underlyingID, int64(9), expiry, int64(2260000), "CALL"}
+				}
+				return rows, nil
+			}
 			return &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type"},
 				values: []driver.Value{int64(101), int64(7), int64(9), execution.expiry, args[2].Value, args[3].Value}}, nil
 		}
@@ -36,8 +51,8 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 		if !option && len(args) == 3 {
 			t.Fatal("order execution must reuse the loaded underlying candle")
 		}
-		if option && args[3].Value.(time.Time).After(execution.Time) {
-			t.Fatal("option lookup requests future data")
+		if option && args[3].Value.(time.Time).After(execution.Time.Add(-candleInterval)) {
+			t.Fatal("option lookup requests an unfinished candle")
 		}
 		for _, minute := range []int{15, 20, 25, 30} {
 			at := marketTime(9, minute)
@@ -70,261 +85,196 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 	return execution
 }
 
+func atmRequest() models.ContractRequest {
+	return models.ContractRequest{OptionType: models.Call, Offset: 2}
+}
+
 func TestMarketOrderUsesPlacedAt(t *testing.T) {
-	for _, tt := range []struct{ placedMinute, fillMinute, processedMinute int }{{15, 15, 20}, {20, 20, 25}} {
-		t.Run(marketTime(9, tt.placedMinute).Format("15:04"), func(t *testing.T) {
+	for _, minute := range []int{15, 20} {
+		t.Run(marketTime(9, minute).Format("15:04"), func(t *testing.T) {
 			e := executionFixture(t, nil, nil)
-			placedAt := marketTime(9, tt.placedMinute)
-			if err := e.advance(placedAt); err != nil {
+			if err := e.advance(marketTime(9, minute)); err != nil {
 				t.Fatal(err)
 			}
-			if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
+			id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if !e.orders["CE"].PlacedAt.Equal(placedAt) || len(e.Legs[0].Trades) != 0 {
-				t.Fatal("entry did not queue with the simulation timestamp")
+			order, _ := e.Order(id)
+			if len(e.Positions) != 0 || order.Contract != nil || order.Status != models.OrderPending || !order.PlacedAt.Equal(e.Time) {
+				t.Fatal("placement performed execution")
 			}
-			if err := e.advance(marketTime(9, tt.processedMinute)); err != nil {
+			if err := e.advance(marketTime(9, minute+5)); err != nil {
 				t.Fatal(err)
 			}
-			trade := e.Legs[0].Trades[0]
-			wantPrice := models.Price(10000 - (tt.fillMinute-15)*100)
-			if !trade.EntryTime.Equal(marketTime(9, tt.fillMinute)) || trade.EntryPrice != wantPrice {
-				t.Fatalf("wrong fill: %+v", trade)
-			}
-			if e.Legs[0].Candle != nil && e.Legs[0].Candle.Timestamp.Add(candleInterval).After(e.Time) {
-				t.Fatal("unfinished fill candle exposed to strategy")
+			position := e.Positions[0]
+			if !position.EntryTime.Equal(marketTime(9, minute)) || position.EntryPrice != models.Price(10000-(minute-15)*100) || order.Status != models.OrderFilled || !order.FilledAt.Equal(position.EntryTime) {
+				t.Fatalf("incorrect fill: %+v", order)
 			}
 			if err := e.fillOrders(); err != nil {
 				t.Fatal(err)
 			}
-			if len(e.Legs[0].Trades) != 1 || len(e.orders) != 0 {
-				t.Fatal("order filled twice")
+			if len(e.Positions) != 1 {
+				t.Fatal("duplicate fill")
+			}
+			if position.Candle != nil && position.Candle.Timestamp.Add(candleInterval).After(e.Time) {
+				t.Fatal("future OHLC exposed")
 			}
 		})
 	}
 }
 
-func TestQueuedOrdersFillOnlyOnNextAdvance(t *testing.T) {
+func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	e := executionFixture(t, nil, nil)
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
+	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	if err != nil {
 		t.Fatal(err)
-	}
-	if len(e.Legs[0].Trades) != 0 || len(e.orders) != 1 {
-		t.Fatal("script request must only queue the entry")
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
-	leg := e.Legs[0]
-	if leg.Status != models.LegOpen || !leg.Trades[0].EntryTime.Equal(marketTime(9, 15)) || leg.Trades[0].EntryPrice != 10000 {
-		t.Fatalf("09:20 processing should record the eligible 09:15 Open: %+v", leg.Trades)
-	}
-	if leg.Contract.StrikePrice != 2260000 || leg.Candle == nil || !leg.Candle.Timestamp.Equal(marketTime(9, 15)) {
-		t.Fatal("selection must use the 09:15 underlying Open and publish only its completed option candle")
-	}
 	if err := e.advance(marketTime(9, 25)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Close("CE"); err != nil {
+	if !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 20)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
+		t.Fatal("wrong completed candle")
+	}
+	entry, _ := e.Order(id)
+	exitID, err := e.PlaceOrder(models.ContractRequest{ContractID: entry.Contract.ID}, "BUY", 75)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if leg.Trades[0].Status != models.TradeOpen || !leg.Trades[0].ExitTime.IsZero() {
-		t.Fatal("close executed inside the callback")
+	if e.Positions[0].Status != models.TradeOpen {
+		t.Fatal("exit executed during placement")
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
 		t.Fatal(err)
 	}
-	if leg.Trades[0].Status != models.TradeClosed || !leg.Trades[0].ExitTime.Equal(marketTime(9, 25)) || leg.Trades[0].ExitPrice != 9000 {
-		t.Fatalf("09:30 processing should record the eligible 09:25 exit Open: %+v", leg.Trades[0])
+	position := e.Positions[0]
+	exit, _ := e.Order(exitID)
+	if position.Status != models.TradeClosed || !position.ExitTime.Equal(marketTime(9, 25)) || position.ExitPrice != 9000 || position.PnL != 75000 || exit.Status != models.OrderFilled {
+		t.Fatalf("wrong exit: %+v", position)
 	}
 	if err := e.advance(marketTime(9, 35)); err != nil {
 		t.Fatal(err)
 	}
-	if len(leg.Trades) != 1 || len(e.orders) != 0 {
-		t.Fatal("order filled twice")
+	if len(e.Positions) != 1 {
+		t.Fatal("duplicate position")
 	}
 }
 
-func TestCompletedCandlesAndPositionBeforeNextEvaluation(t *testing.T) {
+func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
 	e := executionFixture(t, nil, nil)
-	if err := e.advance(marketTime(9, 15)); err != nil {
+	e.Time = marketTime(9, 15)
+	first, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if e.UnderlyingCandle != nil {
-		t.Fatal("09:15 exposes an unfinished candle")
+	second, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	if err != nil || first == second || len(e.Orders) != 2 || len(e.Positions) != 0 {
+		t.Fatal("requests were deduplicated or executed")
 	}
-	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.fillOrders(); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
-		t.Fatal(err)
-	}
-	if e.Legs[0].Status != models.LegOpen || !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 15)) || !e.Legs[0].Candle.Timestamp.Equal(marketTime(9, 15)) {
-		t.Fatal("09:20 evaluation must see the filled position and completed 09:15 candles")
-	}
-	if err := e.advance(marketTime(9, 25)); err != nil {
-		t.Fatal(err)
-	}
-	if !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 20)) || !e.Legs[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
-		t.Fatal("09:25 must expose 09:20-09:25, not 09:25-09:30")
-	}
-	if err := e.Close("CE"); err != nil {
-		t.Fatal(err)
-	}
-	if !e.orders["CE"].PlacedAt.Equal(marketTime(9, 25)) {
-		t.Fatal("close has incorrect PlacedAt")
-	}
-	if err := e.advance(marketTime(9, 30)); err != nil {
-		t.Fatal(err)
-	}
-	trade := e.Legs[0].Trades[0]
-	if !trade.ExitTime.Equal(marketTime(9, 25)) || trade.ExitPrice != 9000 || trade.Status != models.TradeClosed {
-		t.Fatalf("incorrect close fill: %+v", trade)
-	}
-	if !e.Legs[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
-		t.Fatal("close exposed its unfinished fill candle")
+	for _, order := range e.Orders {
+		if order.Status != models.OrderPending || order.Contract != nil {
+			t.Fatal("placement selected a contract")
+		}
 	}
 }
 
-func TestMissingOptionBarWaitsWithoutLeakOrDuplicate(t *testing.T) {
+func TestMissingOptionBarRetainsSelection(t *testing.T) {
 	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true}, nil)
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.fillOrders(); err != nil {
-		t.Fatal(err)
-	}
-	if e.Legs[0].Contract != nil || len(e.orders) != 1 {
-		t.Fatal("entry should wait until a completed underlying candle is loaded")
-	}
-	if err := e.fillOrders(); err != nil {
+	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
-	selected := e.Legs[0].Contract
-	if selected == nil || selected.StrikePrice != 2260000 {
-		t.Fatal("entry did not select from the loaded underlying candle")
-	}
-	if len(e.Legs[0].Trades) != 0 || e.Legs[0].Candle != nil || len(e.orders) != 1 {
-		t.Fatal("future bar filled or exposed before 09:25")
+	order, _ := e.Order(id)
+	selected := order.Contract
+	if selected == nil || selected.StrikePrice != 2260000 || order.Status != models.OrderPending || len(e.Positions) != 0 {
+		t.Fatal("did not retain pending selection")
 	}
 	if err := e.advance(marketTime(9, 25)); err != nil {
 		t.Fatal(err)
 	}
-	if e.Legs[0].Status != models.LegOpen || !e.Legs[0].Trades[0].EntryTime.Equal(marketTime(9, 25)) || e.Legs[0].Candle != nil {
-		t.Fatal("pending order should fill at 09:25 while its candle remains unavailable")
-	}
-	if e.Legs[0].Contract != selected || e.Legs[0].Contract.StrikePrice != 2260000 {
-		t.Fatal("pending entry reselected its contract as the underlying price changed")
-	}
-	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
-		t.Fatal(err)
+	if order.Contract != selected || order.Status != models.OrderPending || len(e.Positions) != 0 {
+		t.Fatal("reselected or filled using the unfinished 09:25 candle")
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
 		t.Fatal(err)
 	}
-	if len(e.Legs[0].Trades) != 1 || !e.Legs[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
-		t.Fatal("duplicate fill or wrong completed candle")
+	if order.Contract != selected || order.Status != models.OrderFilled || !order.FilledAt.Equal(marketTime(9, 25)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
+		t.Fatal("order did not fill using the completed 09:25 candle at 09:30")
+	}
+	if err := e.fillOrders(); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Positions) != 1 {
+		t.Fatal("duplicate fill")
 	}
 }
 
-func TestStrikeSelectionUsesLoadedUnderlyingOpen(t *testing.T) {
+func TestStrikeSelectionUsesNextAdvanceLoadedOpen(t *testing.T) {
 	e := executionFixture(t, nil, nil)
 	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
 	if e.UnderlyingCandle.Open != 2250000 {
-		t.Fatal("expected the completed 09:15 candle")
+		t.Fatal("wrong script snapshot")
 	}
-	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
+	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	if err != nil {
 		t.Fatal(err)
+	}
+	order, _ := e.Order(id)
+	if order.Contract != nil {
+		t.Fatal("selected from script's snapshot")
 	}
 	if err := e.advance(marketTime(9, 25)); err != nil {
 		t.Fatal(err)
 	}
-	// At 09:25, the loaded 09:20 Open is 22550 rupees; ATM+2 is 22650.
-	if e.Legs[0].Contract.StrikePrice != 2265000 {
-		t.Fatalf("strike did not use the loaded Open: %+v", e.Legs[0].Contract)
-	}
-	if !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 20)) {
-		t.Fatal("strike selection published the unfinished current candle")
+	if order.Contract.StrikePrice != 2265000 {
+		t.Fatalf("wrong execution-time strike: %+v", order.Contract)
 	}
 }
 
 func TestMissingLoadedUnderlyingKeepsOrderPending(t *testing.T) {
-	e := executionFixture(t, nil, nil)
-	if err := e.advance(marketTime(9, 15)); err != nil {
-		t.Fatal(err)
-	}
-	if e.UnderlyingCandle != nil {
-		t.Fatal("no completed underlying candle should exist at session start")
-	}
-	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.fillOrders(); err != nil {
-		t.Fatal(err)
-	}
-	if e.Legs[0].Contract != nil || len(e.Legs[0].Trades) != 0 || len(e.orders) != 1 {
-		t.Fatal("missing snapshot should leave the order unselected and pending")
-	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
-		t.Fatal(err)
-	}
-	if e.Legs[0].Contract.StrikePrice != 2260000 || !e.Legs[0].Trades[0].EntryTime.Equal(marketTime(9, 15)) {
-		t.Fatal("order did not resume when the completed underlying candle became available")
-	}
-}
-
-func TestDelayedSelectionDoesNotFillBeforeSelectionTime(t *testing.T) {
 	e := executionFixture(t, nil, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.fillOrders(); err != nil {
+	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	if err != nil {
 		t.Fatal(err)
 	}
 	e.Time = marketTime(9, 20)
 	if err := e.fillOrders(); err != nil {
 		t.Fatal(err)
 	}
-	if e.Legs[0].Contract != nil || len(e.Legs[0].Trades) != 0 || e.UnderlyingCandle != nil {
-		t.Fatal("future underlying candle was used before its timestamp")
-	}
-	if !e.orders["CE"].PlacedAt.Equal(marketTime(9, 15)) {
-		t.Fatal("original placement time changed")
+	order, _ := e.Order(id)
+	if order.Contract != nil || len(e.Positions) != 0 {
+		t.Fatal("missing underlying did not leave order pending")
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
 		t.Fatal(err)
 	}
-	trade := e.Legs[0].Trades[0]
-	if !trade.EntryTime.Equal(marketTime(9, 25)) || trade.EntryPrice != 9000 {
-		t.Fatalf("selected contract filled retroactively using an earlier candle: %+v", trade)
+	if !order.FilledAt.Equal(marketTime(9, 25)) || !order.PlacedAt.Equal(marketTime(9, 15)) {
+		t.Fatal("retroactive fill or changed placement time")
 	}
 }
 
 func TestAdvanceClearsSnapshotsAndErrorsOnMissingCompletedCandles(t *testing.T) {
 	for _, underlyingMissing := range []bool{true, false} {
 		missingOption, missingUnderlying := map[time.Time]bool{}, map[time.Time]bool{}
-		want := "missing completed option candle for leg CE contract 101"
 		if underlyingMissing {
 			missingUnderlying[marketTime(9, 20)] = true
-			want = "missing completed underlying candle for underlying 7"
 		} else {
 			missingOption[marketTime(9, 20)] = true
 		}
@@ -332,32 +282,23 @@ func TestAdvanceClearsSnapshotsAndErrorsOnMissingCompletedCandles(t *testing.T) 
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if err := e.Open("CE", "CE", models.Short, 75, 2); err != nil {
-			t.Fatal(err)
-		}
-		if err := e.fillOrders(); err != nil {
+		if _, err := e.PlaceOrder(atmRequest(), "SELL", 75); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
 			t.Fatal(err)
 		}
-		if e.UnderlyingCandle == nil || e.Legs[0].Candle == nil {
-			t.Fatal("expected previous snapshots")
-		}
 		err := e.advance(marketTime(9, 25))
-		if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), marketTime(9, 20).Format(time.RFC3339)) {
-			t.Fatalf("missing completed candle error lacks context: %v", err)
+		if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), marketTime(9, 20).Format(time.RFC3339)) {
+			t.Fatalf("missing candle error: %v", err)
 		}
-		if e.Legs[0].Candle != nil || underlyingMissing && e.UnderlyingCandle != nil {
-			t.Fatal("previous candle was retained")
-		}
-		if e.Legs[0].Status != models.LegOpen || len(e.Legs[0].Trades) != 1 {
-			t.Fatal("candle reset changed position history")
+		if e.Positions[0].Candle != nil || underlyingMissing && e.UnderlyingCandle != nil || e.Positions[0].Status != models.TradeOpen {
+			t.Fatal("stale snapshot or changed position")
 		}
 	}
 }
 
-func TestOpenOptionTypesAndSides(t *testing.T) {
+func TestOptionTypesAndPositionSides(t *testing.T) {
 	for _, optionType := range []models.OptionType{models.Call, models.Put} {
 		for _, side := range []models.PositionSide{models.Long, models.Short} {
 			t.Run(string(optionType)+"/"+string(side), func(t *testing.T) {
@@ -365,35 +306,145 @@ func TestOpenOptionTypesAndSides(t *testing.T) {
 				if err := e.advance(marketTime(9, 15)); err != nil {
 					t.Fatal(err)
 				}
-				input := "CE"
-				if optionType == models.Put {
-					input = "PE"
+				entrySide, exitSide := "SELL", "BUY"
+				if side == models.Long {
+					entrySide, exitSide = "BUY", "SELL"
 				}
-				if err := e.Open("leg", input, side, 75, 2); err != nil {
+				if _, err := e.PlaceOrder(models.ContractRequest{OptionType: optionType, Offset: 2}, entrySide, 75); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 20)); err != nil {
 					t.Fatal(err)
 				}
-				leg := e.Legs[0]
-				if leg.Contract.OptionType != optionType || leg.Leg.PositionSide != side || leg.Trades[0].Side != side {
-					t.Fatalf("incorrect option or side: %+v", leg)
+				position := e.Positions[0]
+				if position.Contract.OptionType != optionType || position.Side != side {
+					t.Fatal("incorrect option or side")
 				}
-				if err := e.Close("leg"); err != nil {
+				if _, err := e.PlaceOrder(models.ContractRequest{ContractID: position.ContractID}, exitSide, 75); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 25)); err != nil {
 					t.Fatal(err)
 				}
-				trade := leg.Trades[0]
 				want := models.Price(37500)
 				if side == models.Long {
 					want = -want
 				}
-				if trade.PnL != want || trade.Status != models.TradeClosed || !trade.EntryTime.Equal(marketTime(9, 15)) || !trade.ExitTime.Equal(marketTime(9, 20)) {
-					t.Fatalf("incorrect lifecycle: %+v", trade)
+				if position.Status != models.TradeClosed || position.PnL != want {
+					t.Fatalf("incorrect P&L: %+v", position)
 				}
 			})
+		}
+	}
+}
+
+func TestExactContractIDAndInvalidID(t *testing.T) {
+	for _, id := range []int64{101, 404} {
+		e := executionFixture(t, nil, nil)
+		if err := e.advance(marketTime(9, 15)); err != nil {
+			t.Fatal(err)
+		}
+		orderID, err := e.PlaceOrder(models.ContractRequest{ContractID: id}, "BUY", 75)
+		if err != nil {
+			t.Fatal(err)
+		}
+		order, _ := e.Order(orderID)
+		if order.Contract != nil || order.Status != models.OrderPending || len(e.Positions) != 0 {
+			t.Fatal("exact contract was resolved during placement")
+		}
+		err = e.advance(marketTime(9, 20))
+		if id == 404 {
+			if !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("expected missing ID, got %v", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if order.Contract.ID != 101 || order.Status != models.OrderFilled || e.Positions[0].Side != models.Long {
+			t.Fatal("incorrect exact-ID fill")
+		}
+	}
+}
+
+func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
+	for _, request := range []struct {
+		side     string
+		quantity int64
+	}{{"BUY", 1}, {"BUY", 100}, {"SELL", 75}} {
+		e := executionFixture(t, nil, nil)
+		if err := e.advance(marketTime(9, 15)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.PlaceOrder(atmRequest(), "SELL", 75); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.advance(marketTime(9, 20)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.PlaceOrder(models.ContractRequest{ContractID: 101}, request.side, request.quantity); err != nil {
+			t.Fatal("placement should only queue", err)
+		}
+		if err := e.advance(marketTime(9, 25)); err == nil {
+			t.Fatal("unsupported position change executed")
+		}
+		if e.Positions[0].Status != models.TradeOpen || e.Positions[0].Quantity != 75 {
+			t.Fatal("position mutated")
+		}
+	}
+}
+
+func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true}, nil)
+	if err := e.advance(marketTime(9, 15)); err != nil {
+		t.Fatal(err)
+	}
+	entryID, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitID, err := e.PlaceOrder(models.ContractRequest{ContractID: 101}, "BUY", 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 20)); err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := e.Order(entryID)
+	exit, _ := e.Order(exitID)
+	if entry.Status != models.OrderPending || exit.Status != models.OrderPending || len(e.Positions) != 0 {
+		t.Fatal("orders should remain pending while option candles are unavailable")
+	}
+	if entry.Contract == nil || exit.Contract == nil {
+		t.Fatal("both orders must resolve their contracts independently even when the earlier order is pending")
+	}
+	if err := e.advance(marketTime(9, 25)); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Status != models.OrderPending || exit.Status != models.OrderPending || len(e.Positions) != 0 {
+		t.Fatal("orders must wait until the 09:25 candle completes")
+	}
+	if err := e.advance(marketTime(9, 30)); err != nil {
+		t.Fatal(err)
+	}
+	if exit.Status != models.OrderFilled || e.Positions[0].Status != models.TradeClosed || !entry.FilledAt.Equal(marketTime(9, 25)) || !exit.FilledAt.Equal(marketTime(9, 25)) {
+		t.Fatal("incorrect full exit after delayed entry")
+	}
+}
+
+func TestExactContractMustMatchUnderlyingAndExpiry(t *testing.T) {
+	for _, id := range []int64{102, 103} {
+		e := executionFixture(t, nil, nil)
+		if err := e.advance(marketTime(9, 15)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.PlaceOrder(models.ContractRequest{ContractID: id}, "BUY", 75); err != nil {
+			t.Fatal(err)
+		}
+		err := e.advance(marketTime(9, 20))
+		if err == nil || !strings.Contains(err.Error(), "current underlying and expiry") || len(e.Positions) != 0 {
+			t.Fatalf("foreign contract was accepted: %v", err)
 		}
 	}
 }

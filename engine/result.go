@@ -1,7 +1,7 @@
 package engine
 
-// BacktestResult retains runtime legs and their contract metadata, grouped by expiry.
+// BacktestResult retains position histories and contract metadata per expiry.
 type BacktestResult struct {
 	Underlying string
-	Executions [][]*Leg
+	Executions [][]*Position
 }
