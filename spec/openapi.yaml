@@ -1,0 +1,162 @@
+openapi: 3.0.3
+info:
+  title: Options Backtesting API
+  version: 0.1.0
+paths:
+  /api/backtests:
+    post:
+      operationId: createBacktest
+      summary: Run a Starlark backtest
+      description: >-
+        Executes the supplied strategy synchronously and returns one result object
+        per CSV data row, including positions left open. Monetary values are in
+        rupees; timestamps use Asia/Kolkata (IST).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBacktestRequest'
+      responses:
+        '200':
+          description: Backtest completed successfully. No trades yields an empty array.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestResponse'
+              example:
+                trades:
+                  - expiry: '2026-01-27'
+                    underlying: NIFTY
+                    strike: 26000.00
+                    option_type: CALL
+                    side: SHORT
+                    entry_timestamp: '2025-12-15T09:30:00+05:30'
+                    exit_timestamp: '2026-01-06T15:15:00+05:30'
+                    entry_price: 461.85
+                    exit_price: 391.20
+                    quantity: 75
+                    pnl: 5298.75
+        '400':
+          description: Invalid request body, script syntax, or script usage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Script must define initialize(ctx) and on_candle(ctx).
+        '500':
+          description: Unexpected failure during backtest execution.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Backtest execution failed.
+components:
+  schemas:
+    CreateBacktestRequest:
+      type: object
+      required:
+        - script
+      properties:
+        script:
+          type: string
+          minLength: 1
+          description: Starlark source defining initialize(ctx) and on_candle(ctx).
+          example: |
+            def initialize(ctx):
+                ctx.configure(underlying="NIFTY", start_date="2026-01-01", end_date="2026-06-30")
+
+            def on_candle(ctx):
+                if ctx.dte <= 45 and ctx.time >= "09:30" and "entry" not in ctx.state:
+                    ctx.state["entry"] = ctx.place_order(contract=atm_option("CALL", offset=2), side="SELL", quantity=75)
+                if ctx.dte <= 21 and ctx.time >= "15:15" and "entry" in ctx.state and "exit" not in ctx.state:
+                    entry = ctx.order(ctx.state["entry"])
+                    if entry.status == "FILLED":
+                        ctx.state["exit"] = ctx.place_order(contract=entry.contract_id, side="BUY", quantity=75)
+    BacktestResponse:
+      type: object
+      required:
+        - trades
+      properties:
+        trades:
+          type: array
+          description: Position lifecycle rows matching the existing CSV output fields.
+          items:
+            $ref: '#/components/schemas/BacktestResultRow'
+    BacktestResultRow:
+      type: object
+      description: >-
+        One CSV data row. Monetary values are rupee amounts with paise precision.
+        For open positions, CSV blank exit fields and realized P&L become JSON null.
+      required:
+        - expiry
+        - underlying
+        - strike
+        - option_type
+        - side
+        - entry_timestamp
+        - exit_timestamp
+        - entry_price
+        - exit_price
+        - quantity
+        - pnl
+      properties:
+        expiry:
+          type: string
+          format: date
+          description: Option contract expiry calendar date.
+        underlying:
+          type: string
+          description: Underlying symbol, such as NIFTY.
+        strike:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: Strike price in rupees.
+        option_type:
+          type: string
+          enum: [CALL, PUT]
+        side:
+          type: string
+          enum: [LONG, SHORT]
+          description: Position direction, as exported by the CSV.
+        entry_timestamp:
+          type: string
+          format: date-time
+          description: Actual entry candle start time in IST, including its UTC offset.
+        exit_timestamp:
+          type: string
+          format: date-time
+          nullable: true
+          description: Actual exit candle start time in IST, or null while open.
+        entry_price:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: Entry price in rupees.
+        exit_price:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          nullable: true
+          description: Exit price in rupees, or null while open.
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Number of units, not lots.
+        pnl:
+          type: number
+          multipleOf: 0.01
+          nullable: true
+          description: Realized P&L in rupees, including losses; null while open.
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message describing why the request failed.
