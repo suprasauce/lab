@@ -376,6 +376,11 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 					r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType}}
 				}
 			}
+			for i, expiry := range f.expiries {
+				if args[0].Value == int64(200+i) {
+					r.values = [][]driver.Value{{int64(200 + i), int64(7), int64(i + 1), expiry, int64(2245000), "PUT"}}
+				}
+			}
 			return r, nil
 		}
 		f.contractQueries++
@@ -385,10 +390,14 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
 		for i, expiry := range f.expiries {
 			if expiry.Equal(args[1].Value.(time.Time)) {
-				if args[2].Value != f.expectedStrike || args[3].Value != f.expectedType {
+				strike, optionType, id := f.expectedStrike, f.expectedType, int64(100+i)
+				if args[3].Value == "PUT" && f.expectedType == "CALL" {
+					strike, optionType, id = 2245000, "PUT", int64(200+i)
+				}
+				if args[2].Value != strike || args[3].Value != optionType {
 					f.t.Fatalf("offset selection not used: %+v", args)
 				}
-				r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType}}
+				r.values = [][]driver.Value{{id, int64(7), int64(i + 1), expiry, strike, optionType}}
 			}
 		}
 	case strings.Contains(query, "FROM lab.underlying_candles"):
@@ -427,7 +436,7 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 			rounded = rounded.Add(5 * time.Minute)
 		}
 		for at = rounded; !at.After(end); at = at.Add(5 * time.Minute) {
-			expiry := f.expiries[args[0].Value.(int64)-100]
+			expiry := f.expiries[args[0].Value.(int64)%100]
 			day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
 			dte := int(expiry.Sub(day) / (24 * time.Hour))
 			if dte != f.missingDTE || at.Hour() != 9 || at.Minute() != f.missingMinute {
@@ -484,30 +493,46 @@ func (r *rows) Next(dest []driver.Value) error {
 	return nil
 }
 
-func TestExampleShortCallBacktest(t *testing.T) {
-	source, err := os.ReadFile("../strategies/short_call.star")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Retain the actual example's logic while selecting the fixture's expiry range.
-	text := strings.ReplaceAll(string(source), "2026-01-01", "2026-09-01")
-	text = strings.ReplaceAll(text, "2026-06-30", "2026-10-31")
-	script, err := load("example.star", text)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := newFixture(t)
-	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, cycle := range result.Executions {
-		if len(cycle) != 1 {
-			t.Fatal("example submitted duplicate entries")
-		}
-		position := cycle[0]
-		if position.EntryTime.Format("15:04") != "09:30" || position.ExitTime.Format("15:04") != "15:15" || position.PnL != 300000 || position.Status != models.TradeClosed {
-			t.Fatalf("incorrect example lifecycle: %+v", position)
-		}
+func TestExampleStrategiesBacktest(t *testing.T) {
+	for _, tt := range []struct {
+		file      string
+		positions int
+	}{{"short_call.star", 1}, {"short_strangle.star", 2}} {
+		t.Run(tt.file, func(t *testing.T) {
+			source, err := os.ReadFile("../strategies/" + tt.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Retain the actual example's logic while selecting the fixture's expiry range.
+			text := strings.ReplaceAll(string(source), "2026-01-01", "2026-09-01")
+			text = strings.ReplaceAll(text, "2026-06-30", "2026-10-31")
+			script, err := load("example.star", text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := newFixture(t)
+			result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, cycle := range result.Executions {
+				if len(cycle) != tt.positions {
+					t.Fatalf("expected %d positions per expiry, got %d", tt.positions, len(cycle))
+				}
+				for i, position := range cycle {
+					optionType, strike := models.Call, models.Price(2265000)
+					if i == 1 {
+						optionType, strike = models.Put, 2245000
+					}
+					if position.Contract.OptionType != optionType || position.Contract.StrikePrice != strike || position.Side != models.Short || position.Quantity != 75 || position.EntryTime.Format("15:04") != "09:30" || position.ExitTime.Format("15:04") != "15:15" || position.PnL != 300000 || position.Status != models.TradeClosed {
+						t.Fatalf("incorrect example lifecycle: %+v", position)
+					}
+				}
+				if len(cycle) == 2 && cycle[0].ContractID == cycle[1].ContractID {
+					t.Fatal("call and put must use distinct contracts")
+				}
+			}
+
+		})
 	}
 }

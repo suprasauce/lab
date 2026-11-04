@@ -51,7 +51,8 @@ PremiumSelector and DeltaSelector return explicit not-implemented errors.
 
 Scripts define `initialize(ctx)` and `on_candle(ctx)`. Scripts are compiled and
 initialized once. Globals stay frozen; mutable per-expiry values belong in
-`ctx.state`. The example submits one short call and one full closing order:
+`ctx.state`. `strategies/short_strangle.star` submits a short call at ATM + 2 and a short put at ATM - 2,
+then fully closes both at 21 DTE:
 
 ```python
 def initialize(ctx):
@@ -64,18 +65,34 @@ def initialize(ctx):
 
 def on_candle(ctx):
     if ctx.dte <= 45 and ctx.time >= "09:30":
-        if "entry_order_id" not in ctx.state:
-            ctx.state["entry_order_id"] = ctx.place_order(
+        if "call_entry_order_id" not in ctx.state:
+            ctx.state["call_entry_order_id"] = ctx.place_order(
                 contract=atm_option("CALL", offset=2),
                 side="SELL",
                 quantity=75,
             )
 
+        if "put_entry_order_id" not in ctx.state:
+            ctx.state["put_entry_order_id"] = ctx.place_order(
+                contract=atm_option("PUT", offset=-2),
+                side="SELL",
+                quantity=75,
+            )
+
     if ctx.dte <= 21 and ctx.time >= "15:15":
-        if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
-            entry = ctx.order(ctx.state["entry_order_id"])
+        if "call_entry_order_id" in ctx.state and "call_exit_order_id" not in ctx.state:
+            entry = ctx.order(ctx.state["call_entry_order_id"])
             if entry.status == "FILLED":
-                ctx.state["exit_order_id"] = ctx.place_order(
+                ctx.state["call_exit_order_id"] = ctx.place_order(
+                    contract=entry.contract_id,
+                    side="BUY",
+                    quantity=75,
+                )
+
+        if "put_entry_order_id" in ctx.state and "put_exit_order_id" not in ctx.state:
+            entry = ctx.order(ctx.state["put_entry_order_id"])
+            if entry.status == "FILLED":
+                ctx.state["put_exit_order_id"] = ctx.place_order(
                     contract=entry.contract_id,
                     side="BUY",
                     quantity=75,
@@ -145,6 +162,13 @@ Set `DATABASE_URL` to the PostgreSQL connection string and run:
 
 ```powershell
 go run . -strategy strategies/short_call.star
+```
+
+The default `short_call.star` trades only the call at ATM + 2. To run the call
+and put together, select the short strangle:
+
+```powershell
+go run . -strategy strategies/short_strangle.star
 ```
 
 After a successful backtest, the application writes `results/backtest.csv`,
