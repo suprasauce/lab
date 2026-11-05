@@ -51,7 +51,6 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Backtest job submission failed.
-  /api/v1/backtests:
     get:
       operationId: listBacktests
       summary: List the user's backtests
@@ -106,7 +105,7 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Failed to retrieve backtests.
-  /api/v1/backtests/{id}:
+  /api/backtests/{id}:
     get:
       operationId: getBacktest
       summary: Retrieve backtest status and completed results
