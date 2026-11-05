@@ -6,11 +6,20 @@ paths:
   /api/backtests:
     post:
       operationId: createBacktest
-      summary: Run a Starlark backtest
+      summary: Submit a backtest job
       description: >-
-        Executes the supplied strategy synchronously and returns one result object
-        per CSV data row, including positions left open. Monetary values are in
-        rupees; timestamps use Asia/Kolkata (IST).
+        Submits the supplied Starlark strategy to the server as an asynchronous
+        backtest job. Returns the backtest ID when the job is accepted, without
+        waiting for execution to complete.
+      parameters:
+        - name: X-User-ID
+          in: header
+          required: true
+          description: Unique identifier of the user submitting the backtest.
+          schema:
+            type: string
+            minLength: 1
+          example: user-123
       requestBody:
         required: true
         content:
@@ -18,27 +27,16 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateBacktestRequest'
       responses:
-        '200':
-          description: Backtest completed successfully. No trades yields an empty array.
+        '202':
+          description: Backtest job accepted for asynchronous execution.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BacktestResponse'
+                $ref: '#/components/schemas/CreateBacktestResponse'
               example:
-                trades:
-                  - expiry: '2026-01-27'
-                    underlying: NIFTY
-                    strike: 26000.00
-                    option_type: CALL
-                    side: SHORT
-                    entry_timestamp: '2025-12-15T09:30:00+05:30'
-                    exit_timestamp: '2026-01-06T15:15:00+05:30'
-                    entry_price: 461.85
-                    exit_price: 391.20
-                    quantity: 75
-                    pnl: 5298.75
+                id: bt_123
         '400':
-          description: Invalid request body, script syntax, or script usage.
+          description: Missing or invalid X-User-ID header, request body, script syntax, or script usage.
           content:
             application/json:
               schema:
@@ -46,13 +44,156 @@ paths:
               example:
                 error: Script must define initialize(ctx) and on_candle(ctx).
         '500':
-          description: Unexpected failure during backtest execution.
+          description: Unexpected failure while submitting the backtest job.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                error: Backtest execution failed.
+                error: Backtest job submission failed.
+  /api/v1/backtests:
+    get:
+      operationId: listBacktests
+      summary: List the user's backtests
+      description: >-
+        Returns only backtests belonging to the user identified by X-User-ID,
+        ordered by created_at descending (newest first). Returns an empty
+        backtests array when the user has no backtests. Results are not paginated.
+      parameters:
+        - name: X-User-ID
+          in: header
+          required: true
+          description: Unique identifier of the user retrieving their backtests.
+          schema:
+            type: string
+            minLength: 1
+          example: user-123
+      responses:
+        '200':
+          description: The user's backtests, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestListResponse'
+              examples:
+                backtests:
+                  summary: Backtests ordered by creation time
+                  value:
+                    backtests:
+                      - id: bt_124
+                        status: RUNNING
+                        created_at: '2026-11-05T10:15:00Z'
+                      - id: bt_123
+                        status: COMPLETED
+                        created_at: '2026-11-05T10:00:00Z'
+                empty:
+                  summary: No backtests for this user
+                  value:
+                    backtests: []
+        '401':
+          description: Missing or invalid X-User-ID header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: A valid X-User-ID header is required.
+        '500':
+          description: Unexpected failure while listing the user's backtests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Failed to retrieve backtests.
+  /api/v1/backtests/{id}:
+    get:
+      operationId: getBacktest
+      summary: Retrieve backtest status and completed results
+      description: >-
+        Returns the current status of the backtest identified by id for the user
+        supplied in X-User-ID. Completed jobs include summary and trades; failed
+        jobs include error. Pending and running jobs include only id and status.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique backtest identifier returned when submitting the job.
+          schema:
+            type: string
+            minLength: 1
+          example: bt_123
+        - name: X-User-ID
+          in: header
+          required: true
+          description: Unique identifier of the user retrieving the backtest.
+          schema:
+            type: string
+            minLength: 1
+          example: user-123
+      responses:
+        '200':
+          description: Current backtest status, including results only when completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestResponse'
+              examples:
+                pending:
+                  summary: Waiting for execution
+                  value:
+                    id: bt_123
+                    status: PENDING
+                completed:
+                  summary: Completed backtest
+                  value:
+                    id: bt_123
+                    status: COMPLETED
+                    summary:
+                      total_trades: 1
+                      total_pnl: 5298.75
+                    trades:
+                      - expiry: '2026-01-27'
+                        underlying: NIFTY
+                        strike: 26000.00
+                        option_type: CALL
+                        side: SHORT
+                        entry_timestamp: '2025-12-15T09:30:00+05:30'
+                        exit_timestamp: '2026-01-06T15:15:00+05:30'
+                        entry_price: 461.85
+                        exit_price: 391.20
+                        quantity: 75
+                        pnl: 5298.75
+                failed:
+                  summary: Backtest execution failed
+                  value:
+                    id: bt_123
+                    status: FAILED
+                    error: Insufficient historical candle data
+        '401':
+          description: Missing or invalid X-User-ID header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: A valid X-User-ID header is required.
+        '404':
+          description: Backtest not found for the specified user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Backtest not found.
+        '500':
+          description: Unexpected failure while retrieving the backtest.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Failed to retrieve backtest.
 components:
   schemas:
     CreateBacktestRequest:
@@ -75,21 +216,108 @@ components:
                     entry = ctx.order(ctx.state["entry"])
                     if entry.status == "FILLED":
                         ctx.state["exit"] = ctx.place_order(contract=entry.contract_id, side="BUY", quantity=75)
-    BacktestResponse:
+    CreateBacktestResponse:
       type: object
       required:
-        - trades
+        - id
       properties:
+        id:
+          type: string
+          minLength: 1
+          description: Unique identifier of the submitted backtest job.
+          example: bt_123
+    BacktestStatus:
+      type: string
+      enum: [PENDING, RUNNING, COMPLETED, FAILED]
+      description: Current backtest job status.
+    BacktestListResponse:
+      type: object
+      required: [backtests]
+      properties:
+        backtests:
+          type: array
+          description: The user's backtests ordered by created_at descending; empty if none exist.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, status, created_at]
+            properties:
+              id:
+                type: string
+                minLength: 1
+                description: Unique backtest identifier.
+              status:
+                $ref: '#/components/schemas/BacktestStatus'
+              created_at:
+                type: string
+                format: date-time
+                description: Timestamp when the backtest job was created.
+    BacktestResponse:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          description: Unique backtest identifier.
+          example: bt_123
+        status:
+          $ref: '#/components/schemas/BacktestStatus'
+        summary:
+          $ref: '#/components/schemas/BacktestSummary'
         trades:
           type: array
-          description: Position lifecycle rows matching the existing CSV output fields.
+          description: One object per CSV result row, including positions left open.
           items:
-            $ref: '#/components/schemas/BacktestResultRow'
-    BacktestResultRow:
+            $ref: '#/components/schemas/BacktestTrade'
+        error:
+          type: string
+          description: Execution failure message, present only for FAILED backtests.
+      oneOf:
+        - properties:
+            status:
+              enum: [PENDING, RUNNING]
+          not:
+            anyOf:
+              - required: [summary]
+              - required: [trades]
+              - required: [error]
+        - required: [summary, trades]
+          properties:
+            status:
+              enum: [COMPLETED]
+          not:
+            required: [error]
+        - required: [error]
+          properties:
+            status:
+              enum: [FAILED]
+          not:
+            anyOf:
+              - required: [summary]
+              - required: [trades]
+    BacktestSummary:
+      type: object
+      additionalProperties: false
+      required: [total_trades, total_pnl]
+      properties:
+        total_trades:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Number of result rows, including positions left open.
+          example: 1
+        total_pnl:
+          type: number
+          multipleOf: 0.01
+          description: Sum of realized trade P&L in rupees; open positions contribute zero.
+          example: 5298.75
+    BacktestTrade:
       type: object
       description: >-
-        One CSV data row. Monetary values are rupee amounts with paise precision.
-        For open positions, CSV blank exit fields and realized P&L become JSON null.
+        One CSV result row for a position lifecycle. Prices and P&L are in rupees
+        with paise precision. Timestamps are RFC3339 in Asia/Kolkata (IST).
+        CSV blank exit fields and P&L for open positions are represented as null.
       required:
         - expiry
         - underlying
@@ -106,7 +334,7 @@ components:
         expiry:
           type: string
           format: date
-          description: Option contract expiry calendar date.
+          description: Option expiry calendar date.
         underlying:
           type: string
           description: Underlying symbol, such as NIFTY.
@@ -125,7 +353,7 @@ components:
         entry_timestamp:
           type: string
           format: date-time
-          description: Actual entry candle start time in IST, including its UTC offset.
+          description: Actual entry candle start time in IST.
         exit_timestamp:
           type: string
           format: date-time
@@ -146,12 +374,12 @@ components:
           type: integer
           format: int64
           minimum: 1
-          description: Number of units, not lots.
+          description: Quantity in units, not lots.
         pnl:
           type: number
           multipleOf: 0.01
           nullable: true
-          description: Realized P&L in rupees, including losses; null while open.
+          description: Realized P&L in rupees; null while open.
     Error:
       type: object
       required:
