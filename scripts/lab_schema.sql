@@ -6,6 +6,23 @@ SET LOCAL search_path TO lab, pg_catalog;
 CREATE TYPE option_type_enum AS ENUM ('CALL', 'PUT');
 CREATE TYPE timeframe_enum AS ENUM ('1m', '5m', '15m', '1d');
 CREATE TYPE expiry_type AS ENUM ('MONTHLY', 'WEEKLY');
+CREATE TYPE backtest_status AS ENUM ('PENDING', 'COMPLETED', 'FAILED');
+
+CREATE TABLE users (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE backtests (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    status backtest_status NOT NULL DEFAULT 'PENDING',
+    script TEXT NOT NULL,
+    results JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE underlyings (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

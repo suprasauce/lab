@@ -1,0 +1,10 @@
+-- One-time migration. Run with psql ON_ERROR_STOP=1.
+BEGIN;
+
+CREATE TABLE lab.users (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMIT;
