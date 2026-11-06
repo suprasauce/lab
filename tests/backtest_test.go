@@ -1,4 +1,4 @@
-package controller
+package tests
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"optionsbacktest/controller"
 	"optionsbacktest/repository"
 )
 
@@ -70,7 +71,7 @@ func TestCreateBacktest(t *testing.T) {
 			ctx.Request.Header.Set("X-User-ID", tt.userID)
 			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-			CreateBacktest(ctx, repository.NewRepository(db, logger), logger)
+			controller.CreateBacktest(ctx, repository.NewRepository(db, logger), logger)
 
 			if recorder.Code != tt.status || calls != tt.calls {
 				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, calls, recorder.Body)
