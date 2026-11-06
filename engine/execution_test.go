@@ -80,7 +80,7 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 		return rows, nil
 	}})
 	t.Cleanup(func() { db.Close() })
-	repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	execution = newExecution(context.Background(), repo, 7, time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation))
 	return execution
 }

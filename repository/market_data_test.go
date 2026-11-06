@@ -61,11 +61,11 @@ func (db *contractDB) query(_ context.Context, query string, args []driver.Named
 	}
 }
 
-func testRepository(t *testing.T, state *contractDB) *MarketDataRepository {
+func testRepository(t *testing.T, state *contractDB) *Repository {
 	t.Helper()
 	db := sql.OpenDB(contractConnector{state})
 	t.Cleanup(func() { db.Close() })
-	return NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestExistingOptionContractDoesNotFetch(t *testing.T) {

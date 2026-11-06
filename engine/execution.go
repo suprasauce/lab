@@ -26,12 +26,12 @@ type Execution struct {
 	Orders           []*models.Order
 	Positions        []*Position
 	ctx              context.Context
-	repo             *repository.MarketDataRepository
+	repo             *repository.Repository
 	underlyingID     int64
 	expiry           time.Time
 }
 
-func newExecution(ctx context.Context, repo *repository.MarketDataRepository, underlyingID int64, expiry time.Time) *Execution {
+func newExecution(ctx context.Context, repo *repository.Repository, underlyingID int64, expiry time.Time) *Execution {
 	return &Execution{ctx: ctx, repo: repo, underlyingID: underlyingID, expiry: expiry}
 }
 

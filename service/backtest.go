@@ -2,10 +2,10 @@ package service
 
 import (
 	"context"
-	"errors"
+
+	"optionsbacktest/repository"
 )
 
-func SubmitBacktest(ctx context.Context) error {
-	// TODO: Submit a backtest job for asynchronous execution.
-	return errors.New("backtest submission not implemented")
+func SubmitBacktest(ctx context.Context, repo *repository.Repository, userID int64, script string) (int64, error) {
+	return repo.CreateBacktest(ctx, userID, script)
 }

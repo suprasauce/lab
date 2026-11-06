@@ -33,7 +33,7 @@ func TestUnderlyingCandleRangeResultsAndErrors(t *testing.T) {
 			}
 			db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return rows, nil }})
 			defer db.Close()
-			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			candles, err := repo.GetUnderlyingCandles(context.Background(), 7, start, start.AddDate(0, 0, 1), models.Timeframe5m)
 			switch name {
 			case "empty":

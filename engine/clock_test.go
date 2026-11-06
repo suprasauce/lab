@@ -41,7 +41,7 @@ func TestExpirySimulationClock(t *testing.T) {
 				return rows, nil
 			}})
 			defer db.Close()
-			repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			start, _ := time.Parse(time.DateOnly, dates[0])
 			expiry, _ := time.Parse(time.DateOnly, dates[len(dates)-1])
 			var ticks []time.Time
@@ -78,7 +78,7 @@ func TestExpirySimulationStopsOnQueryFailure(t *testing.T) {
 	failure := errors.New("database unavailable")
 	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return nil, failure }})
 	defer db.Close()
-	repo := repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	start := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
 	err := NewEngine(repo).backtestExpiry(context.Background(), 7, start.AddDate(0, 0, 2), start, func(time.Time) error { return nil })
 	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "2026-09-27") || !strings.Contains(err.Error(), "2026-09-29") {

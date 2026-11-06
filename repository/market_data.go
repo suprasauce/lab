@@ -5,34 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
-	"net/http"
-	"os"
 	"time"
 
 	"optionsbacktest/models"
 )
 
-type MarketDataRepository struct {
-	db         *sql.DB
-	logger     *slog.Logger
-	fetcherURL string
-	httpClient *http.Client
-}
-
-func NewMarketDataRepository(db *sql.DB, logger *slog.Logger) *MarketDataRepository {
-	return &MarketDataRepository{
-		db:         db,
-		logger:     logger.With("component", "market_data_repository"),
-		fetcherURL: os.Getenv("DATA_FETCHER_URL"),
-		httpClient: &http.Client{
-			Timeout:       30 * time.Minute,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
-	}
-}
-
-func (r *MarketDataRepository) GetAllUnderlyings(ctx context.Context) ([]models.Underlying, error) {
+func (r *Repository) GetAllUnderlyings(ctx context.Context) ([]models.Underlying, error) {
 	r.logger.DebugContext(ctx, "fetching all underlyings")
 	rows, err := r.db.QueryContext(ctx, queryGetAllUnderlyings)
 	if err != nil {
@@ -55,7 +33,7 @@ func (r *MarketDataRepository) GetAllUnderlyings(ctx context.Context) ([]models.
 }
 
 // GetUnderlying resolves a symbol. Missing symbols return a wrapped sql.ErrNoRows.
-func (r *MarketDataRepository) GetUnderlying(ctx context.Context, symbol string) (models.Underlying, error) {
+func (r *Repository) GetUnderlying(ctx context.Context, symbol string) (models.Underlying, error) {
 	r.logger.DebugContext(ctx, "fetching underlying", "symbol", symbol)
 	var underlying models.Underlying
 	if err := r.db.QueryRowContext(ctx, queryGetUnderlying, symbol).Scan(&underlying.ID, &underlying.Symbol); err != nil {
@@ -66,7 +44,7 @@ func (r *MarketDataRepository) GetUnderlying(ctx context.Context, symbol string)
 
 // GetExpiries returns distinct expiry dates in ascending order within the inclusive range.
 // The expiry range selects contracts, not the strategy's trading timestamps.
-func (r *MarketDataRepository) GetExpiries(
+func (r *Repository) GetExpiries(
 	ctx context.Context,
 	underlyingID int64,
 	startExpiry time.Time,
@@ -103,7 +81,7 @@ func (r *MarketDataRepository) GetExpiries(
 
 // GetOptionContract resolves a unique contract. Strike prices are in paise.
 // Missing contracts are synchronously ingested by the Python fetcher, then queried again.
-func (r *MarketDataRepository) GetOptionContract(
+func (r *Repository) GetOptionContract(
 	ctx context.Context,
 	underlyingID int64,
 	expiry time.Time,
@@ -141,7 +119,7 @@ func (r *MarketDataRepository) GetOptionContract(
 }
 
 // GetOptionContractByID resolves an existing contract without triggering ingestion.
-func (r *MarketDataRepository) GetOptionContractByID(ctx context.Context, contractID int64) (models.Option, error) {
+func (r *Repository) GetOptionContractByID(ctx context.Context, contractID int64) (models.Option, error) {
 	r.logger.DebugContext(ctx, "fetching option contract by ID", "contract_id", contractID)
 	var contract models.Option
 	if err := r.db.QueryRowContext(ctx, queryGetOptionContractByID, contractID).Scan(
@@ -153,7 +131,7 @@ func (r *MarketDataRepository) GetOptionContractByID(ctx context.Context, contra
 	return contract, nil
 }
 
-func (r *MarketDataRepository) queryOptionContract(ctx context.Context, underlyingID int64, expiry time.Time, strikePrice models.Price, optionType models.OptionType) (models.Option, error) {
+func (r *Repository) queryOptionContract(ctx context.Context, underlyingID int64, expiry time.Time, strikePrice models.Price, optionType models.OptionType) (models.Option, error) {
 	var contract models.Option
 	err := r.db.QueryRowContext(ctx, queryGetOptionContract, underlyingID, expiry, strikePrice, optionType).Scan(
 		&contract.ID,
@@ -172,7 +150,7 @@ func (r *MarketDataRepository) queryOptionContract(ctx context.Context, underlyi
 // GetUnderlyingCandle returns the earliest available candle at or after startTime,
 // including subsequent trading sessions. The caller validates its suitability.
 // If no candle matches, the returned error wraps sql.ErrNoRows.
-func (r *MarketDataRepository) GetUnderlyingCandle(
+func (r *Repository) GetUnderlyingCandle(
 	ctx context.Context,
 	underlyingID int64,
 	startTime time.Time,
@@ -202,7 +180,7 @@ func (r *MarketDataRepository) GetUnderlyingCandle(
 
 // GetUnderlyingCandles returns candles in [startTime, endTime), ordered by timestamp.
 // Missing candles return an empty, non-nil slice.
-func (r *MarketDataRepository) GetUnderlyingCandles(
+func (r *Repository) GetUnderlyingCandles(
 	ctx context.Context,
 	underlyingID int64,
 	startTime time.Time,
@@ -248,7 +226,7 @@ func (r *MarketDataRepository) GetUnderlyingCandles(
 
 // GetOptionCandles returns available candles in the inclusive timestamp interval,
 // ordered chronologically. Missing candles are not filled or treated as errors.
-func (r *MarketDataRepository) GetOptionCandles(
+func (r *Repository) GetOptionCandles(
 	ctx context.Context,
 	contractID int64,
 	startTime time.Time,

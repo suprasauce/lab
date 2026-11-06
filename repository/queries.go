@@ -1,5 +1,11 @@
 package repository
 
+const queryCreateBacktest = `
+	INSERT INTO lab.backtests (user_id, script)
+	VALUES ($1, $2)
+	RETURNING id;
+`
+
 const queryGetAllUnderlyings = `
 	SELECT id, symbol
 	FROM lab.underlyings

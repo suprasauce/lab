@@ -27,10 +27,10 @@ const timeLayout = "15:04"
 var sessionStartTime, _ = time.Parse(timeLayout, "09:15")
 
 type Engine struct {
-	marketDataRepository *repository.MarketDataRepository
+	marketDataRepository *repository.Repository
 }
 
-func NewEngine(repo *repository.MarketDataRepository) *Engine {
+func NewEngine(repo *repository.Repository) *Engine {
 	return &Engine{marketDataRepository: repo}
 }
 

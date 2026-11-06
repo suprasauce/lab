@@ -325,7 +325,7 @@ def on_candle(ctx):
 
 type fixture struct {
 	t               *testing.T
-	repo            *repository.MarketDataRepository
+	repo            *repository.Repository
 	expiries        []time.Time
 	contractQueries int
 	onContractQuery func()
@@ -345,7 +345,7 @@ func newFixture(t *testing.T) *fixture {
 	f.expectedStrike, f.expectedType = 2265000, "CALL"
 	db := sql.OpenDB(connector{query: f.query})
 	t.Cleanup(func() { db.Close() })
-	f.repo = repository.NewMarketDataRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	f.repo = repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return f
 }
 

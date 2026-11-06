@@ -16,7 +16,7 @@ import (
 
 // fetchOptionContract waits for Python to commit ingestion. PostgreSQL remains
 // authoritative: the caller queries the contract again rather than trusting its ID here.
-func (r *MarketDataRepository) fetchOptionContract(ctx context.Context, symbol string, expiry time.Time, strike models.Price, optionType models.OptionType) error {
+func (r *Repository) fetchOptionContract(ctx context.Context, symbol string, expiry time.Time, strike models.Price, optionType models.OptionType) error {
 	baseURL := strings.TrimSpace(r.fetcherURL)
 	if baseURL == "" {
 		return fmt.Errorf("DATA_FETCHER_URL is required to ingest missing option contracts")
