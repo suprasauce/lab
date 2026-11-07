@@ -29,7 +29,7 @@ type backtestTrade struct {
 	PnL            *json.Number        `json:"pnl"`
 }
 
-// MarshalBacktestResult preserves CSV fields, IST timestamps, and exact rupee decimals.
+// MarshalBacktestResult preserves result fields, IST timestamps, and exact rupee decimals.
 // Open positions have null exit fields and P&L and contribute no realized P&L.
 func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 	if result == nil {
@@ -72,4 +72,8 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 	output.Summary.TotalTrades = len(output.Trades)
 	output.Summary.TotalPnL = json.Number(new(big.Rat).SetFrac(totalPnL, big.NewInt(100)).FloatString(2))
 	return json.Marshal(output)
+}
+
+func formatPrice(price models.Price) string {
+	return big.NewRat(int64(price), 100).FloatString(2)
 }
