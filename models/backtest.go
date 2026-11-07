@@ -1,6 +1,9 @@
 package models
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type BacktestStatus string
 
@@ -11,8 +14,9 @@ const (
 )
 
 type Backtest struct {
-	ID      int64
-	Script  string
-	Status  BacktestStatus
-	Results json.RawMessage
+	ID        int64
+	Script    string
+	Status    BacktestStatus
+	Results   json.RawMessage
+	CreatedAt time.Time
 }

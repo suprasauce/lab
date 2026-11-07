@@ -1,5 +1,12 @@
 package repository
 
+const QueryListBacktests = `
+	SELECT id, status, created_at
+	FROM lab.backtests
+	WHERE user_id = $1
+	ORDER BY created_at DESC;
+`
+
 // QueryCreateBacktest inserts a backtest using the database defaults for status and results.
 const QueryCreateBacktest = `
 	INSERT INTO lab.backtests (user_id, script)
