@@ -187,6 +187,8 @@ func TestProcessJobDeletedBacktestUpdateIsLogged(t *testing.T) {
 
 func TestWorkerContinuesAfterFetchFailure(t *testing.T) {
 	pool, mock, _ := newPoolTest(t)
+	mock.ExpectQuery(regexp.QuoteMeta(repository.QueryPendingBacktestIDs)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectQuery(regexp.QuoteMeta(repository.QueryGetBacktest)).WithArgs(int64(1)).WillReturnError(errors.New("fetch failed"))
 	mock.ExpectQuery(regexp.QuoteMeta(repository.QueryGetBacktest)).WithArgs(int64(2)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "script"}).AddRow(int64(2), "invalid script"))
@@ -195,8 +197,12 @@ func TestWorkerContinuesAfterFetchFailure(t *testing.T) {
 	pool.SubmitJob(1)
 	pool.SubmitJob(2)
 	close(pool.jobs)
-	pool.Start()
-	pool.Start()
+	if err := pool.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Start(); err != nil {
+		t.Fatal(err)
+	}
 
 	deadline := time.NewTimer(2 * time.Second)
 	defer deadline.Stop()
@@ -211,6 +217,62 @@ func TestWorkerContinuesAfterFetchFailure(t *testing.T) {
 		case <-deadline.C:
 			t.Fatal("worker did not process the next job")
 		}
+	}
+}
+
+func TestWorkerQueuesPendingBacktestsOnStartup(t *testing.T) {
+	pool, mock, _ := newPoolTest(t)
+	rows := sqlmock.NewRows([]string{"id"})
+	// Recovery must also work when the backlog exceeds the channel capacity.
+	for id := int64(1); id <= queueCapacity+2; id++ {
+		rows.AddRow(id)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(repository.QueryPendingBacktestIDs)).WillReturnRows(rows).RowsWillBeClosed()
+	for id := int64(1); id <= queueCapacity+2; id++ {
+		mock.ExpectQuery(regexp.QuoteMeta(repository.QueryGetBacktest)).WithArgs(id).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "script"}).AddRow(id, "invalid script"))
+		mock.ExpectExec(regexp.QuoteMeta(repository.QueryUpdateBacktest)).
+			WithArgs(id, string(models.BacktestFailed), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+	started := make(chan error, 1)
+	go func() { started <- pool.Start() }()
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("startup blocked while recovering pending jobs")
+	}
+	if err := pool.Start(); err != nil {
+		t.Fatal(err)
+	}
+	close(pool.jobs)
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if mock.ExpectationsWereMet() == nil {
+			return
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			t.Fatal("worker did not process recovered jobs")
+		}
+	}
+}
+
+func TestWorkerStartupReturnsPendingQueryError(t *testing.T) {
+	pool, mock, _ := newPoolTest(t)
+	failure := errors.New("database unavailable")
+	mock.ExpectQuery(regexp.QuoteMeta(repository.QueryPendingBacktestIDs)).WillReturnError(failure)
+	if err := pool.Start(); !errors.Is(err, failure) {
+		t.Fatalf("expected startup failure, got %v", err)
+	}
+	if err := pool.Start(); !errors.Is(err, failure) {
+		t.Fatalf("expected same failure from repeated Start, got %v", err)
 	}
 }
 

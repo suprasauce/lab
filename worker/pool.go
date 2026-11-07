@@ -19,6 +19,7 @@ const queueCapacity = 100
 type WorkerPool struct {
 	jobs      chan int64
 	startOnce sync.Once
+	startErr  error
 	repo      *repository.Repository
 	logger    *slog.Logger
 }
@@ -31,14 +32,23 @@ func NewWorkerPool(repo *repository.Repository, logger *slog.Logger) *WorkerPool
 	}
 }
 
-func (p *WorkerPool) Start() {
+func (p *WorkerPool) Start() error {
 	p.startOnce.Do(func() {
+		ids, err := p.repo.GetPendingBacktestIDs(context.Background())
+		if err != nil {
+			p.startErr = err
+			return
+		}
 		go func() {
 			for job := range p.jobs {
 				p.processJob(job)
 			}
 		}()
+		for _, id := range ids {
+			p.SubmitJob(id)
+		}
 	})
+	return p.startErr
 }
 
 func (p *WorkerPool) processJob(id int64) {

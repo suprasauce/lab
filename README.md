@@ -66,6 +66,6 @@ go run .
 
 The server listens on port 8080. API contracts are documented in [spec/openapi.yaml](spec/openapi.yaml). The submitting user must already exist in `lab.users`.
 
-The queue is in memory: queued jobs are lost on restart, and existing `PENDING` rows are not automatically resumed. There is no `RUNNING` status or automatic retry.
+The queue is in memory. On startup, the worker reloads all `PENDING` backtest IDs from PostgreSQL, oldest first, and queues them for execution. Interrupted backtests restart from the beginning. There is no `RUNNING` status or automatic retry during normal operation.
 
 Run tests with `go test ./...`.

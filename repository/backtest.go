@@ -8,6 +8,26 @@ import (
 	"optionsbacktest/models"
 )
 
+func (r *Repository) GetPendingBacktestIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, QueryPendingBacktestIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get pending backtest IDs: %w", err)
+	}
+	defer rows.Close()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan pending backtest ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending backtest IDs: %w", err)
+	}
+	return ids, nil
+}
+
 func (r *Repository) ListBacktests(ctx context.Context, userID int64) ([]models.Backtest, error) {
 	rows, err := r.db.QueryContext(ctx, QueryListBacktests, userID)
 	if err != nil {

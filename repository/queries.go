@@ -1,5 +1,12 @@
 package repository
 
+const QueryPendingBacktestIDs = `
+	SELECT id
+	FROM lab.backtests
+	WHERE status = 'PENDING'
+	ORDER BY created_at ASC, id ASC;
+`
+
 const QueryListBacktests = `
 	SELECT id, status, created_at
 	FROM lab.backtests

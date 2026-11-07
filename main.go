@@ -29,7 +29,10 @@ func main() {
 
 	repo := repository.NewRepository(db, logger)
 	pool := worker.NewWorkerPool(repo, logger)
-	pool.Start()
+	if err := pool.Start(); err != nil {
+		logger.Error("failed to start backtest worker", "error", err)
+		return
+	}
 
 	router := gin.New()
 	router.Use(gin.Recovery())
