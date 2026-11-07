@@ -11,6 +11,7 @@ import (
 	"optionsbacktest/database"
 	"optionsbacktest/logging"
 	"optionsbacktest/repository"
+	"optionsbacktest/worker"
 )
 
 func main() {
@@ -27,12 +28,14 @@ func main() {
 	}()
 
 	repo := repository.NewRepository(db, logger)
+	pool := worker.NewWorkerPool()
+	pool.Start()
 
 	router := gin.New()
 	router.Use(gin.Recovery())
 	api := router.Group("/api")
 	api.POST("/backtests", func(ctx *gin.Context) {
-		controller.CreateBacktest(ctx, repo, logger)
+		controller.CreateBacktest(ctx, repo, pool, logger)
 	})
 
 	if err := router.Run(":8080"); err != nil {

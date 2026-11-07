@@ -18,6 +18,7 @@ import (
 
 	"optionsbacktest/controller"
 	"optionsbacktest/repository"
+	"optionsbacktest/worker"
 )
 
 func TestCreateBacktest(t *testing.T) {
@@ -71,7 +72,8 @@ func TestCreateBacktest(t *testing.T) {
 			ctx.Request.Header.Set("X-User-ID", tt.userID)
 			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-			controller.CreateBacktest(ctx, repository.NewRepository(db, logger), logger)
+			pool := worker.NewWorkerPool()
+			controller.CreateBacktest(ctx, repository.NewRepository(db, logger), pool, logger)
 
 			if recorder.Code != tt.status || calls != tt.calls {
 				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, calls, recorder.Body)
