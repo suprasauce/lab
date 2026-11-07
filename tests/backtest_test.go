@@ -2,139 +2,211 @@ package tests
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"optionsbacktest/controller"
 	"optionsbacktest/repository"
-	"optionsbacktest/worker"
 )
 
-func TestCreateBacktest(t *testing.T) {
-	const script = "def initialize(ctx):\n    pass\n# user's script"
+func TestCreateBacktestAccepted(t *testing.T) {
+	mock, server := setupAPI(t)
+	script := "def initialize(ctx):\n    pass\n# user's script"
 	body, err := json.Marshal(map[string]string{"script": script})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tt := range []struct {
-		name, userID, body string
-		databaseError      error
-		status, calls      int
-	}{
-		{"accepted", "1", string(body), nil, http.StatusAccepted, 1},
-		{"missing user", "", string(body), nil, http.StatusBadRequest, 0},
-		{"invalid user", "user-123", string(body), nil, http.StatusBadRequest, 0},
-		{"zero user", "0", string(body), nil, http.StatusBadRequest, 0},
-		{"negative user", "-1", string(body), nil, http.StatusBadRequest, 0},
-		{"overflow user", "9223372036854775808", string(body), nil, http.StatusBadRequest, 0},
-		{"missing script", "1", `{}`, nil, http.StatusBadRequest, 0},
-		{"empty script", "1", `{"script":""}`, nil, http.StatusBadRequest, 0},
-		{"wrong script type", "1", `{"script":12}`, nil, http.StatusBadRequest, 0},
-		{"invalid JSON", "1", `{`, nil, http.StatusBadRequest, 0},
-		{"unknown user", "1", string(body), &pgconn.PgError{Code: "23503", ConstraintName: "backtests_user_id_fkey"}, http.StatusInternalServerError, 1},
-		{"database failure", "1", string(body), errors.New("private database detail"), http.StatusInternalServerError, 1},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			calls := 0
-			db := sql.OpenDB(backtestConnector{query: func(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-				calls++
-				if !strings.Contains(query, "INSERT INTO lab.backtests (user_id, script)") || !strings.Contains(query, "VALUES ($1, $2)") || !strings.Contains(query, "RETURNING id") {
-					t.Fatalf("unexpected insert: %s", query)
-				}
-				if len(args) != 2 || args[0].Value != int64(1) || args[1].Value != script {
-					t.Fatalf("request was not passed as SQL parameters: %+v", args)
-				}
-				if ctx.Value(requestContextKey{}) != "request" {
-					t.Fatal("request context did not reach the repository")
-				}
-				if tt.databaseError != nil {
-					return nil, tt.databaseError
-				}
-				return &backtestRows{}, nil
-			}})
-			t.Cleanup(func() { db.Close() })
-			recorder := httptest.NewRecorder()
-			ctx, _ := gin.CreateTestContext(recorder)
-			ctx.Request = httptest.NewRequest(http.MethodPost, "/api/backtests", strings.NewReader(tt.body))
-			ctx.Request = ctx.Request.WithContext(context.WithValue(ctx.Request.Context(), requestContextKey{}, "request"))
-			ctx.Request.Header.Set("Content-Type", "application/json")
-			ctx.Request.Header.Set("X-User-ID", tt.userID)
-			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	mock.ExpectQuery(repository.QueryCreateBacktest).
+		WithArgs(int64(1), script).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123))).
+		RowsWillBeClosed()
 
-			pool := worker.NewWorkerPool()
-			controller.CreateBacktest(ctx, repository.NewRepository(db, logger), pool, logger)
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "1", string(body)))
 
-			if recorder.Code != tt.status || calls != tt.calls {
-				t.Fatalf("status=%d calls=%d body=%s", recorder.Code, calls, recorder.Body)
-			}
-			var response map[string]any
-			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-				t.Fatal(err)
-			}
-			if tt.status == http.StatusAccepted {
-				if len(response) != 1 || response["id"] != "123" {
-					t.Fatalf("unexpected response: %v", response)
-				}
-			} else if response["error"] == nil {
-				t.Fatal("error response missing error message")
-			}
-			if strings.Contains(recorder.Body.String(), "private database detail") {
-				t.Fatal("database details leaked into the response")
-			}
-		})
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(responseBody), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result["id"] != "123" {
+		t.Fatalf("unexpected response: %v", result)
 	}
 }
 
-type requestContextKey struct{}
+func TestCreateBacktestMissingUserID(t *testing.T) {
+	_, server := setupAPI(t)
 
-type backtestConnector struct {
-	query func(context.Context, string, []driver.NamedValue) (driver.Rows, error)
-}
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "", `{"script":"pass"}`))
 
-func (c backtestConnector) Connect(context.Context) (driver.Conn, error) {
-	return backtestConnection{c}, nil
-}
-func (backtestConnector) Driver() driver.Driver { return backtestDriver{} }
-
-type backtestDriver struct{}
-
-func (backtestDriver) Open(string) (driver.Conn, error) {
-	return nil, errors.New("use connector")
-}
-
-type backtestConnection struct{ backtestConnector }
-
-func (c backtestConnection) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	return c.query(ctx, query, args)
-}
-func (backtestConnection) Prepare(string) (driver.Stmt, error) {
-	return nil, errors.New("not implemented")
-}
-func (backtestConnection) Close() error { return nil }
-func (backtestConnection) Begin() (driver.Tx, error) {
-	return nil, errors.New("not implemented")
-}
-
-type backtestRows struct{ done bool }
-
-func (*backtestRows) Columns() []string { return []string{"id"} }
-func (*backtestRows) Close() error      { return nil }
-func (r *backtestRows) Next(values []driver.Value) error {
-	if r.done {
-		return io.EOF
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
 	}
-	r.done = true
-	values[0] = int64(123)
-	return nil
+	if !strings.Contains(responseBody, "invalid request headers") {
+		t.Fatalf("expected header validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestInvalidUserID(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "user-123", `{"script":"pass"}`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request headers") {
+		t.Fatalf("expected header validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestZeroUserID(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "0", `{"script":"pass"}`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request headers") {
+		t.Fatalf("expected header validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestNegativeUserID(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "-1", `{"script":"pass"}`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request headers") {
+		t.Fatalf("expected header validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestOverflowUserID(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "9223372036854775808", `{"script":"pass"}`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request headers") {
+		t.Fatalf("expected header validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestMissingScript(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "1", `{}`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request body") {
+		t.Fatalf("expected body validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestEmptyScript(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "1", `{"script":""}`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request body") {
+		t.Fatalf("expected body validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestInvalidScriptType(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "1", `{"script":12}`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request body") {
+		t.Fatalf("expected body validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestInvalidJSON(t *testing.T) {
+	_, server := setupAPI(t)
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "1", `{`))
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if !strings.Contains(responseBody, "invalid request body") {
+		t.Fatalf("expected body validation error: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestUnknownUser(t *testing.T) {
+	mock, server := setupAPI(t)
+	mock.ExpectQuery(repository.QueryCreateBacktest).
+		WithArgs(int64(1), "pass").
+		WillReturnError(&pgconn.PgError{Code: "23503", ConstraintName: "backtests_user_id_fkey"})
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "1", `{"script":"pass"}`))
+
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if responseBody != `{"error":"Backtest job submission failed."}` {
+		t.Fatalf("unexpected error response: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestDatabaseFailure(t *testing.T) {
+	mock, server := setupAPI(t)
+	mock.ExpectQuery(repository.QueryCreateBacktest).
+		WithArgs(int64(1), "pass").
+		WillReturnError(errors.New("private database detail"))
+
+	response, responseBody := sendRequest(t, server, backtestRequest(t, server, "1", `{"script":"pass"}`))
+
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+	if responseBody != `{"error":"Backtest job submission failed."}` {
+		t.Fatalf("database details leaked into response: %s", responseBody)
+	}
+}
+
+func TestCreateBacktestRespectsRequestCancellation(t *testing.T) {
+	mock, server := setupAPI(t)
+	mock.ExpectQuery(repository.QueryCreateBacktest).
+		WithArgs(int64(1), "pass").
+		WillDelayFor(time.Second).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123)))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	request := backtestRequest(t, server, "1", `{"script":"pass"}`).WithContext(ctx)
+
+	// Use the test server's handler directly so cancellation does not prevent the test
+	// from reading the HTTP response, as it would over a closed client connection.
+	response := httptest.NewRecorder()
+	server.Config.Handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("request cancellation did not stop the insert: status=%d body=%s", response.Code, response.Body)
+	}
 }

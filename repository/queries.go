@@ -1,6 +1,7 @@
 package repository
 
-const queryCreateBacktest = `
+// QueryCreateBacktest inserts a backtest using the database defaults for status and results.
+const QueryCreateBacktest = `
 	INSERT INTO lab.backtests (user_id, script)
 	VALUES ($1, $2)
 	RETURNING id;
