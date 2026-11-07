@@ -13,6 +13,12 @@ const QueryGetBacktest = `
 	WHERE id = $1;
 `
 
+const QueryGetBacktestForUser = `
+	SELECT id, status, results
+	FROM lab.backtests
+	WHERE id = $1 AND user_id = $2;
+`
+
 const QueryUpdateBacktest = `
 	UPDATE lab.backtests
 	SET status = $2, results = $3::jsonb, updated_at = NOW()

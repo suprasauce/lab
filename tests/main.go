@@ -16,6 +16,9 @@ func newTestServer(repo *repository.Repository, pool *worker.WorkerPool, logger 
 	router := gin.New()
 	router.Use(gin.Recovery())
 	api := router.Group("/api")
+	api.GET("/backtests/:id", func(ctx *gin.Context) {
+		controller.GetBacktest(ctx, repo, logger)
+	})
 	api.POST("/backtests", func(ctx *gin.Context) {
 		controller.CreateBacktest(ctx, repo, pool, logger)
 	})

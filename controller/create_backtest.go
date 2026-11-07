@@ -1,16 +1,14 @@
 package controller
 
 import (
+	"github.com/gin-gonic/gin"
 	"log/slog"
 	"net/http"
-	"strconv"
-
-	"github.com/gin-gonic/gin"
-
 	"optionsbacktest/repository"
 	"optionsbacktest/service"
 	"optionsbacktest/validation"
 	"optionsbacktest/worker"
+	"strconv"
 )
 
 type createBacktestRequest struct {
