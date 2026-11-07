@@ -28,7 +28,7 @@ func main() {
 	}()
 
 	repo := repository.NewRepository(db, logger)
-	pool := worker.NewWorkerPool()
+	pool := worker.NewWorkerPool(repo, logger)
 	pool.Start()
 
 	router := gin.New()

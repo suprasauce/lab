@@ -34,6 +34,12 @@ func Load(filename string) (*Script, error) {
 	return load(filename, nil)
 }
 
+// LoadSource compiles and initializes a strategy directly from its stored source.
+// The filename is a diagnostic label; no file is read or written.
+func LoadSource(filename, source string) (*Script, error) {
+	return load(filename, source)
+}
+
 func load(filename string, source any) (*Script, error) {
 	thread := &starlark.Thread{Name: filename}
 	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, filename, source, starlark.StringDict{"atm_option": starlark.NewBuiltin("atm_option", atmOption)})

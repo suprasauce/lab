@@ -7,6 +7,18 @@ const QueryCreateBacktest = `
 	RETURNING id;
 `
 
+const QueryGetBacktest = `
+	SELECT id, script
+	FROM lab.backtests
+	WHERE id = $1;
+`
+
+const QueryUpdateBacktest = `
+	UPDATE lab.backtests
+	SET status = $2, results = $3::jsonb, updated_at = NOW()
+	WHERE id = $1;
+`
+
 const queryGetAllUnderlyings = `
 	SELECT id, symbol
 	FROM lab.underlyings

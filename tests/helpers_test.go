@@ -23,7 +23,7 @@ func setupAPI(t *testing.T) (sqlmock.Sqlmock, *httptest.Server) {
 	}
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	repo := repository.NewRepository(db, logger)
-	pool := worker.NewWorkerPool()
+	pool := worker.NewWorkerPool(repo, logger)
 	t.Cleanup(func() {
 		mock.ExpectClose()
 		if err := db.Close(); err != nil {

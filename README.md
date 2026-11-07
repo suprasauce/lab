@@ -2,15 +2,16 @@
 
 Go execution engine with Starlark strategy definitions and PostgreSQL market data.
 
-- `models`: underlying, option, expiry, strategy, trade, position side, and candle.
+- `models`: underlying, option, expiry, strategy, backtest, trade, position side, and candle.
 - `engine`: expiry simulation clock, option orders, position state, and trade history.
 - `scripting`: Starlark loading, initialization, context bindings, and candle callbacks.
 - `strategies`: strategy scripts, including the 45-DTE entry / 21-DTE exit example.
 - `selector`: strike selection, with offset selection implemented and premium/delta placeholders.
 - `database`: reads DATABASE_URL and initializes and verifies the PostgreSQL pool using pgx.
-- `repository`: market data queries using an injected database/sql pool.
+- `repository`: market data and backtest persistence using an injected database/sql pool.
+- `worker`: one background worker consuming queued backtest IDs.
 - `logging`: configurable slog JSON logger writing to stdout; INFO by default in main.
-- `main.go`: initializes dependencies, loads the selected script, runs it, and closes the pool.
+- `main.go`: initializes PostgreSQL, the shared repository, worker pool, and Gin HTTP server.
 
 Underlying-to-instrument relationships use `UnderlyingID`. The optional Strategy
 metadata model contains only ID and name. The script supplies all run configuration.
@@ -158,30 +159,37 @@ No stop losses, adjustments, forced expiry closure, fees, or slippage are added.
 
 Run checks with `go test ./...` and `go vet ./...`.
 
-Set `DATABASE_URL` to the PostgreSQL connection string and run:
+Set `DATABASE_URL` to the PostgreSQL connection string and start the HTTP server:
 
 ```powershell
-go run . -strategy strategies/short_call.star
+go run .
 ```
 
-The default `short_call.star` trades only the call at ATM + 2. To run the call
-and put together, select the short strangle:
+Submit an existing script with a numeric user ID that already exists in `lab.users`:
 
 ```powershell
-go run . -strategy strategies/short_strangle.star
+$body = @{ script = [System.IO.File]::ReadAllText((Resolve-Path "strategies/short_call.star").Path) } | ConvertTo-Json -Compress
+$body | curl.exe -X POST "http://localhost:8080/api/backtests" -H "Content-Type: application/json" -H "X-User-ID: 1" --data-binary "@-"
 ```
 
-After a successful backtest, the application writes `results/backtest.csv`,
-creating the directory if necessary and overwriting the previous CSV. Columns are
-`expiry,underlying,strike,option_type,side,entry_timestamp,exit_timestamp,entry_price,exit_price,quantity,pnl`.
-Monetary values are exact rupee decimals; timestamps use RFC3339 with the IST
-offset. Each trade has one row. Open trades have blank exit timestamp, exit price,
-and realized P&L. A run with no trades writes only the header.
+Use `strategies/short_strangle.star` instead to trade both the call and put.
+The API inserts a `PENDING` backtest and returns `202` with its string database ID.
+One worker consumes IDs from the in-memory queue, fetches the stored script, and
+loads it directly from source through the existing Starlark engine. Work is
+independent of the original HTTP request's lifetime.
 
-CSV generation lives in `utils.WriteBacktestCSV(io.Writer, *engine.BacktestResult)`;
-the engine and scripting packages do not create files or depend on CSV export.
-Results retain the existing runtime legs, including their selected contracts and
-trade histories, rather than duplicating contract metadata in models.
+A successful run saves `{"summary": {"total_trades": ..., "total_pnl": ...},
+"trades": [...]}` in `lab.backtests.results` and sets `COMPLETED` in the same
+update. Script or execution failures save `{"error": "..."}` and set `FAILED`.
+Updates also set `updated_at`. Fetch/persistence failures are logged with the
+backtest ID, and the worker continues with the next queued job. There is no
+`RUNNING` state, automatic retry, or recovery of queued IDs after restart.
+Existing PENDING rows are not automatically submitted when the server starts.
+
+Stored JSON uses the CSV fields, exact rupee decimals, and IST timestamps. Open
+positions have null exit fields and P&L; summary P&L sums closed positions only.
+The optional `utils.WriteBacktestCSV(io.Writer, *engine.BacktestResult)` exporter
+retains its existing columns. The worker persists JSON and does not write CSV files.
 
 Edit that script to change the underlying, dates, quantity, offset, or conditions.
 The database must already contain the underlying, classified expiry cycles,
