@@ -292,6 +292,75 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Failed to retrieve strategies.
+  /api/strategies/{id}:
+    put:
+      operationId: updateStrategy
+      summary: Update a saved strategy
+      description: >-
+        Replaces the strategy's name and complete script with the supplied values.
+        The backend must enforce ownership using X-User-ID; a strategy that does
+        not exist or belongs to another user returns 404. The user_id is not
+        editable. Updates updated_at to the modification time while preserving
+        the strategy ID, owner, and created_at.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique identifier of the strategy to update.
+          schema:
+            type: string
+            minLength: 1
+          example: '123'
+        - name: X-User-ID
+          in: header
+          required: true
+          description: Unique identifier of the user updating their strategy.
+          schema:
+            type: string
+            minLength: 1
+          example: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStrategyRequest'
+            example:
+              name: NIFTY Short Strangle
+              script: '...'
+      responses:
+        '200':
+          description: Strategy updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateStrategyResponse'
+              example:
+                id: '123'
+        '400':
+          description: Missing or invalid X-User-ID header, strategy ID, or request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: A valid strategy ID, name, and script are required.
+        '404':
+          description: Strategy does not exist or does not belong to the requesting user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Strategy not found.
+        '500':
+          description: Unexpected failure while updating the strategy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Failed to update strategy.
 components:
   schemas:
     CreateStrategyRequest:
