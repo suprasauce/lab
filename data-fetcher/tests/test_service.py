@@ -302,6 +302,12 @@ class ServiceTests(unittest.TestCase):
 
 
 class ConversionTests(unittest.TestCase):
+    def test_negative_breeze_volume_is_preserved(self):
+        row = candle(datetime(2025, 6, 20, 14, 30, tzinfo=MARKET_ZONE))
+        converted = ingestion.candle_row({**row, "volume": -679125})
+        self.assertEqual(converted[-1], -679125)
+        self.assertEqual(converted[2], 2250005)
+
     def test_decimal_paise_and_volume(self):
         self.assertEqual(ingestion.to_paise(Decimal("0.29")), 29)
         self.assertEqual(ingestion.to_paise("25000.05"), 2500005)

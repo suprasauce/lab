@@ -49,8 +49,10 @@ def candle_row(candle):
     else:
         timestamp = timestamp.astimezone(MARKET_ZONE)
     volume = Decimal(str(candle["volume"]))
-    if not volume.is_finite() or volume < 0 or volume != volume.to_integral_value() or volume > 2**63 - 1:
-        raise ValueError("Candle volume must be a nonnegative BIGINT")
+    # TODO: Investigate negative historical volumes returned by Breeze.
+    # Preserve the reported value for now rather than rejecting the candle.
+    if not volume.is_finite() or volume != volume.to_integral_value() or not -(2**63) <= volume <= 2**63 - 1:
+        raise ValueError("Candle volume must fit a BIGINT")
     return (timestamp, "5m", *(to_paise(candle[field]) for field in ("open", "high", "low", "close")), int(volume))
 
 
