@@ -269,6 +269,7 @@ paths:
                     strategies:
                       - id: '1'
                         name: Short Strangle
+                        description: Sell OTM call and put options to collect premium.
                         script: '...'
                         created_at: '2026-11-09T10:00:00Z'
                         updated_at: '2026-11-09T10:00:00Z'
@@ -301,7 +302,8 @@ paths:
         The backend must enforce ownership using X-User-ID; a strategy that does
         not exist or belongs to another user returns 404. The user_id is not
         editable. Updates updated_at to the modification time while preserving
-        the strategy ID, owner, and created_at.
+        the strategy ID, owner, and created_at. Description is optional; omitting
+        it replaces the saved description with an empty string.
       parameters:
         - name: id
           in: path
@@ -327,6 +329,7 @@ paths:
               $ref: '#/components/schemas/CreateStrategyRequest'
             example:
               name: NIFTY Short Strangle
+              description: Updated strategy description.
               script: '...'
       responses:
         '200':
@@ -386,6 +389,7 @@ paths:
                     templates:
                       - id: '1'
                         name: Short Strangle
+                        description: Sell OTM call and put options to collect premium.
                         script: '...'
                         created_at: '2026-11-09T10:00:00Z'
                         updated_at: '2026-11-09T10:00:00Z'
@@ -421,6 +425,11 @@ components:
           minLength: 1
           description: Display name of the strategy.
           example: Short Strangle
+        description:
+          type: string
+          default: ''
+          description: Optional strategy description. Empty strings are allowed; omission stores an empty string on create or update.
+          example: Sell OTM call and put options to collect premium.
         script:
           type: string
           minLength: 1
@@ -437,7 +446,7 @@ components:
           example: '1'
     Strategy:
       type: object
-      required: [id, name, script, created_at, updated_at]
+      required: [id, name, description, script, created_at, updated_at]
       properties:
         id:
           type: string
@@ -448,6 +457,10 @@ components:
           type: string
           description: Display name of the strategy.
           example: Short Strangle
+        description:
+          type: string
+          description: Strategy description, or an empty string when none was supplied.
+          example: Sell OTM call and put options to collect premium.
         script:
           type: string
           description: Complete Starlark strategy source.

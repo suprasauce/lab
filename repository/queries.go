@@ -1,20 +1,20 @@
 package repository
 
 const QueryListTemplates = `
-	SELECT id, name, script, created_at, updated_at
+	SELECT id, name, script, created_at, updated_at, description
 	FROM lab.strategies
 	WHERE user_id = $1
 	ORDER BY name ASC, id ASC;
 `
 
 const QueryCreateStrategy = `
-	INSERT INTO lab.strategies (user_id, name, script)
-	VALUES ($1, $2, $3)
+	INSERT INTO lab.strategies (user_id, name, script, description)
+	VALUES ($1, $2, $3, $4)
 	RETURNING id;
 `
 
 const QueryListStrategies = `
-	SELECT id, name, script, created_at, updated_at
+	SELECT id, name, script, created_at, updated_at, description
 	FROM lab.strategies
 	WHERE user_id = $1
 	ORDER BY updated_at DESC, id DESC;
@@ -22,7 +22,7 @@ const QueryListStrategies = `
 
 const QueryUpdateStrategy = `
 	UPDATE lab.strategies
-	SET name = $1, script = $2, updated_at = NOW()
+	SET name = $1, script = $2, description = $5, updated_at = NOW()
 	WHERE id = $3 AND user_id = $4
 	RETURNING id;
 `

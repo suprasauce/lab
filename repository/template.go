@@ -16,7 +16,7 @@ func (r *Repository) ListTemplates(ctx context.Context, ownerID int64) ([]models
 	templates := make([]models.Strategy, 0)
 	for rows.Next() {
 		var strategy models.Strategy
-		if err := rows.Scan(&strategy.ID, &strategy.Name, &strategy.Script, &strategy.CreatedAt, &strategy.UpdatedAt); err != nil {
+		if err := rows.Scan(&strategy.ID, &strategy.Name, &strategy.Script, &strategy.CreatedAt, &strategy.UpdatedAt, &strategy.Description); err != nil {
 			return nil, fmt.Errorf("scan template: %w", err)
 		}
 		templates = append(templates, strategy)

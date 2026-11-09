@@ -7,17 +7,17 @@ import (
 	"optionsbacktest/models"
 )
 
-func (r *Repository) CreateStrategy(ctx context.Context, userID int64, name, script string) (int64, error) {
+func (r *Repository) CreateStrategy(ctx context.Context, userID int64, name, script, description string) (int64, error) {
 	var id int64
-	if err := r.db.QueryRowContext(ctx, QueryCreateStrategy, userID, name, script).Scan(&id); err != nil {
+	if err := r.db.QueryRowContext(ctx, QueryCreateStrategy, userID, name, script, description).Scan(&id); err != nil {
 		return 0, fmt.Errorf("create strategy: %w", err)
 	}
 	return id, nil
 }
 
-func (r *Repository) UpdateStrategy(ctx context.Context, id, userID int64, name, script string) (int64, error) {
+func (r *Repository) UpdateStrategy(ctx context.Context, id, userID int64, name, script, description string) (int64, error) {
 	var updatedID int64
-	if err := r.db.QueryRowContext(ctx, QueryUpdateStrategy, name, script, id, userID).Scan(&updatedID); err != nil {
+	if err := r.db.QueryRowContext(ctx, QueryUpdateStrategy, name, script, id, userID, description).Scan(&updatedID); err != nil {
 		return 0, fmt.Errorf("update strategy %d: %w", id, err)
 	}
 	return updatedID, nil
@@ -32,7 +32,7 @@ func (r *Repository) ListStrategies(ctx context.Context, userID int64) ([]models
 	strategies := make([]models.Strategy, 0)
 	for rows.Next() {
 		var strategy models.Strategy
-		if err := rows.Scan(&strategy.ID, &strategy.Name, &strategy.Script, &strategy.CreatedAt, &strategy.UpdatedAt); err != nil {
+		if err := rows.Scan(&strategy.ID, &strategy.Name, &strategy.Script, &strategy.CreatedAt, &strategy.UpdatedAt, &strategy.Description); err != nil {
 			return nil, fmt.Errorf("scan strategy: %w", err)
 		}
 		strategies = append(strategies, strategy)

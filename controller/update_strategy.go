@@ -26,7 +26,7 @@ func UpdateStrategy(ctx *gin.Context, repo *repository.Repository, logger *slog.
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	updatedID, err := service.UpdateStrategy(ctx.Request.Context(), repo, id, headers.UserID, request.Name, request.Script)
+	updatedID, err := service.UpdateStrategy(ctx.Request.Context(), repo, id, headers.UserID, request.Name, request.Script, request.Description)
 	if errors.Is(err, sql.ErrNoRows) {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Strategy not found."})
 		return

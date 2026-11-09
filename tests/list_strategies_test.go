@@ -20,10 +20,10 @@ func TestListStrategiesOrderedWithCompleteScripts(t *testing.T) {
 	older := updated.Add(-time.Minute)
 	script := "def on_candle(ctx):\n    pass\n# user's script"
 	mock.ExpectQuery(repository.QueryListStrategies).WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"}).
-			AddRow(3, "Short Strangle", script, created, updated).
-			AddRow(2, "Short Call", "pass", created, updated).
-			AddRow(1, "Earlier strategy", "...", created, older)).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"}).
+			AddRow(3, "Short Strangle", script, created, updated, "Sell OTM call and put options.").
+			AddRow(2, "Short Call", "pass", created, updated, "").
+			AddRow(1, "Earlier strategy", "...", created, older, "")).RowsWillBeClosed()
 	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodGet, "1", ""))
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -38,7 +38,7 @@ func TestListStrategiesOrderedWithCompleteScripts(t *testing.T) {
 		t.Fatalf("unexpected strategies: %s", body)
 	}
 	first := payload.Strategies[0]
-	if len(first) != 5 || first["id"] != "3" || first["name"] != "Short Strangle" || first["script"] != script || first["created_at"] != created.Format(time.RFC3339) || first["updated_at"] != updated.Format(time.RFC3339) || payload.Strategies[1]["id"] != "2" || payload.Strategies[2]["id"] != "1" {
+	if len(first) != 6 || first["id"] != "3" || first["name"] != "Short Strangle" || first["script"] != script || first["description"] != "Sell OTM call and put options." || payload.Strategies[1]["description"] != "" || first["created_at"] != created.Format(time.RFC3339) || first["updated_at"] != updated.Format(time.RFC3339) || payload.Strategies[1]["id"] != "2" || payload.Strategies[2]["id"] != "1" {
 		t.Fatalf("incorrect response: %s", body)
 	}
 	if !strings.Contains(repository.QueryListStrategies, "ORDER BY updated_at DESC, id DESC") {
@@ -49,7 +49,7 @@ func TestListStrategiesOrderedWithCompleteScripts(t *testing.T) {
 func TestListStrategiesEmpty(t *testing.T) {
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListStrategies).WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"})).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"})).RowsWillBeClosed()
 	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodGet, "1", ""))
 	if response.StatusCode != http.StatusOK || body != `{"strategies":[]}` {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -59,7 +59,7 @@ func TestListStrategiesEmpty(t *testing.T) {
 func TestListStrategiesScopesUser(t *testing.T) {
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListStrategies).WithArgs(int64(2)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"})).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"})).RowsWillBeClosed()
 	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodGet, "2", ""))
 	if response.StatusCode != http.StatusOK || body != `{"strategies":[]}` {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -97,8 +97,8 @@ func TestListStrategiesDatabaseFailure(t *testing.T) {
 func TestListStrategiesScanFailure(t *testing.T) {
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListStrategies).WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"}).
-			AddRow(1, "Short Call", "pass", "invalid timestamp", time.Now())).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"}).
+			AddRow(1, "Short Call", "pass", "invalid timestamp", time.Now(), "")).RowsWillBeClosed()
 	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodGet, "1", ""))
 	if response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -108,8 +108,8 @@ func TestListStrategiesScanFailure(t *testing.T) {
 func TestListStrategiesIterationFailure(t *testing.T) {
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListStrategies).WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"}).
-			AddRow(1, "Short Call", "pass", time.Now(), time.Now()).RowError(0, errors.New("read failed"))).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"}).
+			AddRow(1, "Short Call", "pass", time.Now(), time.Now(), "").RowError(0, errors.New("read failed"))).RowsWillBeClosed()
 	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodGet, "1", ""))
 	if response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)

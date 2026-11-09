@@ -13,8 +13,9 @@ import (
 )
 
 type createStrategyRequest struct {
-	Name   string `json:"name" binding:"required"`
-	Script string `json:"script" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Script      string `json:"script" binding:"required"`
+	Description string `json:"description"`
 }
 
 func CreateStrategy(ctx *gin.Context, repo *repository.Repository, logger *slog.Logger) {
@@ -24,7 +25,7 @@ func CreateStrategy(ctx *gin.Context, repo *repository.Repository, logger *slog.
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	id, err := service.CreateStrategy(ctx.Request.Context(), repo, headers.UserID, request.Name, request.Script)
+	id, err := service.CreateStrategy(ctx.Request.Context(), repo, headers.UserID, request.Name, request.Script, request.Description)
 	if err != nil {
 		logger.ErrorContext(ctx.Request.Context(), "failed to create strategy", "error", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create strategy."})

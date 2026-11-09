@@ -25,11 +25,12 @@ func ListTemplates(ctx context.Context, repo *repository.Repository) (TemplatesL
 	response := TemplatesListResponse{Templates: make([]StrategyResponse, len(templates))}
 	for i, template := range templates {
 		response.Templates[i] = StrategyResponse{
-			ID:        strconv.FormatInt(template.ID, 10),
-			Name:      template.Name,
-			Script:    template.Script,
-			CreatedAt: template.CreatedAt,
-			UpdatedAt: template.UpdatedAt,
+			ID:          strconv.FormatInt(template.ID, 10),
+			Name:        template.Name,
+			Description: template.Description,
+			Script:      template.Script,
+			CreatedAt:   template.CreatedAt,
+			UpdatedAt:   template.UpdatedAt,
 		}
 	}
 	return response, nil

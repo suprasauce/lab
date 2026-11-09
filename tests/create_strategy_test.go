@@ -37,11 +37,42 @@ func TestCreateStrategyCreated(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock.ExpectQuery(repository.QueryCreateStrategy).
-		WithArgs(int64(1), "Short Strangle", script).
+		WithArgs(int64(1), "Short Strangle", script, "").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123))).RowsWillBeClosed()
 	response, responseBody := sendRequest(t, server, strategyRequest(t, server, http.MethodPost, "1", string(body)))
 	if response.StatusCode != http.StatusCreated || responseBody != `{"id":"123"}` {
 		t.Fatalf("status=%d body=%s", response.StatusCode, responseBody)
+	}
+}
+
+func TestCreateStrategyWithDescription(t *testing.T) {
+	mock, server := setupAPI(t)
+	description := "Sell OTM call and put options to collect premium."
+	mock.ExpectQuery(repository.QueryCreateStrategy).
+		WithArgs(int64(1), "Short Strangle", "pass", description).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123))).RowsWillBeClosed()
+	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodPost, "1", `{"name":"Short Strangle","script":"pass","description":"Sell OTM call and put options to collect premium."}`))
+	if response.StatusCode != http.StatusCreated || body != `{"id":"123"}` {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
+	}
+}
+
+func TestCreateStrategyWithEmptyDescription(t *testing.T) {
+	mock, server := setupAPI(t)
+	mock.ExpectQuery(repository.QueryCreateStrategy).
+		WithArgs(int64(1), "Short Call", "pass", "").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123))).RowsWillBeClosed()
+	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodPost, "1", `{"name":"Short Call","script":"pass","description":""}`))
+	if response.StatusCode != http.StatusCreated || body != `{"id":"123"}` {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
+	}
+}
+
+func TestCreateStrategyInvalidDescriptionType(t *testing.T) {
+	_, server := setupAPI(t)
+	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodPost, "1", `{"name":"Short Call","script":"pass","description":123}`))
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
 	}
 }
 
@@ -112,7 +143,7 @@ func TestCreateStrategyInvalidUserID(t *testing.T) {
 func TestCreateStrategyBodyCannotOverrideUserID(t *testing.T) {
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryCreateStrategy).
-		WithArgs(int64(1), "Short Call", "pass").
+		WithArgs(int64(1), "Short Call", "pass", "").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123))).RowsWillBeClosed()
 	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodPost, "1", `{"name":"Short Call","script":"pass","user_id":999}`))
 	if response.StatusCode != http.StatusCreated || body != `{"id":"123"}` {
@@ -122,7 +153,7 @@ func TestCreateStrategyBodyCannotOverrideUserID(t *testing.T) {
 
 func TestCreateStrategyDatabaseFailure(t *testing.T) {
 	mock, server := setupAPI(t)
-	mock.ExpectQuery(repository.QueryCreateStrategy).WithArgs(int64(1), "Short Call", "pass").
+	mock.ExpectQuery(repository.QueryCreateStrategy).WithArgs(int64(1), "Short Call", "pass", "").
 		WillReturnError(errors.New("private database detail"))
 	response, body := sendRequest(t, server, strategyRequest(t, server, http.MethodPost, "1", `{"name":"Short Call","script":"pass"}`))
 	if response.StatusCode != http.StatusInternalServerError || body != `{"error":"Failed to create strategy."}` {
@@ -132,7 +163,7 @@ func TestCreateStrategyDatabaseFailure(t *testing.T) {
 
 func TestCreateStrategyRespectsRequestCancellation(t *testing.T) {
 	mock, server := setupAPI(t)
-	mock.ExpectQuery(repository.QueryCreateStrategy).WithArgs(int64(1), "Short Call", "pass").
+	mock.ExpectQuery(repository.QueryCreateStrategy).WithArgs(int64(1), "Short Call", "pass", "").
 		WillDelayFor(time.Second).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123)))
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()

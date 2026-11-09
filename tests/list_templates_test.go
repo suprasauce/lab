@@ -31,10 +31,10 @@ func TestListTemplatesOrderedWithCompleteScripts(t *testing.T) {
 	updated := created.Add(time.Hour)
 	script := "def on_candle(ctx):\n    pass\n# template's full source"
 	mock.ExpectQuery(repository.QueryListTemplates).WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"}).
-			AddRow(2, "Short Call", script, created, updated).
-			AddRow(3, "Short Call", "pass", created, updated).
-			AddRow(1, "Short Strangle", "...", created, updated)).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"}).
+			AddRow(2, "Short Call", script, created, updated, "Sell an OTM call option.").
+			AddRow(3, "Short Call", "pass", created, updated, "").
+			AddRow(1, "Short Strangle", "...", created, updated, "")).RowsWillBeClosed()
 	response, body := sendRequest(t, server, templatesRequest(t, server))
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -48,7 +48,7 @@ func TestListTemplatesOrderedWithCompleteScripts(t *testing.T) {
 		t.Fatalf("unexpected response: %s", body)
 	}
 	first := templates[0]
-	if len(first) != 5 || first["id"] != "2" || first["name"] != "Short Call" || first["script"] != script || first["created_at"] != created.Format(time.RFC3339) || first["updated_at"] != updated.Format(time.RFC3339) || templates[1]["id"] != "3" || templates[2]["id"] != "1" {
+	if len(first) != 6 || first["id"] != "2" || first["name"] != "Short Call" || first["script"] != script || first["description"] != "Sell an OTM call option." || templates[1]["description"] != "" || first["created_at"] != created.Format(time.RFC3339) || first["updated_at"] != updated.Format(time.RFC3339) || templates[1]["id"] != "3" || templates[2]["id"] != "1" {
 		t.Fatalf("incorrect templates: %s", body)
 	}
 	if !strings.Contains(repository.QueryListTemplates, "WHERE user_id = $1") || !strings.Contains(repository.QueryListTemplates, "ORDER BY name ASC, id ASC") {
@@ -60,7 +60,7 @@ func TestListTemplatesEmpty(t *testing.T) {
 	t.Setenv("TEMPLATE_OWNER_USER_ID", "7")
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListTemplates).WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"})).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"})).RowsWillBeClosed()
 	response, body := sendRequest(t, server, templatesRequest(t, server))
 	if response.StatusCode != http.StatusOK || body != `{"templates":[]}` {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -71,7 +71,7 @@ func TestListTemplatesIgnoresCallerIdentity(t *testing.T) {
 	t.Setenv("TEMPLATE_OWNER_USER_ID", "7")
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListTemplates).WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"})).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"})).RowsWillBeClosed()
 	request := templatesRequest(t, server)
 	request.Header.Set("X-User-ID", "not-a-user")
 	request.URL.RawQuery = "user_id=999&template_owner_user_id=999"
@@ -122,8 +122,8 @@ func TestListTemplatesScanFailure(t *testing.T) {
 	t.Setenv("TEMPLATE_OWNER_USER_ID", "7")
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListTemplates).WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"}).
-			AddRow(1, "Short Call", "pass", "invalid timestamp", time.Now())).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"}).
+			AddRow(1, "Short Call", "pass", "invalid timestamp", time.Now(), "")).RowsWillBeClosed()
 	response, body := sendRequest(t, server, templatesRequest(t, server))
 	if response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -134,8 +134,8 @@ func TestListTemplatesIterationFailure(t *testing.T) {
 	t.Setenv("TEMPLATE_OWNER_USER_ID", "7")
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListTemplates).WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"}).
-			AddRow(1, "Short Call", "pass", time.Now(), time.Now()).RowError(0, errors.New("read failed"))).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"}).
+			AddRow(1, "Short Call", "pass", time.Now(), time.Now(), "").RowError(0, errors.New("read failed"))).RowsWillBeClosed()
 	response, body := sendRequest(t, server, templatesRequest(t, server))
 	if response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -146,7 +146,7 @@ func TestListTemplatesRespectsRequestCancellation(t *testing.T) {
 	t.Setenv("TEMPLATE_OWNER_USER_ID", "7")
 	mock, server := setupAPI(t)
 	mock.ExpectQuery(repository.QueryListTemplates).WithArgs(int64(7)).WillDelayFor(time.Second).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "script", "created_at", "updated_at", "description"}))
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	request := templatesRequest(t, server).WithContext(ctx)

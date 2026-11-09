@@ -31,7 +31,7 @@ func TestUpdateStrategySuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock.ExpectQuery(repository.QueryUpdateStrategy).
-		WithArgs("NIFTY Short Strangle", script, int64(123), int64(1)).
+		WithArgs("NIFTY Short Strangle", script, int64(123), int64(1), "").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123))).RowsWillBeClosed()
 	response, responseBody := sendRequest(t, server, updateStrategyRequest(t, server, "123", "1", string(body)))
 	if response.StatusCode != http.StatusOK || responseBody != `{"id":"123"}` {
@@ -39,10 +39,29 @@ func TestUpdateStrategySuccess(t *testing.T) {
 	}
 }
 
+func TestUpdateStrategyWithDescription(t *testing.T) {
+	mock, server := setupAPI(t)
+	mock.ExpectQuery(repository.QueryUpdateStrategy).
+		WithArgs("Updated", "pass", int64(123), int64(1), "Updated description.").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123))).RowsWillBeClosed()
+	response, body := sendRequest(t, server, updateStrategyRequest(t, server, "123", "1", `{"name":"Updated","script":"pass","description":"Updated description."}`))
+	if response.StatusCode != http.StatusOK || body != `{"id":"123"}` {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
+	}
+}
+
+func TestUpdateStrategyInvalidDescriptionType(t *testing.T) {
+	_, server := setupAPI(t)
+	response, body := sendRequest(t, server, updateStrategyRequest(t, server, "123", "1", `{"name":"Updated","script":"pass","description":123}`))
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
+	}
+}
+
 func TestUpdateStrategyQueryPreservesOwnershipAndCreationTime(t *testing.T) {
 	// Restrict SET to editable fields and the server-generated modification time.
 	query := strings.Join(strings.Fields(repository.QueryUpdateStrategy), " ")
-	want := "UPDATE lab.strategies SET name = $1, script = $2, updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id;"
+	want := "UPDATE lab.strategies SET name = $1, script = $2, description = $5, updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id;"
 	if query != want {
 		t.Fatalf("update must preserve owner, ID and created_at while refreshing updated_at: %s", query)
 	}
@@ -130,7 +149,7 @@ func TestUpdateStrategyInvalidUserID(t *testing.T) {
 
 func TestUpdateStrategyNotFound(t *testing.T) {
 	mock, server := setupAPI(t)
-	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(1)).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(1), "").WillReturnError(sql.ErrNoRows)
 	response, body := sendRequest(t, server, updateStrategyRequest(t, server, "123", "1", `{"name":"Updated","script":"pass"}`))
 	if response.StatusCode != http.StatusNotFound || body != `{"error":"Strategy not found."}` {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -139,7 +158,7 @@ func TestUpdateStrategyNotFound(t *testing.T) {
 
 func TestUpdateStrategyOtherUserNotFound(t *testing.T) {
 	mock, server := setupAPI(t)
-	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(2)).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(2), "").WillReturnError(sql.ErrNoRows)
 	response, body := sendRequest(t, server, updateStrategyRequest(t, server, "123", "2", `{"name":"Updated","script":"pass","user_id":1}`))
 	if response.StatusCode != http.StatusNotFound || body != `{"error":"Strategy not found."}` {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -148,7 +167,7 @@ func TestUpdateStrategyOtherUserNotFound(t *testing.T) {
 
 func TestUpdateStrategyDatabaseFailure(t *testing.T) {
 	mock, server := setupAPI(t)
-	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(1)).WillReturnError(errors.New("private database detail"))
+	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(1), "").WillReturnError(errors.New("private database detail"))
 	response, body := sendRequest(t, server, updateStrategyRequest(t, server, "123", "1", `{"name":"Updated","script":"pass"}`))
 	if response.StatusCode != http.StatusInternalServerError || body != `{"error":"Failed to update strategy."}` {
 		t.Fatalf("status=%d body=%s", response.StatusCode, body)
@@ -157,7 +176,7 @@ func TestUpdateStrategyDatabaseFailure(t *testing.T) {
 
 func TestUpdateStrategyRespectsRequestCancellation(t *testing.T) {
 	mock, server := setupAPI(t)
-	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(1)).
+	mock.ExpectQuery(repository.QueryUpdateStrategy).WithArgs("Updated", "pass", int64(123), int64(1), "").
 		WillDelayFor(time.Second).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(123)))
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
