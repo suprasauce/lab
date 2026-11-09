@@ -7,6 +7,7 @@ import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import { FileCode2, LoaderCircle, Play } from 'lucide-react'
 import { createBacktest } from '../api/backtests'
 import { createStrategy, listStrategies, updateStrategy } from '../api/strategies'
+import type { CreateStrategyRequest } from '../types/strategy'
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
 loader.config({ monaco })
@@ -76,10 +77,11 @@ function StrategyEditor() {
   const [params] = useSearchParams()
   const location = useLocation()
   const requestedId = params.get('strategyId')
-  const state = location.state as { template?: { name: string; script: string }; saved?: { name: string; script: string } } | null
+  const state = location.state as { template?: CreateStrategyRequest; saved?: CreateStrategyRequest } | null
   const initial = requestedId !== null ? state?.saved : state?.template
   const [script, onChange] = useState(initial?.script ?? (requestedId !== null ? '' : starterStrategy))
   const [name, setName] = useState(initial?.name ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
   const [strategyId, setStrategyId] = useState(requestedId)
   const [loading, setLoading] = useState(requestedId !== null)
   const [loadError, setLoadError] = useState('')
@@ -97,6 +99,7 @@ function StrategyEditor() {
         const strategy = strategies.find((item) => item.id === requestedId)
         if (!strategy) throw new Error('Strategy not found for the current user.')
         setName(strategy.name)
+        setDescription(strategy.description ?? '')
         onChange(strategy.script)
       }).catch((error: unknown) => {
         if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : 'Unable to load strategy.')
@@ -117,7 +120,7 @@ function StrategyEditor() {
     savePending.current = true
     setSaving(true)
     setError('')
-    const draft = { name: name.trim(), script }
+    const draft = { name: name.trim(), description, script }
     try {
       const result = strategyId !== null
         ? await updateStrategy(strategyId, draft)
@@ -180,6 +183,16 @@ function StrategyEditor() {
       {loadError && <p className="error-message" role="alert">{loadError}</p>}
       {success && <p className="save-success" role="status">{success}</p>}
       {error && <p className="error-message" role="alert">{error}</p>}
+      <label className="strategy-description">
+        Description (optional)
+        <textarea
+          value={description}
+          onChange={(event) => { setDescription(event.target.value); setSuccess('') }}
+          disabled={loading || saving || !!loadError}
+          rows={2}
+          placeholder="Briefly describe what this strategy does..."
+        />
+      </label>
       <section className="editor-panel" aria-label="Strategy script editor">
         <div className="editor-toolbar"><div className="editor-tab"><FileCode2 size={16} aria-hidden="true" /><span>strategy.star</span><span className="tab-dot" aria-hidden="true" /></div><span className="language-badge">STARLARK</span></div>
         <div className="editor-surface">

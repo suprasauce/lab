@@ -31,7 +31,8 @@ export default function TemplatesPage() {
       templates.length === 0 ? <p className="panel-message">No templates are available yet.</p> :
       <div className="template-grid">{templates.map((template) => <article className="template-card" key={template.id}>
         <h2>{template.name}</h2>
-        <button className="secondary-button" type="button" onClick={() => navigate('/editor', { state: { template: { name: template.name, script: template.script } } })}>Use Template</button>
+        {template.description && <p className="strategy-description-preview" title={template.description}>{template.description}</p>}
+        <button className="secondary-button" type="button" onClick={() => navigate('/editor', { state: { template: { name: template.name, description: template.description, script: template.script } } })}>Use Template</button>
       </article>)}</div>
     )}
   </>

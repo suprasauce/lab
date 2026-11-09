@@ -45,7 +45,10 @@ export default function StrategiesPage() {
               <thead><tr><th scope="col">Strategy Name</th><th scope="col">Last Updated</th><th scope="col">Action</th></tr></thead>
               <tbody>{strategies.map((strategy) => (
                 <tr key={strategy.id} onClick={() => navigate(`/editor?strategyId=${encodeURIComponent(strategy.id)}`)}>
-                  <td>{strategy.name}</td>
+                  <td className="strategy-info">
+                    {strategy.name}
+                    {strategy.description && <p className="strategy-description-preview" title={strategy.description}>{strategy.description}</p>}
+                  </td>
                   <td>{formatTimestamp(strategy.updated_at)}</td>
                   <td><Link to={`/editor?strategyId=${encodeURIComponent(strategy.id)}`} className="text-link" onClick={(event) => event.stopPropagation()}>Open in Editor</Link></td>
                 </tr>
