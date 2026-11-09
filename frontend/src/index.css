@@ -95,3 +95,13 @@ button.text-link { background: none; border: none; padding: 0; cursor: pointer; 
   .summary-panel { flex-wrap: wrap; gap: 22px; padding: 20px; }
   .summary-panel dd { font-size: 22px; }
 }
+
+.header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+a.run-button { text-decoration: none; }
+.strategy-name { display: flex; flex-direction: column; gap: 5px; color: #98a2b6; font-size: 11px; }
+.strategy-name input { width: 220px; max-width: 100%; padding: 9px 11px; border: 1px solid #34394a; border-radius: 8px; background: #141822; color: #e9ebf2; font: inherit; font-size: 13px; }
+.strategy-name input:focus-visible { outline: 2px solid #ad95ff; outline-offset: 2px; }
+.save-success { color: #95c9ad; margin: 0 0 16px; font-size: 12px; }
+.template-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 18px; }
+.template-card { padding: 24px; border: 1px solid #2a3040; border-radius: 10px; background: #141822; }
+.template-card h2 { margin: 0 0 22px; font-size: 16px; font-weight: 550; overflow-wrap: anywhere; }

@@ -7,9 +7,9 @@ export class ApiError extends Error {
   }
 }
 
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}, identifyUser = true): Promise<T> {
   const headers = new Headers(options.headers)
-  headers.set('X-User-ID', String(USER_ID))
+  if (identifyUser) headers.set('X-User-ID', String(USER_ID))
   if (options.body !== undefined) headers.set('Content-Type', 'application/json')
 
   let response: Response

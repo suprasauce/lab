@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import Editor, { loader, type BeforeMount, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/editor/editor.api'
 import 'monaco-editor/languages/definitions/python/register.js'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import { FileCode2, LoaderCircle, Play } from 'lucide-react'
 import { createBacktest } from '../api/backtests'
+import { createStrategy, listStrategies, updateStrategy } from '../api/strategies'
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
 loader.config({ monaco })
@@ -66,7 +67,74 @@ const configureTheme: BeforeMount = (editor) => {
   })
 }
 
-export default function EditorPage({ script, onChange }: { script: string; onChange: (value: string) => void }) {
+export default function EditorPage() {
+  const location = useLocation()
+  return <StrategyEditor key={location.key} />
+}
+
+function StrategyEditor() {
+  const [params] = useSearchParams()
+  const location = useLocation()
+  const requestedId = params.get('strategyId')
+  const state = location.state as { template?: { name: string; script: string }; saved?: { name: string; script: string } } | null
+  const initial = requestedId !== null ? state?.saved : state?.template
+  const [script, onChange] = useState(initial?.script ?? (requestedId !== null ? '' : starterStrategy))
+  const [name, setName] = useState(initial?.name ?? '')
+  const [strategyId, setStrategyId] = useState(requestedId)
+  const [loading, setLoading] = useState(requestedId !== null)
+  const [loadError, setLoadError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const savePending = useRef(false)
+  const active = useRef(true)
+  const [success, setSuccess] = useState(state?.saved ? 'Strategy saved.' : '')
+
+  useEffect(() => {
+    active.current = true
+    const controller = new AbortController()
+    if (requestedId !== null) {
+      listStrategies(controller.signal).then(({ strategies }) => {
+        if (controller.signal.aborted) return
+        const strategy = strategies.find((item) => item.id === requestedId)
+        if (!strategy) throw new Error('Strategy not found for the current user.')
+        setName(strategy.name)
+        onChange(strategy.script)
+      }).catch((error: unknown) => {
+        if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : 'Unable to load strategy.')
+      }).finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    }
+    return () => { active.current = false; controller.abort() }
+  }, [requestedId])
+
+  async function saveStrategy() {
+    if (savePending.current || loading || loadError) return
+    setSuccess('')
+    if (!name.trim() || !script.trim()) {
+      setError('Strategy name and script are required.')
+      return
+    }
+    savePending.current = true
+    setSaving(true)
+    setError('')
+    const draft = { name: name.trim(), script }
+    try {
+      const result = strategyId !== null
+        ? await updateStrategy(strategyId, draft)
+        : await createStrategy(draft)
+      if (!active.current) return
+      // Remember the committed ID before navigation so another save cannot create a duplicate.
+      setStrategyId(result.id)
+      setSuccess('Strategy saved.')
+      if (strategyId === null) navigate(`/editor?strategyId=${encodeURIComponent(result.id)}`, { replace: true, state: { saved: draft } })
+    } catch (error) {
+      if (active.current) setError(error instanceof Error ? error.message : 'Unable to save strategy.')
+    } finally {
+      savePending.current = false
+      if (active.current) setSaving(false)
+    }
+  }
+
   const [position, setPosition] = useState({ lineNumber: 1, column: 1 })
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -99,19 +167,26 @@ export default function EditorPage({ script, onChange }: { script: string; onCha
     <>
       <header className="page-header">
         <div><h1>Strategy Editor</h1><p className="page-subtitle">Turn your trading ideas into strategies.</p></div>
-        <button type="button" className="run-button" onClick={runBacktest} disabled={submitting} aria-busy={submitting}>
+        <div className="header-actions">
+          <label className="strategy-name">Strategy name<input value={name} onChange={(event) => { setName(event.target.value); setSuccess('') }} disabled={loading || saving || !!loadError} placeholder="Untitled strategy" /></label>
+          <button type="button" className="secondary-button" onClick={saveStrategy} disabled={saving || loading || !!loadError} aria-busy={saving}>{saving ? 'Saving...' : strategyId !== null ? 'Save Changes' : 'Save Strategy'}</button>
+        <button type="button" className="run-button" onClick={runBacktest} disabled={submitting || loading || !!loadError} aria-busy={submitting}>
           {submitting ? <LoaderCircle className="loading-icon" size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
           {submitting ? 'Submitting...' : 'Run Backtest'}
         </button>
+        </div>
       </header>
+      {loading && <p className="panel-message" role="status">Loading strategy...</p>}
+      {loadError && <p className="error-message" role="alert">{loadError}</p>}
+      {success && <p className="save-success" role="status">{success}</p>}
       {error && <p className="error-message" role="alert">{error}</p>}
       <section className="editor-panel" aria-label="Strategy script editor">
         <div className="editor-toolbar"><div className="editor-tab"><FileCode2 size={16} aria-hidden="true" /><span>strategy.star</span><span className="tab-dot" aria-hidden="true" /></div><span className="language-badge">STARLARK</span></div>
         <div className="editor-surface">
           <Editor height="100%" language="python" path="strategy.star" theme="lab-dark" value={script}
-            beforeMount={configureTheme} onMount={handleMount} onChange={(value) => onChange(value ?? '')}
+            beforeMount={configureTheme} onMount={handleMount} onChange={(value) => { onChange(value ?? ''); setSuccess('') }}
             loading={<span className="editor-loading">Loading editor…</span>}
-            options={{ automaticLayout: true, ariaLabel: 'Strategy code', fontSize: 13, lineHeight: 23, fontFamily: "'Cascadia Code', 'SFMono-Regular', Consolas, monospace", minimap: { enabled: false }, scrollBeyondLastLine: false, padding: { top: 22, bottom: 22 }, lineNumbersMinChars: 3, folding: false, overviewRulerLanes: 0, hideCursorInOverviewRuler: true, renderLineHighlight: 'line', tabSize: 4, wordWrap: 'on', scrollbar: { verticalScrollbarSize: 7, horizontalScrollbarSize: 7 } }}
+            options={{ readOnly: loading || saving || !!loadError, automaticLayout: true, ariaLabel: 'Strategy code', fontSize: 13, lineHeight: 23, fontFamily: "'Cascadia Code', 'SFMono-Regular', Consolas, monospace", minimap: { enabled: false }, scrollBeyondLastLine: false, padding: { top: 22, bottom: 22 }, lineNumbersMinChars: 3, folding: false, overviewRulerLanes: 0, hideCursorInOverviewRuler: true, renderLineHighlight: 'line', tabSize: 4, wordWrap: 'on', scrollbar: { verticalScrollbarSize: 7, horizontalScrollbarSize: 7 } }}
           />
         </div>
         <footer className="editor-status"><span><span className="status-dot" />Ready to edit</span><div className="flex items-center gap-5"><span>Python / Starlark</span><span>Ln {position.lineNumber}, Col {position.column}</span><span className="encoding-label">UTF-8</span></div></footer>
