@@ -47,6 +47,13 @@ func main() {
 		controller.CreateBacktest(ctx, repo, pool, logger)
 	})
 
+	api.POST("/strategies", func(ctx *gin.Context) {
+		controller.CreateStrategy(ctx, repo, logger)
+	})
+	api.GET("/strategies", func(ctx *gin.Context) {
+		controller.ListStrategies(ctx, repo, logger)
+	})
+
 	if err := router.Run(":8080"); err != nil {
 		logger.Error("HTTP server failed", "error", err)
 		return

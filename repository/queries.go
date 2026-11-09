@@ -1,5 +1,18 @@
 package repository
 
+const QueryCreateStrategy = `
+	INSERT INTO lab.strategies (user_id, name, script)
+	VALUES ($1, $2, $3)
+	RETURNING id;
+`
+
+const QueryListStrategies = `
+	SELECT id, name, script, created_at, updated_at
+	FROM lab.strategies
+	WHERE user_id = $1
+	ORDER BY updated_at DESC, id DESC;
+`
+
 const QueryPendingBacktestIDs = `
 	SELECT id
 	FROM lab.backtests

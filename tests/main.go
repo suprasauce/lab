@@ -25,5 +25,11 @@ func newTestServer(repo *repository.Repository, pool *worker.WorkerPool, logger 
 	api.POST("/backtests", func(ctx *gin.Context) {
 		controller.CreateBacktest(ctx, repo, pool, logger)
 	})
+	api.POST("/strategies", func(ctx *gin.Context) {
+		controller.CreateStrategy(ctx, repo, logger)
+	})
+	api.GET("/strategies", func(ctx *gin.Context) {
+		controller.ListStrategies(ctx, repo, logger)
+	})
 	return httptest.NewServer(router)
 }

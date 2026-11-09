@@ -193,7 +193,7 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Failed to retrieve backtest.
-  /api/v1/strategies:
+  /api/strategies:
     post:
       operationId: createStrategy
       summary: Create a strategy
