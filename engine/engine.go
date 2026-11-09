@@ -67,14 +67,6 @@ func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate
 			return onCandle(execution)
 		})
 		results.Executions = append(results.Executions, execution.Positions)
-		if err == nil {
-			for _, order := range execution.Orders {
-				if order.Status == models.OrderPending {
-					err = fmt.Errorf("unfilled order %s remains at expiry", order.ID)
-					break
-				}
-			}
-		}
 		if err != nil {
 			return results, fmt.Errorf("expiry %s: %w", expiry.Format(time.DateOnly), err)
 		}

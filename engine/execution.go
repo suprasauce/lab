@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -81,10 +80,9 @@ func (e *Execution) loadCompletedCandles() error {
 	if err != nil {
 		return fmt.Errorf("completed underlying candle: %w", err)
 	}
-	if len(candles) == 0 {
-		return fmt.Errorf("missing completed underlying candle for underlying %d at %s: %w", e.underlyingID, start.Format(time.RFC3339), sql.ErrNoRows)
+	if len(candles) > 0 {
+		e.UnderlyingCandle = &candles[0]
 	}
-	e.UnderlyingCandle = &candles[0]
 	for _, position := range e.Positions {
 		if position.Status != models.TradeOpen {
 			continue
@@ -94,7 +92,7 @@ func (e *Execution) loadCompletedCandles() error {
 			return fmt.Errorf("completed option candle for contract %d: %w", position.ContractID, err)
 		}
 		if len(candles) == 0 {
-			return fmt.Errorf("missing completed option candle for contract %d at %s: %w", position.ContractID, start.Format(time.RFC3339), sql.ErrNoRows)
+			continue
 		}
 		position.Candle = &candles[0]
 	}

@@ -232,22 +232,65 @@ func TestMissingOptionCandleHandling(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-		if dte == 21 {
-			if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), "missing completed option candle") {
-				t.Fatalf("missing candle error: %v", err)
-			}
-			if result.Executions[0][0].Candle != nil || result.Executions[0][0].Status != models.TradeOpen {
-				t.Fatal("stale snapshot or premature exit")
-			}
-			continue
-		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, cycle := range result.Executions {
-			if cycle[0].EntryTime.Minute() != 20 || cycle[0].ExitTime.Minute() != 15 || cycle[0].Status != models.TradeClosed {
+			entryMinute, exitMinute := 15, 15
+			if dte == 45 {
+				entryMinute = 20
+			} else {
+				exitMinute = 20
+			}
+			if cycle[0].EntryTime.Minute() != entryMinute || cycle[0].ExitTime.Minute() != exitMinute || cycle[0].Status != models.TradeClosed {
 				t.Fatalf("incorrect pending fill: %+v", cycle[0])
 			}
+		}
+	}
+}
+
+func TestPendingExitAtExpiryKeepsOpenPosition(t *testing.T) {
+	f := newFixture(t)
+	f.missingExits = true
+	script, err := load("test.star", setup+trading)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Executions) != len(f.expiries) {
+		t.Fatal("pending exit prevented later expiry cycles")
+	}
+	for _, cycle := range result.Executions {
+		if len(cycle) != 1 {
+			t.Fatalf("expected one open position, got %d", len(cycle))
+		}
+		position := cycle[0]
+		if position.Status != models.TradeOpen || !position.ExitTime.IsZero() || position.ExitPrice != 0 || position.PnL != 0 {
+			t.Fatalf("unfilled exit changed position: %+v", position)
+		}
+	}
+}
+
+func TestPendingEntryAtExpiryDoesNotCreatePosition(t *testing.T) {
+	f := newFixture(t)
+	f.missingAllOptions = true
+	script, err := load("test.star", setup+trading)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Executions) != len(f.expiries) {
+		t.Fatal("pending entry prevented later expiry cycles")
+	}
+	for _, cycle := range result.Executions {
+		if len(cycle) != 0 {
+			t.Fatal("unfilled entry created a position")
 		}
 	}
 }
@@ -324,15 +367,17 @@ def on_candle(ctx):
 }
 
 type fixture struct {
-	t               *testing.T
-	repo            *repository.Repository
-	expiries        []time.Time
-	contractQueries int
-	onContractQuery func()
-	missingDTE      int
-	missingMinute   int
-	expectedStrike  int64
-	expectedType    string
+	t                 *testing.T
+	repo              *repository.Repository
+	expiries          []time.Time
+	contractQueries   int
+	onContractQuery   func()
+	missingDTE        int
+	missingMinute     int
+	missingAllOptions bool
+	missingExits      bool
+	expectedStrike    int64
+	expectedType      string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -426,6 +471,9 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		}
 	case strings.Contains(query, "FROM lab.option_candles"):
 		r.columns = candleColumns()
+		if f.missingAllOptions {
+			return r, nil
+		}
 		at := args[2].Value.(time.Time)
 		if args[1].Value != "5m" {
 			f.t.Fatal("unexpected timeframe")
@@ -439,6 +487,9 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 			expiry := f.expiries[args[0].Value.(int64)%100]
 			day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
 			dte := int(expiry.Sub(day) / (24 * time.Hour))
+			if f.missingExits && dte <= 21 {
+				continue
+			}
 			if dte != f.missingDTE || at.Hour() != 9 || at.Minute() != f.missingMinute {
 				price := int64(10000)
 				if dte == 21 {

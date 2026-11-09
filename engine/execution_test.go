@@ -254,8 +254,7 @@ func TestMissingLoadedUnderlyingKeepsOrderPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.Time = marketTime(9, 20)
-	if err := e.fillOrders(); err != nil {
+	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
 	order, _ := e.Order(id)
@@ -270,7 +269,7 @@ func TestMissingLoadedUnderlyingKeepsOrderPending(t *testing.T) {
 	}
 }
 
-func TestAdvanceClearsSnapshotsAndErrorsOnMissingCompletedCandles(t *testing.T) {
+func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.T) {
 	for _, underlyingMissing := range []bool{true, false} {
 		missingOption, missingUnderlying := map[time.Time]bool{}, map[time.Time]bool{}
 		if underlyingMissing {
@@ -288,13 +287,66 @@ func TestAdvanceClearsSnapshotsAndErrorsOnMissingCompletedCandles(t *testing.T) 
 		if err := e.advance(marketTime(9, 20)); err != nil {
 			t.Fatal(err)
 		}
-		err := e.advance(marketTime(9, 25))
-		if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), marketTime(9, 20).Format(time.RFC3339)) {
-			t.Fatalf("missing candle error: %v", err)
+		if err := e.advance(marketTime(9, 25)); err != nil {
+			t.Fatal(err)
 		}
-		if e.Positions[0].Candle != nil || underlyingMissing && e.UnderlyingCandle != nil || e.Positions[0].Status != models.TradeOpen {
+		if underlyingMissing && e.UnderlyingCandle != nil || !underlyingMissing && e.Positions[0].Candle != nil || e.Positions[0].Status != models.TradeOpen {
 			t.Fatal("stale snapshot or changed position")
 		}
+		if underlyingMissing && (e.Positions[0].Candle == nil || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20))) {
+			t.Fatal("missing underlying prevented option candle loading")
+		}
+		if err := e.advance(marketTime(9, 30)); err != nil {
+			t.Fatal(err)
+		}
+		if e.UnderlyingCandle == nil || e.Positions[0].Candle == nil || !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 25)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
+			t.Fatal("subsequent completed candles were not loaded")
+		}
+	}
+}
+
+func TestMissingOptionCandleDefersExit(t *testing.T) {
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 20): true}, nil)
+	if err := e.advance(marketTime(9, 15)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.PlaceOrder(atmRequest(), "SELL", 75); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 20)); err != nil {
+		t.Fatal(err)
+	}
+	position := e.Positions[0]
+	id, err := e.PlaceOrder(models.ContractRequest{ContractID: position.ContractID}, "BUY", 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 25)); err != nil {
+		t.Fatal(err)
+	}
+	order, _ := e.Order(id)
+	if position.Candle != nil || position.Status != models.TradeOpen || order.Status != models.OrderPending || !position.ExitTime.IsZero() {
+		t.Fatal("missing candle used a stale snapshot or filled the exit")
+	}
+	if err := e.advance(marketTime(9, 30)); err != nil {
+		t.Fatal(err)
+	}
+	if position.Status != models.TradeClosed || !position.ExitTime.Equal(marketTime(9, 25)) || position.ExitPrice != 9000 || order.Status != models.OrderFilled {
+		t.Fatal("exit did not fill with the next available completed candle")
+	}
+	if err := e.fillOrders(); err != nil || len(e.Positions) != 1 {
+		t.Fatalf("duplicate fill or error: %v", err)
+	}
+}
+
+func TestAdvancePropagatesCandleQueryFailure(t *testing.T) {
+	failure := errors.New("database unavailable")
+	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return nil, failure }})
+	defer db.Close()
+	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e := newExecution(context.Background(), repo, 7, marketTime(0, 0))
+	if err := e.advance(marketTime(9, 20)); !errors.Is(err, failure) {
+		t.Fatalf("database failure was not propagated: %v", err)
 	}
 }
 
