@@ -361,8 +361,57 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Failed to update strategy.
+  /api/templates:
+    get:
+      operationId: listTemplates
+      summary: List predefined strategy templates
+      description: >-
+        Returns predefined strategies belonging to the platform's internally
+        configured template owner, regardless of the requesting user's ID.
+        No user identification header, request body, or query parameters are
+        required. The template owner is not supplied by or exposed to clients.
+        Includes complete scripts, ordered by name ascending, then id ascending.
+        Returns an empty templates array when none exist. Results are not paginated.
+      responses:
+        '200':
+          description: Predefined templates ordered by name ascending, then id ascending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplatesListResponse'
+              examples:
+                templates:
+                  summary: Predefined strategy templates
+                  value:
+                    templates:
+                      - id: '1'
+                        name: Short Strangle
+                        script: '...'
+                        created_at: '2026-11-09T10:00:00Z'
+                        updated_at: '2026-11-09T10:00:00Z'
+                empty:
+                  summary: No templates available
+                  value:
+                    templates: []
+        '500':
+          description: Unexpected failure while retrieving predefined templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Failed to retrieve templates.
 components:
   schemas:
+    TemplatesListResponse:
+      type: object
+      required: [templates]
+      properties:
+        templates:
+          type: array
+          description: Templates ordered by name ASC, id ASC; empty if none exist.
+          items:
+            $ref: '#/components/schemas/Strategy'
     CreateStrategyRequest:
       type: object
       required: [name, script]
