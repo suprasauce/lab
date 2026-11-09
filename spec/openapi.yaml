@@ -193,8 +193,166 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: Failed to retrieve backtest.
+  /api/v1/strategies:
+    post:
+      operationId: createStrategy
+      summary: Create a strategy
+      description: Saves a new strategy belonging to the user identified by X-User-ID.
+      parameters:
+        - name: X-User-ID
+          in: header
+          required: true
+          description: Unique identifier of the user creating the strategy.
+          schema:
+            type: string
+            minLength: 1
+          example: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStrategyRequest'
+      responses:
+        '201':
+          description: Strategy created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateStrategyResponse'
+              example:
+                id: '1'
+        '400':
+          description: Missing or invalid X-User-ID header or request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Name and script are required.
+        '500':
+          description: Unexpected failure while creating the strategy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Failed to create strategy.
+    get:
+      operationId: listStrategies
+      summary: List the user's strategies
+      description: >-
+        Returns only strategies belonging to the user identified by X-User-ID,
+        ordered by updated_at descending, then id descending. Includes the complete
+        script for each strategy. Returns an empty strategies array when none exist.
+        Results are not paginated.
+      parameters:
+        - name: X-User-ID
+          in: header
+          required: true
+          description: Unique identifier of the user retrieving their strategies.
+          schema:
+            type: string
+            minLength: 1
+          example: '1'
+      responses:
+        '200':
+          description: The user's strategies, most recently updated first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StrategyListResponse'
+              examples:
+                strategies:
+                  summary: Saved strategies
+                  value:
+                    strategies:
+                      - id: '1'
+                        name: Short Strangle
+                        script: '...'
+                        created_at: '2026-11-09T10:00:00Z'
+                        updated_at: '2026-11-09T10:00:00Z'
+                empty:
+                  summary: No strategies for this user
+                  value:
+                    strategies: []
+        '401':
+          description: Missing or invalid X-User-ID header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: A valid X-User-ID header is required.
+        '500':
+          description: Unexpected failure while listing the user's strategies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Failed to retrieve strategies.
 components:
   schemas:
+    CreateStrategyRequest:
+      type: object
+      required: [name, script]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name of the strategy.
+          example: Short Strangle
+        script:
+          type: string
+          minLength: 1
+          description: Complete Starlark strategy source.
+          example: '...'
+    CreateStrategyResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          description: Unique identifier of the created strategy.
+          example: '1'
+    Strategy:
+      type: object
+      required: [id, name, script, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          description: Unique strategy identifier.
+          example: '1'
+        name:
+          type: string
+          description: Display name of the strategy.
+          example: Short Strangle
+        script:
+          type: string
+          description: Complete Starlark strategy source.
+          example: '...'
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the strategy was created.
+          example: '2026-11-09T10:00:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the strategy was last updated.
+          example: '2026-11-09T10:00:00Z'
+    StrategyListResponse:
+      type: object
+      required: [strategies]
+      properties:
+        strategies:
+          type: array
+          description: Strategies ordered by updated_at DESC, id DESC; empty if none exist.
+          items:
+            $ref: '#/components/schemas/Strategy'
     CreateBacktestRequest:
       type: object
       required:
