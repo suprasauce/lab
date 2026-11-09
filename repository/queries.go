@@ -13,6 +13,13 @@ const QueryListStrategies = `
 	ORDER BY updated_at DESC, id DESC;
 `
 
+const QueryUpdateStrategy = `
+	UPDATE lab.strategies
+	SET name = $1, script = $2, updated_at = NOW()
+	WHERE id = $3 AND user_id = $4
+	RETURNING id;
+`
+
 const QueryPendingBacktestIDs = `
 	SELECT id
 	FROM lab.backtests

@@ -15,6 +15,14 @@ func (r *Repository) CreateStrategy(ctx context.Context, userID int64, name, scr
 	return id, nil
 }
 
+func (r *Repository) UpdateStrategy(ctx context.Context, id, userID int64, name, script string) (int64, error) {
+	var updatedID int64
+	if err := r.db.QueryRowContext(ctx, QueryUpdateStrategy, name, script, id, userID).Scan(&updatedID); err != nil {
+		return 0, fmt.Errorf("update strategy %d: %w", id, err)
+	}
+	return updatedID, nil
+}
+
 func (r *Repository) ListStrategies(ctx context.Context, userID int64) ([]models.Strategy, error) {
 	rows, err := r.db.QueryContext(ctx, QueryListStrategies, userID)
 	if err != nil {

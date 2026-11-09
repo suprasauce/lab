@@ -31,5 +31,8 @@ func newTestServer(repo *repository.Repository, pool *worker.WorkerPool, logger 
 	api.GET("/strategies", func(ctx *gin.Context) {
 		controller.ListStrategies(ctx, repo, logger)
 	})
+	api.PUT("/strategies/:id", func(ctx *gin.Context) {
+		controller.UpdateStrategy(ctx, repo, logger)
+	})
 	return httptest.NewServer(router)
 }

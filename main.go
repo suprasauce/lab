@@ -53,6 +53,9 @@ func main() {
 	api.GET("/strategies", func(ctx *gin.Context) {
 		controller.ListStrategies(ctx, repo, logger)
 	})
+	api.PUT("/strategies/:id", func(ctx *gin.Context) {
+		controller.UpdateStrategy(ctx, repo, logger)
+	})
 
 	if err := router.Run(":8080"); err != nil {
 		logger.Error("HTTP server failed", "error", err)
