@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -38,8 +39,12 @@ def on_candle(ctx):
             ctx.state["exit"] = ctx.place_order(contract=entry.contract_id, side="BUY", quantity=75)
 `
 
-func TestExampleScriptLoads(t *testing.T) {
-	script, err := Load("../strategies/short_call.star")
+func TestLoadStrategyFile(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "strategy.star")
+	if err := os.WriteFile(filename, []byte(setup+trading), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script, err := Load(filename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,48 +547,4 @@ func (r *rows) Next(dest []driver.Value) error {
 	copy(dest, r.values[0])
 	r.values = r.values[1:]
 	return nil
-}
-
-func TestExampleStrategiesBacktest(t *testing.T) {
-	for _, tt := range []struct {
-		file      string
-		positions int
-	}{{"short_call.star", 1}, {"short_strangle.star", 2}} {
-		t.Run(tt.file, func(t *testing.T) {
-			source, err := os.ReadFile("../strategies/" + tt.file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Retain the actual example's logic while selecting the fixture's expiry range.
-			text := strings.ReplaceAll(string(source), "2026-01-01", "2026-09-01")
-			text = strings.ReplaceAll(text, "2026-06-30", "2026-10-31")
-			script, err := load("example.star", text)
-			if err != nil {
-				t.Fatal(err)
-			}
-			f := newFixture(t)
-			result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, cycle := range result.Executions {
-				if len(cycle) != tt.positions {
-					t.Fatalf("expected %d positions per expiry, got %d", tt.positions, len(cycle))
-				}
-				for i, position := range cycle {
-					optionType, strike := models.Call, models.Price(2265000)
-					if i == 1 {
-						optionType, strike = models.Put, 2245000
-					}
-					if position.Contract.OptionType != optionType || position.Contract.StrikePrice != strike || position.Side != models.Short || position.Quantity != 75 || position.EntryTime.Format("15:04") != "09:30" || position.ExitTime.Format("15:04") != "15:15" || position.PnL != 300000 || position.Status != models.TradeClosed {
-						t.Fatalf("incorrect example lifecycle: %+v", position)
-					}
-				}
-				if len(cycle) == 2 && cycle[0].ContractID == cycle[1].ContractID {
-					t.Fatal("call and put must use distinct contracts")
-				}
-			}
-
-		})
-	}
 }

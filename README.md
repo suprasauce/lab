@@ -46,8 +46,6 @@ Scripts submit orders through `ctx.place_order(...)`. Orders are queued and proc
 
 Order history, positions, and `ctx.state` start fresh for every expiry. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a trade summary and position entry/exit details; open positions have null exit fields and P&L.
 
-Example scripts are in [strategies/](strategies/).
-
 ## Market data
 
 The database must already contain the underlying, its classified expiry dates, and historical five-minute underlying candles. Underlying ingestion is manual.
