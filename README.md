@@ -66,6 +66,8 @@ go run .
 
 The server listens on port 8080. API contracts are documented in [spec/openapi.yaml](spec/openapi.yaml). The submitting user must already exist in `lab.users`.
 
+`GET /api/templates` lists saved strategies owned by the backend-configured `TEMPLATE_OWNER_USER_ID`, ordered by name and ID ascending. Set this environment variable to the designated platform user's positive numeric ID. The endpoint requires no user header and returns `500` if the setting is missing or invalid. The owner ID is never taken from client input or included in the response.
+
 The queue is in memory. On startup, the worker reloads all `PENDING` backtest IDs from PostgreSQL, oldest first, and queues them for execution. Interrupted backtests restart from the beginning. There is no `RUNNING` status or automatic retry during normal operation.
 
 Run tests with `go test ./...`.

@@ -1,5 +1,12 @@
 package repository
 
+const QueryListTemplates = `
+	SELECT id, name, script, created_at, updated_at
+	FROM lab.strategies
+	WHERE user_id = $1
+	ORDER BY name ASC, id ASC;
+`
+
 const QueryCreateStrategy = `
 	INSERT INTO lab.strategies (user_id, name, script)
 	VALUES ($1, $2, $3)
