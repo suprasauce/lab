@@ -1,0 +1,78 @@
+package scripting
+
+import (
+	"fmt"
+	"time"
+
+	"go.starlark.net/starlark"
+
+	"optionsbacktest/engine"
+)
+
+type strategyContext struct {
+	initializing bool
+	configured   bool
+	underlying   string
+	start, end   time.Time
+	execution    *engine.Execution
+	state        *starlark.Dict
+}
+
+func (*strategyContext) String() string       { return "strategy_context" }
+func (*strategyContext) Type() string         { return "strategy_context" }
+func (*strategyContext) Freeze()              {}
+func (*strategyContext) Truth() starlark.Bool { return starlark.True }
+func (*strategyContext) Hash() (uint32, error) {
+	return 0, fmt.Errorf("strategy context is unhashable")
+}
+func (*strategyContext) AttrNames() []string {
+	return []string{"configure", "place_order", "order", "state", "time", "dte"}
+}
+
+func (c *strategyContext) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "configure":
+		return starlark.NewBuiltin(name, c.configure), nil
+	case "place_order":
+		return starlark.NewBuiltin(name, c.placeOrder), nil
+	case "order":
+		return starlark.NewBuiltin(name, c.order), nil
+	case "state":
+		return c.state, nil
+	case "dte":
+		if c.execution != nil {
+			return starlark.MakeInt(c.execution.DTE), nil
+		}
+		return starlark.None, nil
+	case "time":
+		if c.execution != nil {
+			return starlark.String(c.execution.Time.Format("15:04")), nil
+		}
+		return starlark.None, nil
+
+	}
+	return nil, nil
+}
+
+func (c *strategyContext) configure(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if !c.initializing || c.configured {
+		return nil, fmt.Errorf("configure is allowed once during initialize")
+	}
+	var underlying, start, end string
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "underlying", &underlying, "start_date", &start, "end_date", &end); err != nil {
+		return nil, err
+	}
+	startDate, err := time.Parse(time.DateOnly, start)
+	if err != nil {
+		return nil, fmt.Errorf("start_date: %w", err)
+	}
+	endDate, err := time.Parse(time.DateOnly, end)
+	if err != nil {
+		return nil, fmt.Errorf("end_date: %w", err)
+	}
+	if underlying == "" || startDate.After(endDate) {
+		return nil, fmt.Errorf("underlying must be nonempty and start_date must not follow end_date")
+	}
+	c.underlying, c.start, c.end, c.configured = underlying, startDate, endDate, true
+	return starlark.None, nil
+}
