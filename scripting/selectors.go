@@ -49,10 +49,23 @@ func idSelector(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kw
 	return wrapSelector(b.Name(), selector.NewIDSelector(id)), nil
 }
 
+func deltaSelector(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var optionType string
+	var delta float64
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "option_type", &optionType, "delta", &delta); err != nil {
+		return nil, err
+	}
+	if optionType != string(models.Call) && optionType != string(models.Put) {
+		return nil, fmt.Errorf("invalid option_type %q: expected CALL or PUT", optionType)
+	}
+	return wrapSelector(b.Name(), selector.NewDeltaSelector(models.OptionType(optionType), delta)), nil
+}
+
 func selectorBuiltins() starlark.StringDict {
 	return starlark.StringDict{
 		"offset_selector": starlark.NewBuiltin("offset_selector", offsetSelector),
 		"id_selector":     starlark.NewBuiltin("id_selector", idSelector),
+		"delta_selector":  starlark.NewBuiltin("delta_selector", deltaSelector),
 	}
 }
 

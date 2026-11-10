@@ -1,7 +1,10 @@
 package scripting
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"go.starlark.net/starlark"
 
@@ -43,6 +46,24 @@ func TestIDSelectorBuiltinParsesArguments(t *testing.T) {
 	selection, ok := value.selector.(*selector.IDSelector)
 	if !ok || selection.ContractID != 101 || value.Type() != "id_selector" {
 		t.Fatalf("incorrect ID selector: %+v", value)
+	}
+}
+
+func TestDeltaSelectorBuiltinRemainsUnimplemented(t *testing.T) {
+	value := evaluateSelector(t, `delta_selector("CALL", delta=0.20)`)
+	selection, ok := value.selector.(*selector.DeltaSelector)
+	if !ok || selection.OptionType != models.Call || selection.Delta != 0.20 || value.Type() != "delta_selector" {
+		t.Fatalf("incorrect delta selector: %+v", value)
+	}
+	if _, err := selection.Select(context.Background(), 7, nil, time.Time{}, nil); err == nil || !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("expected not implemented, got %v", err)
+	}
+}
+
+func TestDeltaSelectorBuiltinRequiresDelta(t *testing.T) {
+	_, err := starlark.Eval(&starlark.Thread{Name: "selector-test"}, "selector.star", `delta_selector("CALL")`, selectorBuiltins())
+	if err == nil || !strings.Contains(err.Error(), "delta") {
+		t.Fatalf("missing delta accepted: %v", err)
 	}
 }
 
