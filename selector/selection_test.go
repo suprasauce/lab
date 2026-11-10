@@ -124,7 +124,7 @@ func TestIDSelectorChecksUnderlyingAndExpiry(t *testing.T) {
 }
 
 func TestUnimplementedSelectors(t *testing.T) {
-	for _, s := range []Selector{PremiumSelector{}, DeltaSelector{}} {
+	for _, s := range []Selector{PremiumSelector{}} {
 		if _, err := s.Select(context.Background(), 7, nil, time.Time{}, nil); err == nil || !strings.Contains(err.Error(), "not implemented") {
 			t.Fatalf("expected not implemented, got %v", err)
 		}
