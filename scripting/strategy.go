@@ -12,6 +12,7 @@ import (
 
 	"optionsbacktest/engine"
 	"optionsbacktest/models"
+	"optionsbacktest/selector"
 )
 
 type Script struct {
@@ -42,7 +43,10 @@ func LoadSource(filename, source string) (*Script, error) {
 
 func load(filename string, source any) (*Script, error) {
 	thread := &starlark.Thread{Name: filename}
-	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, filename, source, starlark.StringDict{"atm_option": starlark.NewBuiltin("atm_option", atmOption)})
+	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, filename, source, starlark.StringDict{
+		"offset_selector": starlark.NewBuiltin("offset_selector", offsetSelector),
+		"id_selector":     starlark.NewBuiltin("id_selector", idSelector),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("load strategy: %w", err)
 	}
@@ -152,20 +156,11 @@ func (c *strategyContext) placeOrder(_ *starlark.Thread, b *starlark.Builtin, ar
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "contract", &contract, "side", &side, "quantity", &quantity); err != nil {
 		return nil, err
 	}
-	var request models.ContractRequest
-	switch value := contract.(type) {
-	case starlark.Int:
-		id, ok := value.Int64()
-		if !ok || id <= 0 {
-			return nil, fmt.Errorf("contract ID must be a positive int64")
-		}
-		request.ContractID = id
-	case *optionSpec:
-		request = models.ContractRequest{OptionType: value.OptionType, Offset: value.Offset}
-	default:
-		return nil, fmt.Errorf("contract must be a positive integer ID or atm_option(...)")
+	selection, ok := contract.(*selectorValue)
+	if !ok {
+		return nil, fmt.Errorf("contract must be offset_selector(...) or id_selector(...)")
 	}
-	id, err := c.execution.PlaceOrder(request, side, quantity)
+	id, err := c.execution.PlaceOrder(selection.selector, side, quantity)
 	if err != nil {
 		return nil, err
 	}
@@ -195,23 +190,24 @@ func (c *strategyContext) order(_ *starlark.Thread, b *starlark.Builtin, args st
 	return result, nil
 }
 
-// optionSpec is immutable selection configuration, with no market-data access.
-type optionSpec struct {
-	OptionType models.OptionType
-	Offset     int
+// selectorValue exposes a Go selector as an immutable Starlark value.
+// Construction does not access market data; the engine calls Select later.
+type selectorValue struct {
+	selector selector.Selector
+	name     string
 }
 
-func (s *optionSpec) String() string {
-	return fmt.Sprintf("atm_option(%q, offset=%d)", s.OptionType, s.Offset)
+func (s *selectorValue) String() string {
+	return s.name + "(...)"
 }
-func (*optionSpec) Type() string         { return "atm_option" }
-func (*optionSpec) Freeze()              {}
-func (*optionSpec) Truth() starlark.Bool { return starlark.True }
-func (*optionSpec) Hash() (uint32, error) {
-	return 0, fmt.Errorf("ATM option specification is unhashable")
+func (s *selectorValue) Type() string       { return s.name }
+func (*selectorValue) Freeze()              {}
+func (*selectorValue) Truth() starlark.Bool { return starlark.True }
+func (*selectorValue) Hash() (uint32, error) {
+	return 0, fmt.Errorf("contract selectors are unhashable")
 }
 
-func atmOption(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func offsetSelector(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var optionType string
 	var offset int
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "option_type", &optionType, "offset?", &offset); err != nil {
@@ -220,5 +216,16 @@ func atmOption(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwa
 	if optionType != string(models.Call) && optionType != string(models.Put) {
 		return nil, fmt.Errorf("invalid option_type %q: expected CALL or PUT", optionType)
 	}
-	return &optionSpec{OptionType: models.OptionType(optionType), Offset: offset}, nil
+	return &selectorValue{selector: selector.NewOffsetSelector(models.OptionType(optionType), offset), name: b.Name()}, nil
+}
+
+func idSelector(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var id int64
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "id", &id); err != nil {
+		return nil, err
+	}
+	if id <= 0 {
+		return nil, fmt.Errorf("contract ID must be a positive int64")
+	}
+	return &selectorValue{selector: selector.NewIDSelector(id), name: b.Name()}, nil
 }

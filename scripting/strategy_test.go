@@ -29,14 +29,14 @@ def initialize(ctx):
 const trading = `
 def on_candle(ctx):
     if ctx.dte == 45 and "entry" not in ctx.state:
-        ctx.state["entry"] = ctx.place_order(contract=atm_option("CALL", offset=2), side="SELL", quantity=75)
+        ctx.state["entry"] = ctx.place_order(contract=offset_selector("CALL", offset=2), side="SELL", quantity=75)
         order = ctx.order(ctx.state["entry"])
         if order.status != "PENDING" or order.contract_id != None:
             fail("placement selected or executed a contract")
     if ctx.dte == 21 and "exit" not in ctx.state:
         entry = ctx.order(ctx.state["entry"])
         if entry.status == "FILLED":
-            ctx.state["exit"] = ctx.place_order(contract=entry.contract_id, side="BUY", quantity=75)
+            ctx.state["exit"] = ctx.place_order(contract=id_selector(entry.contract_id), side="BUY", quantity=75)
 `
 
 func TestLoadStrategyFile(t *testing.T) {
@@ -60,7 +60,7 @@ func TestInitialization(t *testing.T) {
 		{"missing callback", setup, "on_candle(ctx)"},
 		{"missing configuration", "def initialize(ctx):\n    pass\ndef on_candle(ctx):\n    pass\n", "configure"},
 		{"invalid dates", strings.Replace(setup, "2026-09-01", "2027-09-01", 1) + "\ndef on_candle(ctx):\n    pass\n", "start_date"},
-		{"entry during initialization", setup + "    ctx.place_order(contract=atm_option('CALL'),side='SELL',quantity=75)\ndef on_candle(ctx):\n    pass\n", "only available during on_candle"},
+		{"entry during initialization", setup + "    ctx.place_order(contract=offset_selector('CALL'),side='SELL',quantity=75)\ndef on_candle(ctx):\n    pass\n", "only available during on_candle"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			script, err := load("test.star", tt.source)
@@ -163,9 +163,9 @@ def on_candle(ctx):
     if ctx.time >= "15:30":
         fail("callback at session close")
     if ctx.dte == 45 and ctx.time == "15:25":
-        ctx.state["entry"] = ctx.place_order(contract=atm_option("CALL", offset=2), side="SELL", quantity=75)
+        ctx.state["entry"] = ctx.place_order(contract=offset_selector("CALL", offset=2), side="SELL", quantity=75)
     if ctx.dte == 21 and ctx.time == "15:25":
-        ctx.place_order(contract=ctx.order(ctx.state["entry"]).contract_id, side="BUY", quantity=75)
+        ctx.place_order(contract=id_selector(ctx.order(ctx.state["entry"]).contract_id), side="BUY", quantity=75)
 `
 	script, err := load("test.star", source)
 	if err != nil {
@@ -198,18 +198,21 @@ func TestMissingUnderlying(t *testing.T) {
 func TestRuntimeErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
 		{"late configuration", "ctx.configure(underlying='NIFTY',start_date='2026-01-01',end_date='2026-12-31')", "allowed once during initialize"},
-		{"zero quantity", "ctx.place_order(contract=atm_option('CALL'),side='SELL',quantity=0)", "positive"},
-		{"negative quantity", "ctx.place_order(contract=atm_option('CALL'),side='SELL',quantity=-1)", "positive"},
-		{"missing quantity", "ctx.place_order(contract=atm_option('CALL'),side='SELL')", "quantity"},
+		{"zero quantity", "ctx.place_order(contract=offset_selector('CALL'),side='SELL',quantity=0)", "positive"},
+		{"negative quantity", "ctx.place_order(contract=offset_selector('CALL'),side='SELL',quantity=-1)", "positive"},
+		{"missing quantity", "ctx.place_order(contract=offset_selector('CALL'),side='SELL')", "quantity"},
 		{"bad quantity type", "ctx.place_order(contract=1,side='SELL',quantity=1.5)", "quantity"},
-		{"bad option type", "ctx.place_order(contract=atm_option('CE'),side='SELL',quantity=75)", "option_type"},
-		{"bad side", "ctx.place_order(contract=atm_option('CALL'),side='SHORT',quantity=75)", "side"},
-		{"bad offset", "ctx.place_order(contract=atm_option('CALL',offset='2'),side='SELL',quantity=75)", "offset"},
+		{"bad option type", "ctx.place_order(contract=offset_selector('CE'),side='SELL',quantity=75)", "option_type"},
+		{"bad side", "ctx.place_order(contract=offset_selector('CALL'),side='SHORT',quantity=75)", "side"},
+		{"bad offset", "ctx.place_order(contract=offset_selector('CALL',offset='2'),side='SELL',quantity=75)", "offset"},
 		{"missing contract", "ctx.place_order(side='SELL',quantity=75)", "contract"},
 		{"bad contract type", "ctx.place_order(contract='101',side='SELL',quantity=75)", "contract"},
-		{"negative contract ID", "ctx.place_order(contract=-1,side='SELL',quantity=75)", "positive"},
-		{"zero contract ID", "ctx.place_order(contract=0,side='SELL',quantity=75)", "positive"},
-		{"large contract ID", "ctx.place_order(contract=9223372036854775808,side='SELL',quantity=75)", "int64"},
+		{"bare contract ID removed", "ctx.place_order(contract=101,side='BUY',quantity=75)", "id_selector"},
+		{"bad ID type", "id_selector('101')", "id"},
+		{"missing ID", "id_selector()", "id"},
+		{"negative contract ID", "ctx.place_order(contract=id_selector(-1),side='SELL',quantity=75)", "positive"},
+		{"zero contract ID", "ctx.place_order(contract=id_selector(0),side='SELL',quantity=75)", "positive"},
+		{"large contract ID", "ctx.place_order(contract=id_selector(9223372036854775808),side='SELL',quantity=75)", "id"},
 		{"unknown order", "ctx.order('unknown')", "unknown order"},
 		{"removed entry API", "ctx.open('L')", "no .open"},
 		{"removed exit API", "ctx.close('L')", "no .close"},
@@ -225,6 +228,13 @@ func TestRuntimeErrors(t *testing.T) {
 				t.Fatalf("error=%v; want %s", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestRemovedATMOptionBuiltinIsUnavailable(t *testing.T) {
+	_, err := load("test.star", setup+"\ndef on_candle(ctx):\n    atm_option('CALL')\n")
+	if err == nil || !strings.Contains(err.Error(), "atm_option") {
+		t.Fatalf("removed builtin is still available: %v", err)
 	}
 }
 
@@ -313,9 +323,9 @@ func TestTypesSidesAndDefaultOffset(t *testing.T) {
 				source := setup + fmt.Sprintf(`
 def on_candle(ctx):
     if ctx.dte == 45 and "entry" not in ctx.state:
-        ctx.state["entry"] = ctx.place_order(contract=atm_option(%q),side=%q,quantity=75)
+        ctx.state["entry"] = ctx.place_order(contract=offset_selector(%q),side=%q,quantity=75)
     if ctx.dte == 21 and "exit" not in ctx.state:
-        ctx.state["exit"] = ctx.place_order(contract=ctx.order(ctx.state["entry"]).contract_id,side=%q,quantity=75)
+        ctx.state["exit"] = ctx.place_order(contract=id_selector(ctx.order(ctx.state["entry"]).contract_id),side=%q,quantity=75)
 `, string(optionType), entrySide, exitSide)
 				script, err := load("test.star", source)
 				if err != nil {
@@ -344,8 +354,8 @@ func TestPlaceOrderReturnsUniqueIDsWithoutImmediateExecution(t *testing.T) {
 	f := newFixture(t)
 	script, err := load("test.star", setup+`
 def on_candle(ctx):
-    first = ctx.place_order(contract=atm_option("CALL",offset=2),side="SELL",quantity=75)
-    second = ctx.place_order(contract=atm_option("CALL",offset=2),side="SELL",quantity=75)
+    first = ctx.place_order(contract=offset_selector("CALL",offset=2),side="SELL",quantity=75)
+    second = ctx.place_order(contract=offset_selector("CALL",offset=2),side="SELL",quantity=75)
     if type(first) != "string" or not first or first == second:
         fail("invalid order IDs")
     if ctx.order(first).status != "PENDING" or ctx.order(first).contract_id != None:

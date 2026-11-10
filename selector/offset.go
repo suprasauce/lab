@@ -1,25 +1,43 @@
 package selector
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"optionsbacktest/models"
+	"optionsbacktest/repository"
 )
 
 const strikeInterval models.Price = 50 * 100 // INR 50 in paise.
 
 type OffsetSelector struct {
+	OptionType models.OptionType
 	// StrikeOffset counts intervals above (positive) or below (negative) ATM.
 	StrikeOffset int
 }
 
-func NewOffsetSelector(strikeOffset int) *OffsetSelector {
-	return &OffsetSelector{StrikeOffset: strikeOffset}
+func NewOffsetSelector(optionType models.OptionType, strikeOffset int) *OffsetSelector {
+	return &OffsetSelector{OptionType: optionType, StrikeOffset: strikeOffset}
 }
 
-func (s *OffsetSelector) SelectStrike(candle models.Candle) (models.Price, error) {
-	return selectStrike(candle.Open, s.StrikeOffset)
+func (s *OffsetSelector) Select(ctx context.Context, underlyingID int64, candle *models.Candle, expiry time.Time, repo *repository.Repository) (*models.Option, error) {
+	if s.OptionType != models.Call && s.OptionType != models.Put {
+		return nil, fmt.Errorf("invalid option_type %q: expected CALL or PUT", s.OptionType)
+	}
+	if candle == nil {
+		return nil, nil
+	}
+	strike, err := selectStrike(candle.Open, s.StrikeOffset)
+	if err != nil {
+		return nil, err
+	}
+	contract, err := repo.GetOptionContract(ctx, underlyingID, expiry, strike, s.OptionType)
+	if err != nil {
+		return nil, fmt.Errorf("offset selection: %w", err)
+	}
+	return &contract, nil
 }
 
 func selectStrike(open models.Price, offset int) (models.Price, error) {

@@ -22,7 +22,7 @@ type Execution struct {
 	Time             time.Time
 	UnderlyingCandle *models.Candle
 	DTE              int
-	Orders           []*models.Order
+	Orders           []*Order
 	Positions        []*Position
 	ctx              context.Context
 	repo             *repository.Repository
@@ -35,8 +35,11 @@ func newExecution(ctx context.Context, repo *repository.Repository, underlyingID
 }
 
 // PlaceOrder always creates a new pending order; it never selects or executes.
-func (e *Execution) PlaceOrder(request models.ContractRequest, side string, quantity int64) (string, error) {
-	order := &models.Order{Request: request, Side: side, Quantity: quantity}
+func (e *Execution) PlaceOrder(selection selector.Selector, side string, quantity int64) (string, error) {
+	if selection == nil {
+		return "", fmt.Errorf("a contract selector is required")
+	}
+	order := &Order{Order: models.Order{Side: side, Quantity: quantity}, Selector: selection}
 	if err := order.Validate(); err != nil {
 		return "", err
 	}
@@ -47,7 +50,7 @@ func (e *Execution) PlaceOrder(request models.ContractRequest, side string, quan
 	return order.ID, nil
 }
 
-func (e *Execution) Order(id string) (*models.Order, error) {
+func (e *Execution) Order(id string) (*Order, error) {
 	for _, order := range e.Orders {
 		if order.ID == id {
 			return order, nil
@@ -112,33 +115,16 @@ func (e *Execution) fillOrders() error {
 
 // fillOrder leaves orders pending when required candles are unavailable so a
 // subsequent advance can fill them. Selected contracts are retained while waiting.
-func (e *Execution) fillOrder(order *models.Order) error {
+func (e *Execution) fillOrder(order *Order) error {
 	if order.Contract == nil {
-		if order.Request.ContractID != 0 {
-			contract, err := e.repo.GetOptionContractByID(e.ctx, order.Request.ContractID)
-			if err != nil {
-				return fmt.Errorf("resolve contract: %w", err)
-			}
-			if contract.UnderlyingID != e.underlyingID || !calendarDate(contract.Expiry).Equal(calendarDate(e.expiry)) {
-				return fmt.Errorf("contract %d does not belong to the current underlying and expiry", contract.ID)
-			}
-			order.Contract = &contract
-			order.SelectedAt = order.PlacedAt
-		} else {
-			if e.UnderlyingCandle == nil {
-				return nil
-			}
-			strike, err := selector.NewOffsetSelector(order.Request.Offset).SelectStrike(*e.UnderlyingCandle)
-			if err != nil {
-				return err
-			}
-			contract, err := e.repo.GetOptionContract(e.ctx, e.underlyingID, e.expiry, strike, order.Request.OptionType)
-			if err != nil {
-				return fmt.Errorf("select option contract: %w", err)
-			}
-			order.Contract = &contract
-			order.SelectedAt = e.UnderlyingCandle.Timestamp
+		contract, err := order.Selector.Select(e.ctx, e.underlyingID, e.UnderlyingCandle, e.expiry, e.repo)
+		if err != nil {
+			return fmt.Errorf("select option contract: %w", err)
 		}
+		if contract == nil {
+			return nil
+		}
+		order.Contract = contract
 	}
 
 	var position *Position
@@ -168,9 +154,10 @@ func (e *Execution) fillOrder(order *models.Order) error {
 		}
 		position.Status = models.TradeClosed
 	} else {
-		start := order.SelectedAt
-		// Candle timestamps mark their start; only fetch bars completed by e.Time.
-		candles, err := e.repo.GetOptionCandles(e.ctx, order.Contract.ID, start, e.Time.Add(-candleInterval), models.Timeframe5m)
+		start := e.Time.Add(-candleInterval)
+		// Query only the current completed window [start, e.Time). The repository
+		// uses an inclusive end; PostgreSQL timestamps have microsecond precision.
+		candles, err := e.repo.GetOptionCandles(e.ctx, order.Contract.ID, start, e.Time.Add(-time.Microsecond), models.Timeframe5m)
 		if err != nil {
 			return fmt.Errorf("order fill candle: %w", err)
 		}

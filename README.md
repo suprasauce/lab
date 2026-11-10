@@ -44,6 +44,8 @@ The clock advances in five-minute intervals from 09:15 through 15:30 in Asia/Kol
 
 Scripts submit orders through `ctx.place_order(...)`. Orders are queued and processed on a subsequent advance. ATM strike selection uses the underlying candle's Open, and fills use an eligible completed option candle's Open. For example, an order placed at 09:30 can be processed at 09:35 using the 09:30 candle's Open. The strategy never receives unfinished candle OHLC data.
 
+The `contract` argument accepts `offset_selector("CALL", offset=2)` (or `"PUT"`) to select a contract at execution time, or `id_selector(entry.contract_id)` to use an existing contract, including for an exit. Both implement the interface in `selector/`; each runtime order holds its selector and resolves its contract once. An offset selector waits when the underlying candle is missing, while an ID selector does not need underlying price data. Fills use only the current completed five-minute candle window; missing candles leave orders pending for a later window without searching older bars. Saved scripts using the old `atm_option(...)` helper or bare contract IDs must be updated to these selector calls.
+
 Order history, positions, and `ctx.state` start fresh for every expiry. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a trade summary and position entry/exit details; open positions have null exit fields and P&L.
 
 ## Market data

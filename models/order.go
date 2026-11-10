@@ -5,14 +5,6 @@ import (
 	"time"
 )
 
-// ContractRequest identifies a known contract or describes ATM selection at execution.
-// Exactly one of ContractID and OptionType must be supplied.
-type ContractRequest struct {
-	ContractID int64
-	OptionType OptionType
-	Offset     int
-}
-
 type OrderStatus string
 
 const (
@@ -20,18 +12,16 @@ const (
 	OrderFilled  OrderStatus = "FILLED"
 )
 
-// Order retains the original request and its eventual execution details.
+// Order retains placement and execution details; selectors live in the engine.
 type Order struct {
-	ID         string
-	Request    ContractRequest
-	Side       string
-	Quantity   int64
-	PlacedAt   time.Time
-	Status     OrderStatus
-	Contract   *Option
-	FilledAt   time.Time
-	FillPrice  Price
-	SelectedAt time.Time
+	ID        string
+	Side      string
+	Quantity  int64
+	PlacedAt  time.Time
+	Status    OrderStatus
+	Contract  *Option
+	FilledAt  time.Time
+	FillPrice Price
 }
 
 // GenerateID assigns an ID scoped to the expiry and order sequence.
@@ -46,13 +36,6 @@ func (o Order) Validate() error {
 	}
 	if o.Quantity <= 0 {
 		return fmt.Errorf("quantity must be positive")
-	}
-	if o.Request.ContractID != 0 {
-		if o.Request.ContractID < 0 || o.Request.OptionType != "" || o.Request.Offset != 0 {
-			return fmt.Errorf("contract must be a positive ID or an ATM option specification")
-		}
-	} else if o.Request.OptionType != Call && o.Request.OptionType != Put {
-		return fmt.Errorf("invalid option_type %q: expected CALL or PUT", o.Request.OptionType)
 	}
 	return nil
 }

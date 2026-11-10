@@ -13,6 +13,7 @@ import (
 
 	"optionsbacktest/models"
 	"optionsbacktest/repository"
+	"optionsbacktest/selector"
 )
 
 func marketTime(hour, minute int) time.Time {
@@ -51,7 +52,7 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 		if !option && len(args) == 3 {
 			t.Fatal("order execution must reuse the loaded underlying candle")
 		}
-		if option && args[3].Value.(time.Time).After(execution.Time.Add(-candleInterval)) {
+		if option && !args[3].Value.(time.Time).Before(execution.Time) {
 			t.Fatal("option lookup requests an unfinished candle")
 		}
 		for _, minute := range []int{15, 20, 25, 30} {
@@ -85,18 +86,18 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 	return execution
 }
 
-func atmRequest() models.ContractRequest {
-	return models.ContractRequest{OptionType: models.Call, Offset: 2}
+func offsetSelection() selector.Selector {
+	return selector.NewOffsetSelector(models.Call, 2)
 }
 
 func TestMarketOrderUsesPlacedAt(t *testing.T) {
-	for _, minute := range []int{15, 20} {
+	for _, minute := range []int{15, 20, 25} {
 		t.Run(marketTime(9, minute).Format("15:04"), func(t *testing.T) {
 			e := executionFixture(t, nil, nil)
 			if err := e.advance(marketTime(9, minute)); err != nil {
 				t.Fatal(err)
 			}
-			id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+			id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +130,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 		t.Fatal("wrong completed candle")
 	}
 	entry, _ := e.Order(id)
-	exitID, err := e.PlaceOrder(models.ContractRequest{ContractID: entry.Contract.ID}, "BUY", 75)
+	exitID, err := e.PlaceOrder(selector.NewIDSelector(entry.Contract.ID), "BUY", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,11 +170,11 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
 	e := executionFixture(t, nil, nil)
 	e.Time = marketTime(9, 15)
-	first, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	first, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	second, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 	if err != nil || first == second || len(e.Orders) != 2 || len(e.Positions) != 0 {
 		t.Fatal("requests were deduplicated or executed")
 	}
@@ -189,7 +190,7 @@ func TestMissingOptionBarRetainsSelection(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +230,7 @@ func TestStrikeSelectionUsesNextAdvanceLoadedOpen(t *testing.T) {
 	if e.UnderlyingCandle.Open != 2250000 {
 		t.Fatal("wrong script snapshot")
 	}
-	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +251,7 @@ func TestMissingLoadedUnderlyingKeepsOrderPending(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(atmRequest(), "SELL", 75); err != nil {
+		if _, err := e.PlaceOrder(offsetSelection(), "SELL", 75); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
@@ -310,14 +311,14 @@ func TestMissingOptionCandleDefersExit(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.PlaceOrder(atmRequest(), "SELL", 75); err != nil {
+	if _, err := e.PlaceOrder(offsetSelection(), "SELL", 75); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
 	position := e.Positions[0]
-	id, err := e.PlaceOrder(models.ContractRequest{ContractID: position.ContractID}, "BUY", 75)
+	id, err := e.PlaceOrder(selector.NewIDSelector(position.ContractID), "BUY", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +363,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if side == models.Long {
 					entrySide, exitSide = "BUY", "SELL"
 				}
-				if _, err := e.PlaceOrder(models.ContractRequest{OptionType: optionType, Offset: 2}, entrySide, 75); err != nil {
+				if _, err := e.PlaceOrder(selector.NewOffsetSelector(optionType, 2), entrySide, 75); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 20)); err != nil {
@@ -372,7 +373,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if position.Contract.OptionType != optionType || position.Side != side {
 					t.Fatal("incorrect option or side")
 				}
-				if _, err := e.PlaceOrder(models.ContractRequest{ContractID: position.ContractID}, exitSide, 75); err != nil {
+				if _, err := e.PlaceOrder(selector.NewIDSelector(position.ContractID), exitSide, 75); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 25)); err != nil {
@@ -396,7 +397,7 @@ func TestExactContractIDAndInvalidID(t *testing.T) {
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		orderID, err := e.PlaceOrder(models.ContractRequest{ContractID: id}, "BUY", 75)
+		orderID, err := e.PlaceOrder(selector.NewIDSelector(id), "BUY", 75)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -429,13 +430,13 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(atmRequest(), "SELL", 75); err != nil {
+		if _, err := e.PlaceOrder(offsetSelection(), "SELL", 75); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(models.ContractRequest{ContractID: 101}, request.side, request.quantity); err != nil {
+		if _, err := e.PlaceOrder(selector.NewIDSelector(101), request.side, request.quantity); err != nil {
 			t.Fatal("placement should only queue", err)
 		}
 		if err := e.advance(marketTime(9, 25)); err == nil {
@@ -452,11 +453,11 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	entryID, err := e.PlaceOrder(atmRequest(), "SELL", 75)
+	entryID, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exitID, err := e.PlaceOrder(models.ContractRequest{ContractID: 101}, "BUY", 75)
+	exitID, err := e.PlaceOrder(selector.NewIDSelector(101), "BUY", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +492,7 @@ func TestExactContractMustMatchUnderlyingAndExpiry(t *testing.T) {
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(models.ContractRequest{ContractID: id}, "BUY", 75); err != nil {
+		if _, err := e.PlaceOrder(selector.NewIDSelector(id), "BUY", 75); err != nil {
 			t.Fatal(err)
 		}
 		err := e.advance(marketTime(9, 20))
