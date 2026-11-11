@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,11 +14,41 @@ import (
 type trackedSelector struct {
 	delegate selector.Selector
 	calls    int
+	err      error
 }
 
 func (s *trackedSelector) Select(ctx context.Context, underlyingID int64, candle *models.Candle, expiry time.Time, repo *repository.Repository) (*models.Option, error) {
 	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
 	return s.delegate.Select(ctx, underlyingID, candle, expiry, repo)
+}
+
+func TestSelectorErrorLeavesOrderPendingForRetry(t *testing.T) {
+	e := executionFixture(t, nil, nil)
+	if err := e.advance(marketTime(9, 15)); err != nil {
+		t.Fatal(err)
+	}
+	selection := &trackedSelector{delegate: offsetSelection(), err: errors.New("selection unavailable")}
+	id, err := e.PlaceOrder(selection, "SELL", 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 20)); err != nil {
+		t.Fatal(err)
+	}
+	order, _ := e.Order(id)
+	if order.Status != models.OrderPending || order.Contract != nil || len(e.Positions) != 0 {
+		t.Fatal("selector failure changed the pending order")
+	}
+	selection.err = nil
+	if err := e.advance(marketTime(9, 25)); err != nil {
+		t.Fatal(err)
+	}
+	if selection.calls != 2 || order.Status != models.OrderFilled || len(e.Positions) != 1 || !order.FilledAt.Equal(marketTime(9, 20)) {
+		t.Fatal("order was not retried and filled on the subsequent advance")
+	}
 }
 
 func TestOrderExecutesSelectorOnlyWhenContractIsUnresolved(t *testing.T) {

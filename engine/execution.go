@@ -118,10 +118,8 @@ func (e *Execution) fillOrders() error {
 func (e *Execution) fillOrder(order *Order) error {
 	if order.Contract == nil {
 		contract, err := order.Selector.Select(e.ctx, e.underlyingID, e.UnderlyingCandle, e.expiry, e.repo)
-		if err != nil {
-			return fmt.Errorf("select option contract: %w", err)
-		}
-		if contract == nil {
+		if err != nil || contract == nil {
+			// Retry selection on a later advance while keeping the order pending.
 			return nil
 		}
 		order.Contract = contract

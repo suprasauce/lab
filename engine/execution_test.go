@@ -407,8 +407,8 @@ func TestExactContractIDAndInvalidID(t *testing.T) {
 		}
 		err = e.advance(marketTime(9, 20))
 		if id == 404 {
-			if !errors.Is(err, sql.ErrNoRows) {
-				t.Fatalf("expected missing ID, got %v", err)
+			if err != nil || order.Status != models.OrderPending || order.Contract != nil || len(e.Positions) != 0 {
+				t.Fatalf("missing ID did not remain pending: %v", err)
 			}
 			continue
 		}
@@ -492,12 +492,14 @@ func TestExactContractMustMatchUnderlyingAndExpiry(t *testing.T) {
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(selector.NewIDSelector(id), "BUY", 75); err != nil {
+		orderID, err := e.PlaceOrder(selector.NewIDSelector(id), "BUY", 75)
+		if err != nil {
 			t.Fatal(err)
 		}
-		err := e.advance(marketTime(9, 20))
-		if err == nil || !strings.Contains(err.Error(), "current underlying and expiry") || len(e.Positions) != 0 {
-			t.Fatalf("foreign contract was accepted: %v", err)
+		err = e.advance(marketTime(9, 20))
+		order, _ := e.Order(orderID)
+		if err != nil || order.Status != models.OrderPending || order.Contract != nil || len(e.Positions) != 0 {
+			t.Fatalf("foreign contract did not remain pending: %v", err)
 		}
 	}
 }
