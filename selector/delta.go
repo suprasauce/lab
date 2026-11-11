@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
+
 	"time"
 
 	"optionsbacktest/models"
@@ -30,66 +30,10 @@ func NewDeltaSelector(optionType models.OptionType, delta float64) *DeltaSelecto
 	return &DeltaSelector{OptionType: optionType, Delta: delta}
 }
 
-func (s DeltaSelector) Select(ctx context.Context, underlyingID int64, candle *models.Candle, expiry time.Time, repo *repository.Repository) (*models.Option, error) {
-	atm, err := NewOffsetSelector(s.OptionType, 0).Select(ctx, underlyingID, candle, expiry, repo)
-	if err != nil {
-		return nil, fmt.Errorf("delta selection: resolve ATM contract: %w", err)
-	}
-	atmDelta, err := calculateContractDelta(ctx, atm, candle, repo)
-	if err != nil {
-		return nil, fmt.Errorf("delta selection: ATM delta: %w", err)
-	}
-	direction := 1
-	if s.Delta > math.Abs(atmDelta) {
-		direction = -1
-	}
-	if s.OptionType == models.Put {
-		direction = -direction
-	}
-	lower, upper, err := s.exponentialSearch(ctx, underlyingID, candle, expiry, repo, direction, atm)
-	if err != nil {
-		return nil, fmt.Errorf("delta selection: exponential search: %w", err)
-	}
-	contract, err := s.binarySearch(ctx, lower, upper, candle, repo)
-	if err != nil {
-		return nil, fmt.Errorf("delta selection: binary search: %w", err)
-	}
-	return contract, nil
+func (s DeltaSelector) Select(context.Context, int64, *models.Candle, time.Time, *repository.Repository) (*models.Option, error) {
+	// TODO: Implement delta-based contract selection.
+	return nil, errors.New("delta selection is not implemented")
 }
-
-// direction is +1 for increasing strikes and -1 for decreasing strikes.
-func (s DeltaSelector) exponentialSearch(ctx context.Context, underlyingID int64, candle *models.Candle, expiry time.Time, repo *repository.Repository, direction int, atm *models.Option) (*models.Option, *models.Option, error) {
-	const maxOffset = 64
-	previous := atm
-	decreasingDelta := (s.OptionType == models.Call && direction == 1) || (s.OptionType == models.Put && direction == -1)
-	for step := 1; step <= maxOffset; step *= 2 {
-		contract, err := NewOffsetSelector(s.OptionType, direction*step).Select(ctx, underlyingID, candle, expiry, repo)
-		if err != nil {
-			return nil, nil, fmt.Errorf("resolve option at offset %d: %w", direction*step, err)
-		}
-		delta, err := calculateContractDelta(ctx, contract, candle, repo)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return nil, nil, err
-		}
-		delta = math.Abs(delta)
-		if (decreasingDelta && delta <= s.Delta) || (!decreasingDelta && delta >= s.Delta) {
-			if previous.StrikePrice < contract.StrikePrice {
-				return previous, contract, nil
-			}
-			return contract, previous, nil
-		}
-		previous = contract
-	}
-	return nil, nil, fmt.Errorf("target delta %g not reached within %d strike intervals", s.Delta, maxOffset)
-}
-func (s DeltaSelector) binarySearch(ctx context.Context, lower, upper *models.Option, candle *models.Candle, repo *repository.Repository) (*models.Option, error) {
-	// TODO: Refine the bracket and return the contract closest to the target delta.
-	return nil, errors.New("binary search is not implemented")
-}
-
 func calculateContractDelta(ctx context.Context, contract *models.Option, underlyingCandle *models.Candle, repo *repository.Repository) (float64, error) {
 	if contract == nil || underlyingCandle == nil {
 		return 0, fmt.Errorf("calculate contract delta: contract and underlying candle are required")
