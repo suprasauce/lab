@@ -52,7 +52,19 @@ Order history, positions, and `ctx.state` start fresh for every expiry. Prices a
 
 The database must already contain the underlying, its classified expiry dates, and historical five-minute underlying candles. Underlying ingestion is manual.
 
-When an option contract is missing, Go synchronously calls the Python service's `POST /options/fetch` endpoint. Python fetches the history and commits the contract and candles together. Go then queries PostgreSQL again. Existing contracts are read directly without an HTTP call.
+`option_contracts.synced` means the full 45-DTE ingestion completed. Existing
+contracts are backfilled to true by migration `007_option_contract_synced.sql`;
+new contracts default to false. `GetOptionContract()` calls Python's
+`POST /options/fetch` when a contract is missing or unsynced, then verifies the
+committed synced record. Python marks it true only with a successful full-history
+transaction.
+
+Delta selection uses `GetOptionContractForDay()` and `POST /options/fetch-day`
+for visited candidates, fetching only the underlying candle's IST calendar day.
+The strike list is built in memory; binary search resolves contracts lazily.
+Day ingestion does not mark a contract synced. Only the chosen contract proceeds
+through full-history ingestion. Stored day candles and fully synced contracts
+avoid repeat fetches; missing individual timestamps remain unavailable.
 
 See the [data fetcher README](data-fetcher/README.md) for ingestion setup. Go and Python must use the same database.
 

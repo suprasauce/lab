@@ -26,6 +26,7 @@ class Store:
 
     def __init__(self):
         self.contracts = {}
+        self.synced = {}
         self.options = {}
         self.underlyings = {}
         self.connections = 0
@@ -51,14 +52,14 @@ class Connection:
     @contextmanager
     def transaction(self):
         s = self.store
-        snapshot = deepcopy((s.contracts, s.options, s.underlyings))
+        snapshot = deepcopy((s.contracts, s.options, s.underlyings, s.synced))
         s.in_transaction = True
         try:
             yield
             if s.fail_commit:
                 raise OSError("commit failed")
         except BaseException:
-            s.contracts, s.options, s.underlyings = snapshot
+            s.contracts, s.options, s.underlyings, s.synced = snapshot
             s.rollbacks += 1
             raise
         else:
@@ -91,6 +92,14 @@ class Cursor:
         elif "SELECT id FROM lab.option_contracts" in query:
             contract = s.contracts.get(tuple(args))
             self.row = (contract,) if contract is not None else None
+        elif "SELECT synced FROM lab.option_contracts" in query:
+            self.row = (s.synced.get(args[0], True),)
+        elif "UPDATE lab.option_contracts SET synced" in query:
+            assert s.in_transaction
+            s.synced[args[0]] = True
+        elif "SELECT EXISTS" in query:
+            contract_id, start, end = args
+            self.row = (any(row[0] == contract_id and start <= row[1] < end for row in s.options.values()),)
         elif "INSERT INTO lab.option_contracts" in query:
             assert s.in_transaction, "contract insert outside transaction"
             assert "ON CONFLICT (expiry_id, strike_price, option_type) DO NOTHING" in query
@@ -98,6 +107,7 @@ class Cursor:
                 self.row = None
             else:
                 s.contracts[tuple(args)] = 42
+                s.synced[42] = False
                 self.row = (42,)
         else:
             raise AssertionError(f"Unexpected query: {query}")
@@ -142,7 +152,6 @@ class ServiceTests(unittest.TestCase):
     def check_fetch(self, start, end):
         self.assertEqual(self.store.connections, 0, "connection held while fetching")
         self.assertFalse(self.store.in_transaction, "transaction open while fetching")
-        self.assertEqual(self.store.commits, 0)
         self.assertLess(end - start, timedelta(days=13))
         self.calls.append((start, end))
         return [candle(start + timedelta(minutes=15))]
@@ -174,8 +183,8 @@ class ServiceTests(unittest.TestCase):
     def post_option(self):
         return self.http.post("/options/fetch", json=OPTION)
 
-    def test_exactly_two_endpoints(self):
-        self.assertEqual({rule.rule for rule in app.url_map.iter_rules()}, {"/options/fetch", "/underlyings/fetch"})
+    def test_application_endpoints(self):
+        self.assertEqual({rule.rule for rule in app.url_map.iter_rules()}, {"/options/fetch", "/options/fetch-day", "/underlyings/fetch"})
         self.assertEqual(self.http.get("/options/fetch").status_code, 405)
 
     def test_existing_contract_skips_breeze(self):
@@ -200,6 +209,83 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(row[0], 42)
         self.assertEqual(row[2:], ("5m", 2250005, 2251010, 2249000, 2250525, 0))
         self.assertEqual(row[1].tzinfo, MARKET_ZONE)
+        self.assertTrue(self.store.synced[42])
+
+    def test_day_fetch_is_partial_and_idempotent(self):
+        request = {**OPTION, "day": "2025-12-01"}
+        response = self.http.post("/options/fetch-day", json=request)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["fetched"], 1)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0], (
+            datetime(2025, 12, 1, tzinfo=MARKET_ZONE),
+            datetime(2025, 12, 1, 23, 59, 59, tzinfo=MARKET_ZONE),
+        ))
+        self.assertFalse(self.store.synced[42])
+        calls = self.breeze.historical_option.call_count
+        again = self.http.post("/options/fetch-day", json=request)
+        self.assertEqual(again.json["status"], "already_exists")
+        self.assertEqual(self.breeze.historical_option.call_count, calls)
+        self.assertFalse(self.store.synced[42])
+
+    def test_full_fetch_completes_an_unsynced_contract(self):
+        self.store.contracts[(7, 9, 2500000, "CALL")] = 42
+        self.store.synced[42] = False
+        response = self.post_option()
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["status"], "ingested")
+        self.assertEqual(len(self.calls), 4)
+        self.assertTrue(self.store.synced[42])
+
+    def test_day_then_full_fetch_preserves_id_and_skips_overlapping_candles(self):
+        response = self.http.post("/options/fetch-day", json={**OPTION, "day": "2025-11-15"})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertFalse(self.store.synced[42])
+        original = dict(self.store.options)
+        response = self.post_option()
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["contract_id"], 42)
+        self.assertEqual(response.json["fetched"], 4)
+        self.assertEqual(response.json["inserted"], 3)
+        self.assertEqual(len(self.store.options), 4)
+        self.assertTrue(self.store.synced[42])
+        for key, row in original.items():
+            self.assertEqual(self.store.options[key], row)
+
+    def test_failed_full_fetch_preserves_partial_data_and_unsynced_flag(self):
+        self.store.contracts[(7, 9, 2500000, "CALL")] = 42
+        self.store.synced[42] = False
+        row = (42, *ingestion.candle_row(candle(datetime(2025, 11, 15, 0, 15, tzinfo=MARKET_ZONE))))
+        self.store.options[row[:3]] = row
+        original = dict(self.store.options)
+        self.store.fail_batch = 1
+        self.assertEqual(self.post_option().status_code, 500)
+        self.assertEqual(self.store.contracts[(7, 9, 2500000, "CALL")], 42)
+        self.assertFalse(self.store.synced[42])
+        self.assertEqual(self.store.options, original)
+
+    def test_empty_day_does_not_create_contract(self):
+        self.breeze.historical_option.side_effect = None
+        self.breeze.historical_option.return_value = []
+        response = self.http.post("/options/fetch-day", json={**OPTION, "day": "2025-12-01"})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["status"], "no_data")
+        self.assertEqual(self.store.contracts, {})
+        self.assertEqual(self.store.commits, 0)
+
+    def test_day_failure_rolls_back_contract(self):
+        self.store.fail_batch = 1
+        response = self.http.post("/options/fetch-day", json={**OPTION, "day": "2025-12-01"})
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(self.store.contracts, {})
+        self.assertEqual(self.store.synced, {})
+
+    def test_day_fetch_does_not_unset_synced(self):
+        self.store.contracts[(7, 9, 2500000, "CALL")] = 42
+        self.store.synced[42] = True
+        response = self.http.post("/options/fetch-day", json={**OPTION, "day": "2025-12-01"})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertTrue(self.store.synced[42])
 
     def test_failed_later_fetch_never_inserts_contract(self):
         self.breeze.historical_option.side_effect = [

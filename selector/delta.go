@@ -34,11 +34,15 @@ func NewDeltaSelector(optionType models.OptionType, delta float64) *DeltaSelecto
 }
 
 func (s DeltaSelector) Select(ctx context.Context, underlyingID int64, candle *models.Candle, expiry time.Time, repo *repository.Repository) (*models.Option, error) {
-	atm, err := NewOffsetSelector(s.OptionType, 0).Select(ctx, underlyingID, candle, expiry, repo)
+	strike, err := selectStrike(candle.Open, 0)
+	if err != nil {
+		return nil, err
+	}
+	atm, err := repo.GetOptionContractForDay(ctx, underlyingID, expiry, strike, s.OptionType, candle.Timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("resolve ATM contract: %w", err)
 	}
-	atmDelta, err := calculateContractDelta(ctx, atm, candle, repo)
+	atmDelta, err := calculateContractDelta(ctx, &atm, candle, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -49,69 +53,74 @@ func (s DeltaSelector) Select(ctx context.Context, underlyingID int64, candle *m
 	if s.OptionType == models.Put {
 		direction = -direction
 	}
-	contracts := []*models.Option{atm}
-	for i := 1; i < 64; i++ {
-		contract, err := NewOffsetSelector(s.OptionType, direction*i).Select(ctx, underlyingID, candle, expiry, repo)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
+	strikes := []models.Price{strike}
+	for i := 1; i < 40; i++ {
+		strike, err := selectStrike(candle.Open, direction*i)
 		if err != nil {
-			return nil, fmt.Errorf("resolve contract at offset %d: %w", direction*i, err)
+			return nil, err
 		}
-		contracts = append(contracts, contract)
+		strikes = append(strikes, strike)
 	}
 	// Order by expected delta magnitude; historical IV may make deltas noisy.
 	if s.Delta < math.Abs(atmDelta) {
-		slices.Reverse(contracts)
+		slices.Reverse(strikes)
 	}
-	return s.binarySearch(ctx, contracts, candle, repo)
+	selected, err := s.binarySearch(ctx, underlyingID, strikes, candle, expiry, repo)
+	if err != nil {
+		return nil, err
+	}
+	contract, err := repo.GetOptionContract(ctx, underlyingID, expiry, selected, s.OptionType)
+	if err != nil {
+		return nil, err
+	}
+	return &contract, nil
 }
 
-func (s DeltaSelector) binarySearch(ctx context.Context, contracts []*models.Option, candle *models.Candle, repo *repository.Repository) (*models.Option, error) {
-	if len(contracts) == 0 {
-		return nil, fmt.Errorf("binary search: contract list is empty")
+func (s DeltaSelector) binarySearch(ctx context.Context, underlyingID int64, strikes []models.Price, candle *models.Candle, expiry time.Time, repo *repository.Repository) (models.Price, error) {
+	if len(strikes) == 0 {
+		return 0, fmt.Errorf("binary search: strike list is empty")
 	}
-	low, high := 0, len(contracts)-1
+	low, high := 0, len(strikes)-1
 	for low+1 < high {
-		_, err := calculateContractDelta(ctx, contracts[low], candle, repo)
+		_, err := s.calculateStrikeDelta(ctx, underlyingID, strikes[low], candle, expiry, repo)
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, errDeltaUnavailable) {
 			low++
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
-		_, err = calculateContractDelta(ctx, contracts[high], candle, repo)
+		_, err = s.calculateStrikeDelta(ctx, underlyingID, strikes[high], candle, expiry, repo)
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, errDeltaUnavailable) {
 			high--
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
 		mid := low + (high-low)/2
 		left, right := mid, mid+1
 		var leftDelta, rightDelta float64
 		for left >= low || right <= high {
 			if left >= low {
-				value, candidateErr := calculateContractDelta(ctx, contracts[left], candle, repo)
+				value, candidateErr := s.calculateStrikeDelta(ctx, underlyingID, strikes[left], candle, expiry, repo)
 				if errors.Is(candidateErr, sql.ErrNoRows) || errors.Is(candidateErr, errDeltaUnavailable) {
 					left--
 					continue
 				}
 				if candidateErr != nil {
-					return nil, candidateErr
+					return 0, candidateErr
 				}
 				leftDelta = math.Abs(value)
 			}
 			if right <= high {
-				value, candidateErr := calculateContractDelta(ctx, contracts[right], candle, repo)
+				value, candidateErr := s.calculateStrikeDelta(ctx, underlyingID, strikes[right], candle, expiry, repo)
 				if errors.Is(candidateErr, sql.ErrNoRows) || errors.Is(candidateErr, errDeltaUnavailable) {
 					right++
 					continue
 				}
 				if candidateErr != nil {
-					return nil, candidateErr
+					return 0, candidateErr
 				}
 				rightDelta = math.Abs(value)
 			}
@@ -134,7 +143,7 @@ func (s DeltaSelector) binarySearch(ctx context.Context, contracts []*models.Opt
 		}
 		delta = math.Abs(delta)
 		if delta == s.Delta {
-			return contracts[mid], nil
+			return strikes[mid], nil
 		}
 		if delta < s.Delta {
 			low = mid
@@ -142,26 +151,35 @@ func (s DeltaSelector) binarySearch(ctx context.Context, contracts []*models.Opt
 			high = mid
 		}
 	}
-	var result *models.Option
+	var result models.Price
 	closest := math.Inf(1)
 	for _, index := range []int{low, high} {
-		delta, err := calculateContractDelta(ctx, contracts[index], candle, repo)
+		delta, err := s.calculateStrikeDelta(ctx, underlyingID, strikes[index], candle, expiry, repo)
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, errDeltaUnavailable) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
 		difference := math.Abs(math.Abs(delta) - s.Delta)
 		if difference < closest {
-			result, closest = contracts[index], difference
+			result, closest = strikes[index], difference
 		}
 	}
-	if result == nil {
-		return nil, fmt.Errorf("binary search: no valid delta found")
+	if math.IsInf(closest, 1) {
+		return 0, fmt.Errorf("binary search: no valid delta found")
 	}
 	return result, nil
 }
+
+func (s DeltaSelector) calculateStrikeDelta(ctx context.Context, underlyingID int64, strike models.Price, candle *models.Candle, expiry time.Time, repo *repository.Repository) (float64, error) {
+	contract, err := repo.GetOptionContractForDay(ctx, underlyingID, expiry, strike, s.OptionType, candle.Timestamp)
+	if err != nil {
+		return 0, err
+	}
+	return calculateContractDelta(ctx, &contract, candle, repo)
+}
+
 func calculateContractDelta(ctx context.Context, contract *models.Option, underlyingCandle *models.Candle, repo *repository.Repository) (float64, error) {
 	if contract == nil || underlyingCandle == nil {
 		return 0, fmt.Errorf("calculate contract delta: contract and underlying candle are required")

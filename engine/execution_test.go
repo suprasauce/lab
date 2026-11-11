@@ -26,7 +26,7 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 		if strings.Contains(query, "FROM lab.option_contracts") {
 			if len(args) == 1 {
-				rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type"}}
+				rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type", "synced"}}
 				id := args[0].Value.(int64)
 				if id >= 101 && id <= 103 {
 					underlyingID, expiry := int64(7), execution.expiry
@@ -36,12 +36,12 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 					if id == 103 {
 						expiry = expiry.AddDate(0, 1, 0)
 					}
-					rows.values = []driver.Value{id, underlyingID, int64(9), expiry, int64(2260000), "CALL"}
+					rows.values = []driver.Value{id, underlyingID, int64(9), expiry, int64(2260000), "CALL", true}
 				}
 				return rows, nil
 			}
-			return &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type"},
-				values: []driver.Value{int64(101), int64(7), int64(9), execution.expiry, args[2].Value, args[3].Value}}, nil
+			return &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type", "synced"},
+				values: []driver.Value{int64(101), int64(7), int64(9), execution.expiry, args[2].Value, args[3].Value, true}}, nil
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
 		start := args[2].Value.(time.Time)

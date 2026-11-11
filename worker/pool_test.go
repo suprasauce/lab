@@ -289,6 +289,6 @@ func workerCandleRows() *sqlmock.Rows {
 }
 
 func workerContractRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}).
-		AddRow(int64(101), int64(7), int64(9), workerExpiry(), int64(2265000), "CALL")
+	return sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}).
+		AddRow(int64(101), int64(7), int64(9), workerExpiry(), int64(2265000), "CALL", true)
 }

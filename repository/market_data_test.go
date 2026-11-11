@@ -25,6 +25,7 @@ var testExpiry = time.Date(2025, 12, 30, 0, 0, 0, 0, time.UTC)
 type contractDB struct {
 	queries, symbols                int
 	existing, inserted              bool
+	unsynced                        bool
 	initialErr, afterErr, symbolErr error
 	strike                          models.Price
 }
@@ -42,9 +43,9 @@ func (db *contractDB) query(_ context.Context, query string, args []driver.Named
 		if db.queries > 1 && db.afterErr != nil {
 			return nil, db.afterErr
 		}
-		rows := &contractRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike_price", "option_type"}}
+		rows := &contractRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike_price", "option_type", "synced"}}
 		if db.existing || (db.queries > 1 && db.inserted) {
-			rows.row = []driver.Value{int64(101), int64(7), int64(9), testExpiry, int64(db.strike), "CALL"}
+			rows.row = []driver.Value{int64(101), int64(7), int64(9), testExpiry, int64(db.strike), "CALL", !db.unsynced || (db.queries > 1 && db.inserted)}
 		}
 		return rows, nil
 	case queryGetUnderlyingSymbol:
@@ -78,6 +79,38 @@ func TestExistingOptionContractDoesNotFetch(t *testing.T) {
 	}
 	if state.queries != 1 || state.symbols != 0 {
 		t.Fatalf("queries=%d symbol lookups=%d", state.queries, state.symbols)
+	}
+}
+
+func TestUnsyncedOptionContractFetchesFullHistory(t *testing.T) {
+	state := &contractDB{existing: true, unsynced: true, strike: 2500000}
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls++
+		if req.URL.Path != "/options/fetch" {
+			t.Errorf("wrong endpoint: %s", req.URL.Path)
+		}
+		state.inserted = true
+		io.WriteString(w, `{"status":"ingested","contract_id":101}`)
+	}))
+	defer server.Close()
+	t.Setenv("DATA_FETCHER_URL", server.URL)
+	contract, err := testRepository(t, state).GetOptionContract(context.Background(), 7, testExpiry, state.strike, models.Call)
+	if err != nil || !contract.Synced || calls != 1 || state.queries != 2 {
+		t.Fatalf("contract=%+v calls=%d queries=%d err=%v", contract, calls, state.queries, err)
+	}
+}
+
+func TestContractStillUnsyncedAfterIngestion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		io.WriteString(w, `{"status":"ingested","contract_id":101}`)
+	}))
+	defer server.Close()
+	t.Setenv("DATA_FETCHER_URL", server.URL)
+	state := &contractDB{existing: true, unsynced: true, strike: 2500000}
+	_, err := testRepository(t, state).GetOptionContract(context.Background(), 7, testExpiry, state.strike, models.Call)
+	if err == nil || !strings.Contains(err.Error(), "remains unsynced") {
+		t.Fatalf("expected sync verification failure, got %v", err)
 	}
 }
 

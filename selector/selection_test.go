@@ -38,8 +38,8 @@ func TestOffsetSelectorUsesCandleOpen(t *testing.T) {
 	expiry := time.Date(2026, 1, 27, 0, 0, 0, 0, time.UTC)
 	at := expiry.AddDate(0, 0, -45).Add(9*time.Hour + 30*time.Minute)
 	mock.ExpectQuery("FROM lab.option_contracts").WithArgs(int64(7), expiry, int64(2265000), "CALL").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}).
-			AddRow(101, 7, 9, expiry, 2265000, "CALL")).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}).
+			AddRow(101, 7, 9, expiry, 2265000, "CALL", true)).RowsWillBeClosed()
 	var s Selector = NewOffsetSelector(models.Call, 2)
 	contract, err := s.Select(context.Background(), 7, &models.Candle{Timestamp: at, Open: 22530 * 100, Close: 22500 * 100}, expiry, repo)
 	if err != nil || contract == nil || contract.ID != 101 || contract.StrikePrice != 2265000 {
@@ -76,8 +76,8 @@ func TestIDSelectorResolvesWithoutUnderlyingCandle(t *testing.T) {
 	repo, mock := selectorRepository(t)
 	expiry := time.Date(2026, 1, 27, 0, 0, 0, 0, time.UTC)
 	mock.ExpectQuery("FROM lab.option_contracts").WithArgs(int64(101)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}).
-			AddRow(101, 7, 9, expiry, 2265000, "CALL")).RowsWillBeClosed()
+		WillReturnRows(sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}).
+			AddRow(101, 7, 9, expiry, 2265000, "CALL", true)).RowsWillBeClosed()
 	var s Selector = NewIDSelector(101)
 	contract, err := s.Select(context.Background(), 7, nil, expiry, repo)
 	if err != nil || contract == nil || contract.ID != 101 {
@@ -113,8 +113,8 @@ func TestIDSelectorChecksUnderlyingAndExpiry(t *testing.T) {
 				actualExpiry = expiry.AddDate(0, 1, 0)
 			}
 			mock.ExpectQuery("FROM lab.option_contracts").WithArgs(int64(101)).
-				WillReturnRows(sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}).
-					AddRow(101, actualUnderlying, 9, actualExpiry, 2265000, "CALL")).RowsWillBeClosed()
+				WillReturnRows(sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}).
+					AddRow(101, actualUnderlying, 9, actualExpiry, 2265000, "CALL", true)).RowsWillBeClosed()
 			_, err := NewIDSelector(101).Select(context.Background(), 7, nil, expiry, repo)
 			if err == nil || !strings.Contains(err.Error(), "current underlying and expiry") {
 				t.Fatalf("foreign contract accepted: %v", err)

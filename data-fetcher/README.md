@@ -1,8 +1,9 @@
 # Historical data ingestion service
 
 Independent Python 3.11+ service sharing the Go application's existing PostgreSQL
-`lab` schema. Exactly two synchronous application endpoints. The Go code and
-database schema are unchanged.
+`lab` schema. Three synchronous application endpoints provide full option
+history, one option day, and underlying history. Apply
+`scripts/migrations/007_option_contract_synced.sql` before deploying this version.
 
 ## Install and start
 
@@ -60,21 +61,22 @@ PowerShell curl example:
 '@ | curl.exe -X POST http://127.0.0.1:8000/options/fetch -H "Content-Type: application/json" --data-binary "@-"
 ```
 
-An existing contract returns HTTP 200 immediately, without authenticating with
-Breeze or fetching candles:
+A contract with `synced = true` returns HTTP 200 immediately, without
+authenticating with Breeze or fetching candles:
 
 ```json
 {"status":"already_exists","contract_id":123,"fetched":0,"inserted":0}
 ```
 
-For a missing contract, `MAX_DTE = 45` and `5minute` are fixed. The example fetches
+For a missing or unsynced contract, `MAX_DTE = 45` and `5minute` are fixed. The example fetches
 November 15 through December 30, 2025, inclusive (46 calendar dates). There are no
 DTE, timeframe, strike-range, or padding request fields. Unknown fields are rejected.
 
 All Breeze windows are fetched and validated before the write transaction opens.
-Then one transaction inserts the contract, obtains its generated ID, and inserts
-all candles in batches. Any insertion or commit failure prevents success and
-rolls back the contract and its candles. Unique constraints prevent duplicate
+Then one transaction resolves or inserts the contract, inserts all candles in
+batches, and sets `synced = true`. Any insertion or commit failure prevents
+success and rolls back the changes, preserving previously stored partial data
+and its unsynced flag. Unique constraints prevent duplicate
 contracts/candles; a concurrent winner is reused after its transaction commits.
 A new successful ingestion returns HTTP 200 only after commit:
 
@@ -82,9 +84,39 @@ A new successful ingestion returns HTTP 200 only after commit:
 {"status":"ingested","contract_id":123,"fetched":3400,"inserted":3400}
 ```
 
-New contracts with an expiry today or later are rejected: future historical data
-would be incomplete while existence is used as the completion indicator. An empty
-option history also fails without inserting a contract. No status table is used.
+Full synchronization with an expiry today or later is rejected because historical
+data is incomplete. Empty full histories fail without inserting a contract or
+setting `synced`. The migration marks existing contracts true, since they were
+created by the previous 45-DTE pipeline; new contracts default to false.
+
+## POST /options/fetch-day
+
+```json
+{
+  "underlying": "NIFTY",
+  "expiry": "2025-12-30",
+  "strike": 25000,
+  "option_type": "CALL",
+  "day": "2025-12-01"
+}
+```
+
+Fetches only the requested IST calendar day's 5-minute candles. The day must be
+before today and no later than expiry. Existing data for that day avoids another
+Breeze call. This endpoint atomically creates a missing contract and inserts day
+candles; it leaves `synced` unchanged (a new contract remains false). Repeated
+and overlapping day/full ingestions skip duplicate candles.
+
+```powershell
+@'
+{"underlying":"NIFTY","expiry":"2025-12-30","strike":25000,"option_type":"CALL","day":"2025-12-01"}
+'@ | curl.exe -X POST http://127.0.0.1:8000/options/fetch-day -H "Content-Type: application/json" --data-binary "@-"
+```
+
+Returns HTTP 200 with `status` (`ingested`, `already_exists`, or `no_data`),
+`contract_id`, `fetched`, and `inserted`. With `no_data`, no contract or candles
+are inserted; `contract_id` may be null. Go treats `no_data` as an unavailable
+candidate. Failed requests roll back all new writes.
 
 ## POST /underlyings/fetch
 
@@ -108,7 +140,7 @@ Overlapping requests skip existing `(underlying_id, timeframe, start_time)` rows
 It returns HTTP 200 with `status`, `fetched`, and newly `inserted` candle counts.
 An empty underlying response is successful with zero inserts and can be retried.
 
-Both APIs return JSON errors: 400 for invalid input or missing catalog records,
+These APIs return JSON errors: 400 for invalid input or missing catalog records,
 502 for Breeze/runtime failures, and 500 for unexpected/database failures. A
 failure must not be treated by callers as completed option ingestion.
 
@@ -131,25 +163,26 @@ failure must not be treated by callers as completed option ingestion.
   minutes. The existing SDK convention formats local clock values with `.000Z`
   in requests; this refactor intentionally preserves that working behavior.
 - Decimal conversion produces integer-paise BIGINT OHLC/strike values and
-  validates integral, nonnegative BIGINT volumes. No float-based rupee rounding,
+  validates integral BIGINT volumes, preserving Breeze's negative values for now.
+  No float-based rupee rounding,
   resampling, synthetic candles, market-hour filters, or holiday calendar is added.
 - Completeness means every requested window succeeded; availability is determined
   by Breeze. Empty successful windows are allowed, but API errors are not silently
   treated as holidays. The API cannot independently detect silent upstream gaps.
-- **Legacy data:** the old bulk generator committed contracts before fetching
-  their history. Existing contracts may therefore be incomplete. Audit/repair
-  those rows before using existence as the completion indicator. This service
-  deliberately trusts existing contracts and does not refetch or repair them.
+- **Existing data:** migration 007 marks all existing contracts synced, as
+  requested. Subsequent full-history requests trust that flag; day-only
+  contracts are distinguished by `synced = false`.
 - Fetching is synchronous and buffered in memory before writing. A failure before
   commit requires a fresh fetch on retry; SQLite checkpoints and bulk generation
   have been removed.
 
-The Go engine can later query a contract, call `/options/fetch` only when missing,
-wait for HTTP 200, then query PostgreSQL again. That Go change is outside this task.
+Go queries PostgreSQL first, calls `/options/fetch` for missing or unsynced full
+history, waits for completion, then queries again. Delta candidates use the
+day-only endpoint instead.
 
 ## Files and tests
 
-`main.py` contains HTTP/configuration; `ingestion.py` contains the two flows and
+`main.py` contains HTTP/configuration; `ingestion.py` contains the three flows and
 candle conversion; `database.py` contains SQL; `breeze_client.py` owns SDK access
 and pacing. There is no generic pipeline framework.
 

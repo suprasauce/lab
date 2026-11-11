@@ -431,15 +431,15 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		}
 	case strings.Contains(query, "FROM lab.option_contracts"):
 		if len(args) == 1 {
-			r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
+			r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}
 			for i, expiry := range f.expiries {
 				if args[0].Value == int64(100+i) {
-					r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType}}
+					r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType, true}}
 				}
 			}
 			for i, expiry := range f.expiries {
 				if args[0].Value == int64(200+i) {
-					r.values = [][]driver.Value{{int64(200 + i), int64(7), int64(i + 1), expiry, int64(2245000), "PUT"}}
+					r.values = [][]driver.Value{{int64(200 + i), int64(7), int64(i + 1), expiry, int64(2245000), "PUT", true}}
 				}
 			}
 			return r, nil
@@ -448,7 +448,7 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		if f.onContractQuery != nil {
 			f.onContractQuery()
 		}
-		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
+		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}
 		for i, expiry := range f.expiries {
 			if expiry.Equal(args[1].Value.(time.Time)) {
 				strike, optionType, id := f.expectedStrike, f.expectedType, int64(100+i)
@@ -458,7 +458,7 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 				if args[2].Value != strike || args[3].Value != optionType {
 					f.t.Fatalf("offset selection not used: %+v", args)
 				}
-				r.values = [][]driver.Value{{id, int64(7), int64(i + 1), expiry, strike, optionType}}
+				r.values = [][]driver.Value{{id, int64(7), int64(i + 1), expiry, strike, optionType, true}}
 			}
 		}
 	case strings.Contains(query, "FROM lab.underlying_candles"):

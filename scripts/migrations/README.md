@@ -36,3 +36,16 @@ Go queries together with this migration.
 dates with no contracts yet. `GetOptionContract` retains its lookup signature and
 joins the catalog to return `Option.ExpiryID` and its resolved `Option.Expiry` date.
 Expiry types are stored without adding an implicit monthly/weekly filter.
+
+## Option history synchronization
+
+`007_option_contract_synced.sql` adds `lab.option_contracts.synced`. All existing
+rows become `true`, since the previous pipeline ingested full 45-DTE history.
+Future rows default to `false`; day-only ingestion leaves that flag unchanged.
+Full-history ingestion sets it to true only in the transaction that commits the
+historical candles. Apply this migration before deploying the updated Go and
+Python services:
+
+```powershell
+psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migrations/007_option_contract_synced.sql
+```

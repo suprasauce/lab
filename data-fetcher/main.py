@@ -1,4 +1,4 @@
-"""Two synchronous HTTP endpoints for historical 5-minute ingestion."""
+"""Synchronous HTTP endpoints for historical 5-minute ingestion."""
 
 import json
 import logging
@@ -10,7 +10,7 @@ from dotenv import dotenv_values
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from ingestion import fetch_option, fetch_underlying
+from ingestion import fetch_option, fetch_option_day, fetch_underlying
 
 app = Flask(__name__, static_folder=None)
 logger = logging.getLogger(__name__)
@@ -36,6 +36,11 @@ def options_fetch():
 @app.post("/underlyings/fetch")
 def underlyings_fetch():
     return jsonify(fetch_underlying(**request_fields(("underlying", "start_date", "end_date"))))
+
+
+@app.post("/options/fetch-day")
+def options_fetch_day():
+    return jsonify(fetch_option_day(**request_fields(("underlying", "expiry", "strike", "option_type", "day"))))
 
 
 def safe_message(error):

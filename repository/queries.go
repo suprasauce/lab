@@ -92,8 +92,16 @@ const queryGetExpiries = `
 	ORDER BY expiry_date ASC;
 `
 
+const queryHasOptionCandlesForDay = `
+	SELECT EXISTS (
+		SELECT 1 FROM lab.option_candles
+		WHERE option_contract_id = $1 AND timeframe = '5m'
+		  AND start_time >= $2 AND start_time < $3
+	);
+`
+
 const queryGetOptionContract = `
-	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
+	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type, c.synced
 	FROM lab.option_contracts AS c
 	JOIN lab.option_expiry AS e ON e.id = c.expiry_id
 	WHERE c.underlying_id = $1
@@ -104,7 +112,7 @@ const queryGetOptionContract = `
 `
 
 const queryGetOptionContractByID = `
-	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
+	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type, c.synced
 	FROM lab.option_contracts AS c
 	JOIN lab.option_expiry AS e ON e.id = c.expiry_id
 	WHERE c.id = $1;

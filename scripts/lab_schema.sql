@@ -67,6 +67,8 @@ CREATE TABLE option_contracts (
 
    option_type option_type_enum NOT NULL,
 
+    synced BOOLEAN NOT NULL DEFAULT FALSE,
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 

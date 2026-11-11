@@ -49,8 +49,15 @@ func TestBinarySearchContractList(t *testing.T) {
 					contracts = append(contracts, &models.Option{ID: int64(index + 1), UnderlyingID: 7, StrikePrice: models.Price(2250000 + offset*5000), Expiry: expiry, OptionType: test.kind})
 				}
 			}
+			strikes := make([]models.Price, len(contracts))
+			for i, contract := range contracts {
+				strikes[i] = contract.StrikePrice
+			}
 			for _, index := range test.probes {
 				contract := contracts[index]
+				mock.ExpectQuery("FROM lab.option_contracts").WithArgs(int64(7), expiry, int64(contract.StrikePrice), string(test.kind)).
+					WillReturnRows(sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}).
+						AddRow(contract.ID, 7, 9, expiry, int64(contract.StrikePrice), string(test.kind), true)).RowsWillBeClosed()
 				rows := sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"})
 				if !test.missing[index] {
 					premium, err := pricing.BlackScholesPrice(22500, float64(contract.StrikePrice)/100, 45.0/pricing.DaysPerYear, .2, test.kind)
@@ -65,13 +72,13 @@ func TestBinarySearchContractList(t *testing.T) {
 				}
 				mock.ExpectQuery("FROM lab.option_candles").WithArgs(contract.ID, "5m", at, at).WillReturnRows(rows).RowsWillBeClosed()
 			}
-			contract, err := NewDeltaSelector(test.kind, test.target).binarySearch(context.Background(), contracts, &models.Candle{Timestamp: at, Open: 2250000}, repo)
+			strike, err := NewDeltaSelector(test.kind, test.target).binarySearch(context.Background(), 7, strikes, &models.Candle{Timestamp: at, Open: 2250000}, expiry, repo)
 			if test.want == -1 {
-				if err == nil || contract != nil {
-					t.Fatalf("expected no valid delta error, got %v %v", contract, err)
+				if err == nil || strike != 0 {
+					t.Fatalf("expected no valid delta error, got %v %v", strike, err)
 				}
-			} else if err != nil || contract != contracts[test.want] {
-				t.Fatalf("contract=%+v expected index=%d err=%v", contract, test.want, err)
+			} else if err != nil || strike != strikes[test.want] {
+				t.Fatalf("strike=%v expected index=%d err=%v", strike, test.want, err)
 			}
 		})
 	}
@@ -80,8 +87,8 @@ func TestBinarySearchContractList(t *testing.T) {
 func TestBinarySearchPropagatesDatabaseError(t *testing.T) {
 	repo, mock := selectorRepository(t)
 	failure := errors.New("database unavailable")
-	mock.ExpectQuery("FROM lab.option_candles").WillReturnError(failure)
-	_, err := NewDeltaSelector(models.Call, .2).binarySearch(context.Background(), []*models.Option{{ID: 1}}, &models.Candle{}, repo)
+	mock.ExpectQuery("FROM lab.option_contracts").WillReturnError(failure)
+	_, err := NewDeltaSelector(models.Call, .2).binarySearch(context.Background(), 7, []models.Price{2250000}, &models.Candle{}, time.Time{}, repo)
 	if !errors.Is(err, failure) {
 		t.Fatalf("lost database error: %v", err)
 	}

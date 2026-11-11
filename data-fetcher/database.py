@@ -58,6 +58,29 @@ def insert_option_contract(connection, underlying_id, expiry_id, strike, option_
     return row[0] if row else None
 
 
+def is_option_contract_synced(connection, contract_id):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT synced FROM lab.option_contracts WHERE id = %s", (contract_id,))
+        row = cursor.fetchone()
+    return row is not None and row[0]
+
+
+def mark_option_contract_synced(connection, contract_id):
+    with connection.cursor() as cursor:
+        cursor.execute("UPDATE lab.option_contracts SET synced = TRUE, updated_at = NOW() WHERE id = %s", (contract_id,))
+
+
+def has_option_candles(connection, contract_id, start, end):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT EXISTS (SELECT 1 FROM lab.option_candles
+               WHERE option_contract_id = %s AND timeframe = '5m'
+                 AND start_time >= %s AND start_time < %s)""",
+            (contract_id, start, end),
+        )
+        return cursor.fetchone()[0]
+
+
 def insert_option_candles(connection, rows):
     with connection.cursor() as cursor:
         cursor.executemany(

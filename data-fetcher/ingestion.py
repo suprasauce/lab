@@ -87,7 +87,8 @@ def fetch_option(underlying, expiry, strike, option_type):
         underlying_id = database.get_underlying_id(connection, underlying)
         expiry_id = database.get_option_expiry_id(connection, underlying_id, expiry_date)
         contract_id = database.get_option_contract_id(connection, underlying_id, expiry_id, strike_paise, option_type)
-    if contract_id is not None:
+        synced = contract_id is not None and database.is_option_contract_synced(connection, contract_id)
+    if synced:
         return {"status": "already_exists", "contract_id": contract_id, "fetched": 0, "inserted": 0}
     if expiry_date >= datetime.now(MARKET_ZONE).date():
         raise ValueError("New contracts must have an expiry before today so their historical data can be complete")
@@ -104,20 +105,55 @@ def fetch_option(underlying, expiry, strike, option_type):
     with database.connect() as connection:
         with connection.transaction():
             contract_id = database.insert_option_contract(connection, underlying_id, expiry_id, strike_paise, option_type)
-            created = contract_id is not None
-            if created:
-                for offset in range(0, len(rows), BATCH_SIZE):
-                    batch = [(contract_id, *row) for row in rows[offset:offset + BATCH_SIZE]]
-                    inserted += database.insert_option_candles(connection, batch)
-            else:
-                # A concurrent request may have committed the complete contract
-                # while we fetched. Its unique-key conflict waits for that commit.
+            if contract_id is None:
                 contract_id = database.get_option_contract_id(connection, underlying_id, expiry_id, strike_paise, option_type)
                 if contract_id is None:
                     raise RuntimeError("Conflicting contract has an inconsistent underlying relationship")
+            synced = database.is_option_contract_synced(connection, contract_id)
+            if not synced:
+                for offset in range(0, len(rows), BATCH_SIZE):
+                    batch = [(contract_id, *row) for row in rows[offset:offset + BATCH_SIZE]]
+                    inserted += database.insert_option_candles(connection, batch)
+                database.mark_option_contract_synced(connection, contract_id)
     # Both transaction and connection have exited successfully before returning.
     logger.info("underlying=%s contract_id=%d fetched=%d inserted=%d", underlying, contract_id, len(rows), inserted)
-    return {"status": "ingested" if created else "already_exists", "contract_id": contract_id, "fetched": len(rows), "inserted": inserted}
+    return {"status": "already_exists" if synced else "ingested", "contract_id": contract_id, "fetched": len(rows), "inserted": inserted}
+
+
+def fetch_option_day(underlying, expiry, strike, option_type, day):
+    symbol = stock_code(underlying)
+    expiry_date, requested_day = calendar_date(expiry), calendar_date(day)
+    strike_paise = to_paise(strike)
+    if strike_paise == 0 or option_type not in ("CALL", "PUT"):
+        raise ValueError("strike must be positive and option_type must be CALL or PUT")
+    if requested_day > expiry_date or requested_day >= datetime.now(MARKET_ZONE).date():
+        raise ValueError("Requested day must be before today and no later than expiry")
+    start = datetime.combine(requested_day, time.min, MARKET_ZONE)
+    end = start + timedelta(days=1)
+    with database.connect() as connection:
+        underlying_id = database.get_underlying_id(connection, underlying)
+        expiry_id = database.get_option_expiry_id(connection, underlying_id, expiry_date)
+        contract_id = database.get_option_contract_id(connection, underlying_id, expiry_id, strike_paise, option_type)
+        if contract_id is not None and database.has_option_candles(connection, contract_id, start, end):
+            return {"status": "already_exists", "contract_id": contract_id, "fetched": 0, "inserted": 0}
+    client = get_client()
+    rows = fetch_candles(requested_day, requested_day,
+        lambda first, last: client.historical_option(symbol, expiry_date, strike_paise, option_type, first, last))
+    if not rows:
+        return {"status": "no_data", "contract_id": contract_id, "fetched": 0, "inserted": 0}
+    inserted = 0
+    with database.connect() as connection:
+        with connection.transaction():
+            contract_id = database.insert_option_contract(connection, underlying_id, expiry_id, strike_paise, option_type)
+            if contract_id is None:
+                contract_id = database.get_option_contract_id(connection, underlying_id, expiry_id, strike_paise, option_type)
+            if contract_id is None:
+                raise RuntimeError("Option contract could not be resolved")
+            for offset in range(0, len(rows), BATCH_SIZE):
+                inserted += database.insert_option_candles(connection, [(contract_id, *row) for row in rows[offset:offset+BATCH_SIZE]])
+            # Day-only ingestion never marks a contract fully synced.
+    logger.info("underlying=%s contract_id=%d day=%s fetched=%d inserted=%d", underlying, contract_id, requested_day, len(rows), inserted)
+    return {"status": "ingested", "contract_id": contract_id, "fetched": len(rows), "inserted": inserted}
 
 
 def fetch_underlying(underlying, start_date, end_date):
