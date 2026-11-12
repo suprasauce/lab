@@ -23,7 +23,9 @@ import (
 
 const setup = `
 def initialize(ctx):
-    ctx.configure(underlying="NIFTY", start_date="2026-09-01", end_date="2026-10-31")
+    ctx.configure(underlying="NIFTY")
+    for expiry in ctx.get_expiries(start="2026-09-01", end="2026-10-31"):
+        ctx.simulate(expiry)
 `
 
 const trading = `
@@ -48,8 +50,8 @@ func TestLoadStrategyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if script.context.underlying != "NIFTY" || !script.context.configured {
-		t.Fatal("configuration not loaded")
+	if script.context != nil {
+		t.Fatal("initialization ran during load")
 	}
 }
 
@@ -64,6 +66,10 @@ func TestInitialization(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			script, err := load("test.star", tt.source)
+			if err == nil {
+				f := newFixture(t)
+				_, err = script.Run(context.Background(), engine.NewEngine(f.repo))
+			}
 			if tt.want != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.want) {
 					t.Fatalf("error=%v; want %s", err, tt.want)
@@ -366,7 +372,8 @@ def on_candle(ctx):
 		t.Fatal(err)
 	}
 	stop := errors.New("placement verified")
-	_, err = engine.NewEngine(f.repo).Backtest(context.Background(), "NIFTY", script.context.start, script.context.end, func(execution *engine.Execution) error {
+	script.context = &strategyContext{state: starlark.NewDict(0)}
+	_, err = engine.NewEngine(f.repo).Simulate(context.Background(), "NIFTY", f.expiries[0], func(execution *engine.Execution) error {
 		script.context.execution = execution
 		_, err := starlark.Call(script.thread, script.onCandle, starlark.Tuple{script.context}, nil)
 		if err != nil {

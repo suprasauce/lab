@@ -15,9 +15,9 @@ loader.config({ monaco })
 export const starterStrategy = `def initialize(ctx):
     ctx.configure(
         underlying="NIFTY",
-        start_date="2026-01-01",
-        end_date="2026-06-30",
     )
+    for expiry in ctx.get_expiries(start="2026-01-01", end="2026-06-30"):
+        ctx.simulate(expiry)
 
 
 def on_candle(ctx):

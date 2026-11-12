@@ -29,12 +29,33 @@ HTTP request ? Controller ? Service ? Repository ? PostgreSQL
 1. The client submits a Starlark script to `POST /api/backtests`, with a numeric `X-User-ID` header.
 2. The API validates the request, inserts a `PENDING` backtest in PostgreSQL, and queues its ID.
 3. The API returns `202 Accepted` with the backtest ID without waiting for execution.
-4. The worker retrieves the saved script, compiles it, and calls `initialize(ctx)` once. The script configures the underlying and backtest dates.
-5. The engine resolves the underlying and fetches expiry dates within the configured date range. It processes each expiry sequentially.
+4. The worker retrieves the saved script, compiles it, and calls `initialize(ctx)` once. The script configures the underlying, retrieves expiries, and explicitly simulates the chosen dates.
+5. Each `ctx.simulate(expiry)` call runs synchronously in Go, invoking `on_candle(ctx)` on a separate Starlark callback thread. Results are aggregated in the order the script runs the expiries.
 6. After execution, the worker saves the summary and trades as JSON and sets the status to `COMPLETED`. Script or execution errors are saved with status `FAILED`.
 7. The client retrieves status and results using `GET /api/backtests/{id}`, or lists its backtests using `GET /api/backtests`.
 
 Both GET endpoints use `X-User-ID` to restrict results to that user. This header is the current user-identification mechanism; authentication is not implemented.
+
+## Script-controlled expiry runs
+
+```python
+def initialize(ctx):
+    ctx.configure(underlying="NIFTY")
+    for expiry in ctx.get_expiries(start="2026-01-01", end="2026-06-30"):
+        ctx.simulate(expiry)
+
+
+def on_candle(ctx):
+    # Existing place_order/order/state APIs remain available here.
+    pass
+```
+
+`get_expiries` returns chronological YYYY-MM-DD strings, with inclusive date
+boundaries. The script chooses which dates to simulate and in what order.
+Discovery and simulation are allowed only during initialization, after configure.
+Existing saved scripts must move date ranges out of `configure` and explicitly
+call `simulate`; there is no automatic expiry loop. `ctx.time` remains an HH:mm
+string. No position-query or close-all API is added.
 
 ## How the simulation works
 

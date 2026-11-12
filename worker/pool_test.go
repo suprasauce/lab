@@ -19,7 +19,9 @@ import (
 
 const validScript = `
 def initialize(ctx):
-    ctx.configure(underlying="NIFTY", start_date="2026-01-01", end_date="2026-01-31")
+    ctx.configure(underlying="NIFTY")
+    for expiry in ctx.get_expiries(start="2026-01-01", end="2026-01-31"):
+        ctx.simulate(expiry)
 
 def on_candle(ctx):
     if ctx.time == "09:15":
@@ -71,6 +73,9 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 	mock.ExpectQuery("FROM lab.option_expiry").WithArgs(int64(7),
 		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)).
 		WillReturnRows(sqlmock.NewRows([]string{"expiry_date"}).AddRow(workerExpiry()))
+
+	mock.ExpectQuery("FROM lab.underlyings").WithArgs("NIFTY").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "symbol"}).AddRow(int64(7), "NIFTY"))
 
 	session := time.Date(2026, 1, 5, 0, 0, 0, 0, workerExpiry().Location())
 	for day := workerExpiry().AddDate(0, 0, -45); !day.After(workerExpiry()); day = day.AddDate(0, 0, 1) {

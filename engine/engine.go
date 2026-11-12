@@ -34,11 +34,17 @@ func NewEngine(repo *repository.Repository) *Engine {
 	return &Engine{marketDataRepository: repo}
 }
 
-// Backtest resolves the underlying and selects expiry cycles within the inclusive date range. Each cycle
-// starts 45 calendar days before expiry, even if that precedes startDate.
-// onCandle observes only completed candles. Orders can fill at the current open.
-// Returned executions retain trade histories, including positions left open.
-func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate time.Time, onCandle func(*Execution) error) (*BacktestResult, error) {
+// GetExpiries resolves the underlying and discovers available expiry dates.
+func (e *Engine) GetExpiries(ctx context.Context, symbol string, start, end time.Time) ([]time.Time, error) {
+	underlying, err := e.marketDataRepository.GetUnderlying(ctx, symbol)
+	if err != nil {
+		return nil, fmt.Errorf("resolve underlying: %w", err)
+	}
+	return e.marketDataRepository.GetExpiries(ctx, underlying.ID, start, end)
+}
+
+// Simulate executes one expiry with fresh runtime state and the existing clock.
+func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, onCandle func(*Execution) error) (*BacktestResult, error) {
 	if onCandle == nil {
 		return nil, fmt.Errorf("on_candle callback is required")
 	}
@@ -46,32 +52,22 @@ func (e *Engine) Backtest(ctx context.Context, symbol string, startDate, endDate
 	if err != nil {
 		return nil, fmt.Errorf("resolve underlying: %w", err)
 	}
-	underlyingID := underlying.ID
-	expiries, err := e.marketDataRepository.GetExpiries(ctx, underlyingID, startDate, endDate)
-	if err != nil {
-		return nil, fmt.Errorf("fetch expiries for underlying %d: %w", underlyingID, err)
-	}
-	if len(expiries) == 0 {
-		return nil, fmt.Errorf("no expiries found for underlying %d", underlyingID)
-	}
-	results := &BacktestResult{Underlying: underlying.Symbol, Executions: make([][]*Position, 0, len(expiries))}
-	for _, expiry := range expiries {
-		execution := newExecution(ctx, e.marketDataRepository, underlyingID, expiry)
-		err := e.backtestExpiry(ctx, underlyingID, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
-			if err := execution.advance(at); err != nil {
-				return err
-			}
-			if at.Format(timeLayout) == "15:30" {
-				return nil // Finalize the session without allowing new strategy orders.
-			}
-			return onCandle(execution)
-		})
-		results.Executions = append(results.Executions, execution.Positions)
-		if err != nil {
-			return results, fmt.Errorf("expiry %s: %w", expiry.Format(time.DateOnly), err)
+	expiry = calendarDate(expiry)
+	execution := newExecution(ctx, e.marketDataRepository, underlying.ID, expiry)
+	err = e.backtestExpiry(ctx, underlying.ID, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
+		if err := execution.advance(at); err != nil {
+			return err
 		}
+		if at.Format(timeLayout) == "15:30" {
+			return nil
+		}
+		return onCandle(execution)
+	})
+	result := &BacktestResult{Underlying: underlying.Symbol, Executions: [][]*Position{execution.Positions}}
+	if err != nil {
+		return result, fmt.Errorf("expiry %s: %w", expiry.Format(time.DateOnly), err)
 	}
-	return results, nil
+	return result, nil
 }
 
 func calendarDate(t time.Time) time.Time {
