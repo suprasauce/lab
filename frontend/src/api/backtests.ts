@@ -22,10 +22,11 @@ export interface BacktestTrade {
   pnl: number | null
 }
 
-export type Backtest =
+export type Backtest = { script: string } & (
   | { id: string; status: 'PENDING' }
   | { id: string; status: 'COMPLETED'; summary: { total_trades: number; total_pnl: number }; trades: BacktestTrade[] }
   | { id: string; status: 'FAILED'; error?: string }
+)
 
 export function createBacktest(script: string, signal?: AbortSignal) {
   return request<{ id: string }>('/api/backtests', { method: 'POST', body: JSON.stringify({ script }), signal })
