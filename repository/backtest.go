@@ -67,7 +67,7 @@ func (r *Repository) GetBacktest(ctx context.Context, id int64) (models.Backtest
 func (r *Repository) GetBacktestForUser(ctx context.Context, id, userID int64) (models.Backtest, error) {
 	var backtest models.Backtest
 	var results []byte
-	if err := r.db.QueryRowContext(ctx, QueryGetBacktestForUser, id, userID).Scan(&backtest.ID, &backtest.Status, &results); err != nil {
+	if err := r.db.QueryRowContext(ctx, QueryGetBacktestForUser, id, userID).Scan(&backtest.ID, &backtest.Status, &results, &backtest.Script); err != nil {
 		return models.Backtest{}, fmt.Errorf("get backtest %d for user: %w", id, err)
 	}
 	backtest.Results = results

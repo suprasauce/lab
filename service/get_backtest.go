@@ -13,6 +13,7 @@ import (
 type BacktestResponse struct {
 	ID      string                `json:"id"`
 	Status  models.BacktestStatus `json:"status"`
+	Script  string                `json:"script"`
 	Summary json.RawMessage       `json:"summary,omitempty"`
 	Trades  json.RawMessage       `json:"trades,omitempty"`
 	Error   string                `json:"error,omitempty"`
@@ -23,7 +24,7 @@ func GetBacktest(ctx context.Context, repo *repository.Repository, id, userID in
 	if err != nil {
 		return BacktestResponse{}, err
 	}
-	response := BacktestResponse{ID: strconv.FormatInt(backtest.ID, 10), Status: backtest.Status}
+	response := BacktestResponse{ID: strconv.FormatInt(backtest.ID, 10), Status: backtest.Status, Script: backtest.Script}
 	switch backtest.Status {
 	case models.BacktestPending:
 		return response, nil

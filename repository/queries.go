@@ -55,7 +55,7 @@ const QueryGetBacktest = `
 `
 
 const QueryGetBacktestForUser = `
-	SELECT id, status, results
+	SELECT id, status, results, script
 	FROM lab.backtests
 	WHERE id = $1 AND user_id = $2;
 `
