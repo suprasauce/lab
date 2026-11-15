@@ -66,12 +66,6 @@ const QueryUpdateBacktest = `
 	WHERE id = $1;
 `
 
-const queryGetAllUnderlyings = `
-	SELECT id, symbol
-	FROM lab.underlyings
-	ORDER BY symbol;
-`
-
 const queryGetUnderlying = `
 	SELECT id, symbol
 	FROM lab.underlyings

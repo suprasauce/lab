@@ -103,8 +103,8 @@ ctx.place_order(
 
 No `ctx.option_chain()` call is needed to construct a symbol. A syntactically valid
 symbol does not establish that its contract exists: the database must contain it.
-The Go generator and parser live in `models/option_symbol.go`; the Python generator
-is `data-fetcher/trading_symbol.py`. Both use integer paise without float formatting.
+The Go parser lives in `models/option_symbol.go`; contract creation uses the
+Python generator in `data-fetcher/trading_symbol.py`. Both use integer paise.
 
 The resolver always queries `lab.option_contracts.tradingsymbol` directly.
 Migration `010_option_contract_tradingsymbol.sql` adds and backfills this column.

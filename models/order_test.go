@@ -11,11 +11,12 @@ func TestOrderValidate(t *testing.T) {
 		order Order
 		want  string
 	}{
-		{"valid BUY", Order{Side: "BUY", Quantity: 75}, ""},
-		{"valid SELL", Order{Side: "SELL", Quantity: 75}, ""},
-		{"invalid side", Order{Side: "SHORT", Quantity: 75}, "side"},
-		{"zero quantity", Order{Side: "BUY"}, "positive"},
-		{"negative quantity", Order{Side: "SELL", Quantity: -1}, "positive"},
+		{"missing trading symbol", Order{Side: "BUY", Quantity: 75}, "tradingsymbol"},
+		{"valid BUY", Order{TradingSymbol: "NIFTY-20260127-22650-CE", Side: "BUY", Quantity: 75}, ""},
+		{"valid SELL", Order{TradingSymbol: "NIFTY-20260127-22650-CE", Side: "SELL", Quantity: 75}, ""},
+		{"invalid side", Order{TradingSymbol: "NIFTY-20260127-22650-CE", Side: "SHORT", Quantity: 75}, "side"},
+		{"zero quantity", Order{TradingSymbol: "NIFTY-20260127-22650-CE", Side: "BUY"}, "positive"},
+		{"negative quantity", Order{TradingSymbol: "NIFTY-20260127-22650-CE", Side: "SELL", Quantity: -1}, "positive"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.order.Validate()

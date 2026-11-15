@@ -16,17 +16,6 @@ type OptionSymbol struct {
 	OptionType  OptionType
 }
 
-// GenerateOptionTradingSymbol uses rupees in the symbol and paise internally.
-func GenerateOptionTradingSymbol(underlying string, expiry time.Time, strike Price, optionType OptionType) string {
-	suffix := "CE"
-	if optionType == Put {
-		suffix = "PE"
-	}
-	amount := strconv.FormatInt(int64(strike)/100, 10)
-
-	return strings.ToUpper(underlying) + "-" + expiry.Format("20060102") + "-" + amount + "-" + suffix
-}
-
 // ParseOptionTradingSymbol accepts the canonical Lab format, never broker symbols.
 func ParseOptionTradingSymbol(symbol string) (OptionSymbol, error) {
 	invalid := func() (OptionSymbol, error) {

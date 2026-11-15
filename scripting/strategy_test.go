@@ -153,17 +153,10 @@ func TestRemovedATMOptionBuiltinIsUnavailable(t *testing.T) {
 }
 
 type fixture struct {
-	t                 *testing.T
-	repo              *repository.Repository
-	expiries          []time.Time
-	contractQueries   int
-	onContractQuery   func()
-	missingDTE        int
-	missingMinute     int
-	missingAllOptions bool
-	missingExits      bool
-	expectedStrike    int64
-	expectedType      string
+	t               *testing.T
+	repo            *repository.Repository
+	expiries        []time.Time
+	contractQueries int
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -173,7 +166,6 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, expiries: []time.Time{time.Date(2026, 9, 29, 0, 0, 0, 0, location), time.Date(2026, 10, 27, 0, 0, 0, 0, location)}}
-	f.expectedStrike, f.expectedType = 2265000, "CALL"
 	db := sql.OpenDB(connector{query: f.query})
 	t.Cleanup(func() { db.Close() })
 	f.repo = repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -213,38 +205,6 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		for _, expiry := range f.expiries {
 			r.values = append(r.values, []driver.Value{expiry})
 		}
-	case strings.Contains(query, "FROM lab.option_contracts"):
-		if len(args) == 1 {
-			r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
-			for i, expiry := range f.expiries {
-				if args[0].Value == int64(100+i) {
-					r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType}}
-				}
-			}
-			for i, expiry := range f.expiries {
-				if args[0].Value == int64(200+i) {
-					r.values = [][]driver.Value{{int64(200 + i), int64(7), int64(i + 1), expiry, int64(2245000), "PUT"}}
-				}
-			}
-			return r, nil
-		}
-		f.contractQueries++
-		if f.onContractQuery != nil {
-			f.onContractQuery()
-		}
-		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
-		for i, expiry := range f.expiries {
-			if expiry.Equal(args[1].Value.(time.Time)) {
-				strike, optionType, id := f.expectedStrike, f.expectedType, int64(100+i)
-				if args[3].Value == "PUT" && f.expectedType == "CALL" {
-					strike, optionType, id = 2245000, "PUT", int64(200+i)
-				}
-				if args[2].Value != strike || args[3].Value != optionType {
-					f.t.Fatalf("offset selection not used: %+v", args)
-				}
-				r.values = [][]driver.Value{{id, int64(7), int64(i + 1), expiry, strike, optionType}}
-			}
-		}
 	case strings.Contains(query, "FROM lab.underlying_candles"):
 		r.columns = candleColumns()
 		start := args[2].Value.(time.Time)
@@ -268,36 +228,6 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		}
 		if len(args) == 3 && first != nil {
 			r.values = [][]driver.Value{first}
-		}
-	case strings.Contains(query, "FROM lab.option_candles"):
-		r.columns = candleColumns()
-		if f.missingAllOptions {
-			return r, nil
-		}
-		at := args[2].Value.(time.Time)
-		if args[1].Value != "5m" {
-			f.t.Fatal("unexpected timeframe")
-		}
-		end := args[3].Value.(time.Time)
-		rounded := at.Truncate(5 * time.Minute)
-		if rounded.Before(at) {
-			rounded = rounded.Add(5 * time.Minute)
-		}
-		for at = rounded; !at.After(end); at = at.Add(5 * time.Minute) {
-			expiry := f.expiries[args[0].Value.(int64)%100]
-			day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
-			dte := int(expiry.Sub(day) / (24 * time.Hour))
-			if f.missingExits && dte <= 21 {
-				continue
-			}
-			if dte != f.missingDTE || at.Hour() != 9 || at.Minute() != f.missingMinute {
-				price := int64(10000)
-				if dte == 21 {
-					price = 6000
-				}
-				r.values = [][]driver.Value{candleRow(at, price)}
-				break
-			}
 		}
 	default:
 		f.t.Fatalf("unexpected query: %s", query)

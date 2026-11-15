@@ -25,11 +25,11 @@ def initialize(ctx):
 
 def on_candle(ctx):
     if ctx.time == "09:15":
-        ctx.state["entry"] = ctx.place_order(contract=offset_selector("CALL", offset=2), side="SELL", quantity=75)
+        ctx.state["entry"] = ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", side="SELL", quantity=75)
     if ctx.time == "09:20":
         entry = ctx.order(ctx.state["entry"])
         if entry.status == "FILLED":
-            ctx.place_order(contract=id_selector(entry.contract_id), side="BUY", quantity=75)
+            ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", side="BUY", quantity=75)
 `
 
 func newPoolTest(t *testing.T) (*WorkerPool, sqlmock.Sqlmock, *bytes.Buffer) {
@@ -93,7 +93,7 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 			mock.ExpectQuery("FROM lab.underlying_candles").WithArgs(int64(7), "5m", start, start.Add(time.Microsecond)).
 				WillReturnRows(workerCandleRows().AddRow(start, "5m", 2253000, 2253000, 2253000, 2253000, 0))
 			if tick == 1 {
-				mock.ExpectQuery("FROM lab.option_contracts").WithArgs(int64(7), workerExpiry(), int64(2265000), "CALL").
+				mock.ExpectQuery("FROM lab.option_contracts").WithArgs("NIFTY-20260127-22650-CE").
 					WillReturnRows(workerContractRows())
 				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "5m", start, start.Add(5*time.Minute-time.Microsecond)).
 					WillReturnRows(workerCandleRows().AddRow(start, "5m", 10000, 10000, 10000, 10000, 0))
@@ -101,7 +101,7 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 			if tick == 2 {
 				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "5m", start, start).
 					WillReturnRows(workerCandleRows().AddRow(start, "5m", 8000, 8000, 8000, 8000, 0))
-				mock.ExpectQuery("FROM lab.option_contracts").WithArgs(int64(101)).WillReturnRows(workerContractRows())
+				mock.ExpectQuery("FROM lab.option_contracts").WithArgs("NIFTY-20260127-22650-CE").WillReturnRows(workerContractRows())
 			}
 		}
 	}

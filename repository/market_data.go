@@ -10,28 +10,6 @@ import (
 	"optionsbacktest/models"
 )
 
-func (r *Repository) GetAllUnderlyings(ctx context.Context) ([]models.Underlying, error) {
-	r.logger.DebugContext(ctx, "fetching all underlyings")
-	rows, err := r.db.QueryContext(ctx, queryGetAllUnderlyings)
-	if err != nil {
-		return nil, fmt.Errorf("query all underlyings: %w", err)
-	}
-	defer rows.Close()
-
-	underlyings := make([]models.Underlying, 0)
-	for rows.Next() {
-		var underlying models.Underlying
-		if err := rows.Scan(&underlying.ID, &underlying.Symbol); err != nil {
-			return nil, fmt.Errorf("scan underlying: %w", err)
-		}
-		underlyings = append(underlyings, underlying)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate underlyings: %w", err)
-	}
-	return underlyings, nil
-}
-
 // GetUnderlying resolves a symbol. Missing symbols return a wrapped sql.ErrNoRows.
 func (r *Repository) GetUnderlying(ctx context.Context, symbol string) (models.Underlying, error) {
 	r.logger.DebugContext(ctx, "fetching underlying", "symbol", symbol)
