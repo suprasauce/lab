@@ -18,9 +18,9 @@ func NewOptionChainService() *OptionChainService {
 	return &OptionChainService{}
 }
 
-// SelectContract accepts an underlying symbol and CE or PE option type.
+// GetSymbol accepts an underlying symbol and CE or PE option type.
 // Market data used for selection must be available at the simulation timestamp.
-func (s *OptionChainService) SelectContract(
+func (s *OptionChainService) GetSymbol(
 	underlying string,
 	expiry time.Time,
 	optionType string,
