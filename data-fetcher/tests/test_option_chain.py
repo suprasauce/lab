@@ -40,7 +40,7 @@ class OptionChainTests(unittest.TestCase):
         self.fetch_phase()
         self.assertEqual((symbol, expiry), ("NIFTY", date(2025, 12, 30)))
         self.assertIn(kind, ("CALL", "PUT"))
-        self.assertLess(end - start, timedelta(days=15))
+        self.assertLess(end - start, timedelta(days=16))
         return [candle(start + timedelta(minutes=15))]
 
     def post(self):
@@ -60,25 +60,25 @@ class OptionChainTests(unittest.TestCase):
         # Low 22490 rounds to 22450; high 22510.10 rounds to 22550; pad 2000.
         strikes = list(range(2045000, 2455001, 5000))
         self.assertEqual(set(self.store.contracts), {(7, 9, strike, kind) for strike in strikes for kind in ("CALL", "PUT")})
-        self.assertEqual(response.json["fetched"], len(strikes) * 2 * 4)
+        self.assertEqual(response.json["fetched"], len(strikes) * 2 * 3)
         self.assertEqual(response.json["inserted"], len(self.store.options))
-        self.assertEqual(response.json["underlying_inserted"], 4)
+        self.assertEqual(response.json["underlying_inserted"], 3)
         self.assertTrue(self.store.chain_fetched)
         self.assertEqual(self.store.commits, 1)
         calls = self.client.historical_option.call_count
         self.assertEqual(self.post().json["status"], "already_exists")
         self.assertEqual(self.client.historical_option.call_count, calls)
 
-    def test_45_dte_and_15_day_windows(self):
+    def test_45_dte_and_16_day_windows(self):
         self.assertEqual(self.post().status_code, 200)
-        calls = self.client.historical_option.call_args_list[:4]
+        calls = self.client.historical_option.call_args_list[:3]
         start = datetime(2025, 11, 15, tzinfo=MARKET_ZONE)
         self.assertEqual(calls[-1].args[-1], datetime(2025, 12, 30, 23, 59, 59, tzinfo=MARKET_ZONE))
         for i, call in enumerate(calls):
-            self.assertEqual(call.args[-2], start + timedelta(days=i * 15))
+            self.assertEqual(call.args[-2], start + timedelta(days=i * 16))
         for first, second in zip(calls, calls[1:]):
             self.assertEqual(first.args[-1] + timedelta(seconds=1), second.args[-2])
-        self.assertEqual(self.client.historical_underlying.call_count, 4)
+        self.assertEqual(self.client.historical_underlying.call_count, 3)
 
     def test_empty_options_are_successful(self):
         self.client.historical_option.side_effect = None
@@ -108,7 +108,7 @@ class OptionChainTests(unittest.TestCase):
         def request(*args):
             nonlocal count
             count += 1
-            if count == 5:
+            if count == 4:
                 raise RuntimeError("terminal Breeze failure")
             return self.option(*args)
         self.client.historical_option.side_effect = request
@@ -116,7 +116,7 @@ class OptionChainTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         for text in ("strike_paise=2045000 option_type=PUT", "2025-11-15", "terminal Breeze failure"):
             self.assertIn(text, response.json["error"])
-        self.assertEqual(count, 5)
+        self.assertEqual(count, 4)
         self.assertFalse(self.store.contracts or self.store.options or self.store.underlyings or self.store.chain_fetched)
         self.assertEqual(self.store.commits, 0)
 
@@ -196,7 +196,7 @@ class OptionChainTests(unittest.TestCase):
                 if failure == "recover":
                     self.assertEqual(response.status_code, 200, response.json)
                     self.assertTrue(self.store.chain_fetched)
-                    self.assertEqual(option_attempts, 83 * 2 * 4 + 1)
+                    self.assertEqual(option_attempts, 83 * 2 * 3 + 1)
                 else:
                     self.assertEqual(response.status_code, 502, response.json)
                     self.assertEqual(option_attempts, attempts)

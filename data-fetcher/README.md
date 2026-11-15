@@ -132,7 +132,7 @@ rounded down and maximum High rounded up, extended by 40 intervals on each side.
 Only positive strikes are generated. Both CALL and PUT contracts are fetched for
 every strike, from expiry minus 45 calendar days through expiry inclusive.
 
-All historical requests use 5-minute candles and at most 15-calendar-day windows.
+All historical requests use 5-minute candles and at most 16-calendar-day windows.
 Transient network, rate-limit, and server errors have at most three attempts total
 (initial attempt plus two retries), with existing pacing and 2/4-second backoff.
 Permanent errors fail immediately. A terminal option failure identifies the
@@ -155,7 +155,7 @@ contracts are still inserted because their entire historical range was checked. 
 Success is HTTP 200, after commit, for example:
 
 ```json
-{"status":"ingested","expiry_id":9,"contracts":166,"fetched":664,"inserted":664,"underlying_inserted":4}
+{"status":"ingested","expiry_id":9,"contracts":166,"fetched":498,"inserted":498,"underlying_inserted":3}
 ```
 
 Counts are illustrative. `contracts` counts generated contracts; `fetched` counts
@@ -199,7 +199,7 @@ parameters, and candle windows and ingestion transactions are unchanged.
 - The existing official SDK authentication and request parameters are preserved:
   underlying data uses NSE/cash; options use NFO/options and explicit expiry,
   right, and strike. Breeze requests use `5minute`; PostgreSQL stores `5m`.
-- Requests use shared 15-calendar-day windows and inclusive-second Breeze bounds.
+- Requests use shared 16-calendar-day windows and inclusive-second Breeze bounds.
   The SDK documents a [1000-interval limit](https://github.com/Idirect-Tech/Breeze-Python-SDK).
   Responses reaching 1000 rows are rejected as potentially truncated.
 - Existing pacing remains one request/second with a 5000-request daily process

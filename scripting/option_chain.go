@@ -24,8 +24,14 @@ func (*filterValue) Hash() (uint32, error) { return 0, fmt.Errorf("filters are u
 
 func newFilter(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var filter optionchain.OptionFilter
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "type", &filter.Type, "value", &filter.Value); err != nil {
+	var value starlark.Value
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "type", &filter.Type, "value", &value); err != nil {
 		return nil, err
+	}
+	var ok bool
+	filter.Value, ok = starlark.AsFloat(value)
+	if !ok {
+		return nil, fmt.Errorf("filter value must be a number, got %s", value.Type())
 	}
 	switch filter.Type {
 	case "delta", "offset", "price":

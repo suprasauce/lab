@@ -162,7 +162,7 @@ class ServiceTests(unittest.TestCase):
     def check_fetch(self, start, end):
         self.assertEqual(self.store.connections, 0, "connection held while fetching")
         self.assertFalse(self.store.in_transaction, "transaction open while fetching")
-        self.assertLess(end - start, timedelta(days=15))
+        self.assertLess(end - start, timedelta(days=16))
         self.calls.append((start, end))
         return [candle(start + timedelta(minutes=15))]
 
@@ -208,9 +208,9 @@ class ServiceTests(unittest.TestCase):
     def test_new_contract_fetches_all_before_atomic_insert(self):
         response = self.post_option()
         self.assertEqual(response.status_code, 200, response.json)
-        self.assertEqual(response.json, {"status": "ingested", "contract_id": 42, "fetched": 4, "inserted": 4})
+        self.assertEqual(response.json, {"status": "ingested", "contract_id": 42, "fetched": 3, "inserted": 3})
         self.assertEqual(self.store.commits, 1)
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 3)
         self.assertEqual(self.calls[0][0], datetime(2025, 11, 15, tzinfo=MARKET_ZONE))
         self.assertEqual(self.calls[-1][1], datetime(2025, 12, 30, 23, 59, 59, tzinfo=MARKET_ZONE))
         for previous, following in zip(self.calls, self.calls[1:]):
@@ -259,7 +259,7 @@ class ServiceTests(unittest.TestCase):
         response = self.post_option()
         self.assertEqual(response.json["status"], "already_exists")
         self.assertEqual(self.breeze.historical_option.call_count, calls)
-        self.assertEqual((len(self.store.contracts), len(self.store.options)), (1, 4))
+        self.assertEqual((len(self.store.contracts), len(self.store.options)), (1, 3))
 
     def test_concurrent_winner_is_reused(self):
         def window(*args):
