@@ -1,12 +1,8 @@
 package engine
 
-import (
-	"optionsbacktest/models"
-	"optionsbacktest/selector"
-)
+import "optionsbacktest/models"
 
-// Order adds runtime contract selection to the order's domain data.
+// Order holds the order's placement and execution data.
 type Order struct {
 	models.Order
-	Selector selector.Selector
 }

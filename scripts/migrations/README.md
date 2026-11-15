@@ -37,7 +37,7 @@ dates with no contracts yet. `GetOptionContract` retains its lookup signature an
 joins the catalog to return `Option.ExpiryID` and its resolved `Option.Expiry` date.
 Expiry types are stored without adding an implicit monthly/weekly filter.
 
-## Option history synchronization
+## Option history synchronization (historical, superseded by 009)
 
 `007_option_contract_synced.sql` adds `lab.option_contracts.synced`. All existing
 rows become `true`, since the previous pipeline ingested full 45-DTE history.
@@ -64,3 +64,34 @@ psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migration
 
 The endpoint updates the flag only in the transaction that commits the complete
 historical strike universe and candles. No migration is applied automatically.
+
+## Remove per-contract synchronization
+
+`009_drop_option_contract_synced.sql` removes only `lab.option_contracts.synced`.
+The fresh schema no longer includes it. The day-only ingestion endpoint and Go
+repository method have also been removed. Full-chain ingestion still uses
+`option_expiry.option_chain_fetched`, and commits all contracts/candles together.
+Existing contracts and candles are preserved. Old partial contracts should be
+completed using full-chain ingestion before relying on contract existence as a
+full-history indicator. Stop older application writers before applying:
+
+```powershell
+psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migrations/009_drop_option_contract_synced.sql
+```
+
+## Lab option trading symbols
+
+`010_option_contract_tradingsymbol.sql` adds `tradingsymbol TEXT`, backfills all
+existing contracts using `UNDERLYING-YYYYMMDD-RUPEE_STRIKE-CE/PE`, then enforces
+NOT NULL and uniqueness. Fractional strikes are converted from integer paise
+without floating point or redundant decimal zeros. Contract IDs and candles are
+preserved. The entire migration is transactional; inconsistent underlying/expiry
+relationships or duplicate generated symbols cause it to fail rather than leave
+partially migrated data.
+
+Stop older contract writers and deploy the symbol-aware data fetcher with this
+migration. The fresh schema already includes the column and constraint.
+
+```powershell
+psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migrations/010_option_contract_tradingsymbol.sql
+```

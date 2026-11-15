@@ -1,7 +1,7 @@
-// Package pricing implements European Black-Scholes pricing and delta.
+// European Black-Scholes pricing and delta calculations.
 // Monetary inputs must use the same unit (for example, rupees); rates and
 // volatility are annual decimals, and time to expiry is expressed in years.
-package pricing
+package optionchain
 
 import (
 	"fmt"

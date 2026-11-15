@@ -1,10 +1,9 @@
 # Historical data ingestion service
 
 Independent Python 3.11+ service sharing the Go application's existing PostgreSQL
-`lab` schema. Four synchronous application endpoints provide full option
-history, one option day, underlying history, and a historical option chain. Apply
-`scripts/migrations/007_option_contract_synced.sql` and
-`scripts/migrations/008_option_chain_fetched.sql` before deploying this version.
+`lab` schema. Three synchronous application endpoints provide full option history,
+underlying history, and a historical option chain. Apply migrations through
+`scripts/migrations/009_drop_option_contract_synced.sql` before deploying this version.
 
 ## Install and start
 
@@ -62,22 +61,21 @@ PowerShell curl example:
 '@ | curl.exe -X POST http://127.0.0.1:8000/options/fetch -H "Content-Type: application/json" --data-binary "@-"
 ```
 
-A contract with `synced = true` returns HTTP 200 immediately, without
+An existing contract returns HTTP 200 immediately, without
 authenticating with Breeze or fetching candles:
 
 ```json
 {"status":"already_exists","contract_id":123,"fetched":0,"inserted":0}
 ```
 
-For a missing or unsynced contract, `MAX_DTE = 45` and `5minute` are fixed. The example fetches
+For a missing contract, `MAX_DTE = 45` and `5minute` are fixed. The example fetches
 November 15 through December 30, 2025, inclusive (46 calendar dates). There are no
 DTE, timeframe, strike-range, or padding request fields. Unknown fields are rejected.
 
 All Breeze windows are fetched and validated before the write transaction opens.
 Then one transaction resolves or inserts the contract, inserts all candles in
-batches, and sets `synced = true`. Any insertion or commit failure prevents
-success and rolls back the changes, preserving previously stored partial data
-and its unsynced flag. Unique constraints prevent duplicate
+batches. Any insertion or commit failure prevents success and rolls back all
+new data. Unique constraints prevent duplicate
 contracts/candles; a concurrent winner is reused after its transaction commits.
 A new successful ingestion returns HTTP 200 only after commit:
 
@@ -86,38 +84,10 @@ A new successful ingestion returns HTTP 200 only after commit:
 ```
 
 Full synchronization with an expiry today or later is rejected because historical
-data is incomplete. Empty full histories fail without inserting a contract or
-setting `synced`. The migration marks existing contracts true, since they were
-created by the previous 45-DTE pipeline; new contracts default to false.
-
-## POST /options/fetch-day
-
-```json
-{
-  "underlying": "NIFTY",
-  "expiry": "2025-12-30",
-  "strike": 25000,
-  "option_type": "CALL",
-  "day": "2025-12-01"
-}
-```
-
-Fetches only the requested IST calendar day's 5-minute candles. The day must be
-before today and no later than expiry. Existing data for that day avoids another
-Breeze call. This endpoint atomically creates a missing contract and inserts day
-candles; it leaves `synced` unchanged (a new contract remains false). Repeated
-and overlapping day/full ingestions skip duplicate candles.
-
-```powershell
-@'
-{"underlying":"NIFTY","expiry":"2025-12-30","strike":25000,"option_type":"CALL","day":"2025-12-01"}
-'@ | curl.exe -X POST http://127.0.0.1:8000/options/fetch-day -H "Content-Type: application/json" --data-binary "@-"
-```
-
-Returns HTTP 200 with `status` (`ingested`, `already_exists`, or `no_data`),
-`contract_id`, `fetched`, and `inserted`. With `no_data`, no contract or candles
-are inserted; `contract_id` may be null. Go treats `no_data` as an unavailable
-candidate. Failed requests roll back all new writes.
+data is incomplete. Empty full histories fail without inserting a contract.
+Contract existence indicates completed ingestion now that day-only fetching is
+removed. Legacy partial contracts are preserved; use `/option-chain/fetch` to
+complete their expiry histories before relying on them.
 
 ## POST /underlyings/fetch
 
@@ -176,12 +146,11 @@ independently. No market calendar or synthetic candles are introduced.
 
 All fetched data is buffered in memory. Only after **every request succeeds** does
 one database transaction insert any new underlying candles, all required
-contracts and option candles, set contract `synced = true`, and set
+contracts and option candles, and set
 `option_expiry.option_chain_fetched = true`. Conflicting candles are preserved.
 Any failure rolls back all new ingestion data and flag changes. Successful empty
 option windows are valid, including contracts with no available candles; these
-contracts are still marked synced because their entire historical range was
-checked. Empty underlying data with no stored candles is an error.
+contracts are still inserted because their entire historical range was checked. Empty underlying data with no stored candles is an error.
 
 Success is HTTP 200, after commit, for example:
 
@@ -203,6 +172,27 @@ many minutes and consume substantial portions of the existing daily API budget.
 No partial progress is committed, so a failure requires fetching again on retry.
 The initial completion check is sufficient for the service's single-process,
 single-threaded request handling; the final write phase uses no explicit row lock.
+
+## Lab trading symbols
+
+Contract creation reuses `trading_symbol.generate_option_trading_symbol()` for
+both single-contract and full-chain ingestion. It produces
+`UNDERLYING-YYYYMMDD-STRIKE-CE/PE`, for example `NIFTY-20261124-26000-CE` or
+`NIFTY-20261124-26000-PE`. Monthly and weekly contracts use the same format;
+no expiry-day rules are inferred.
+
+Underlying names are uppercased. Strikes are converted from integer paise to
+integer rupees without floating point: 2600000, 2600050, and 2600005 all become
+`26000`; remaining paise are discarded. CALL maps to CE and PUT maps to PE. These are
+Lab-specific symbols and are never passed as broker symbols to Breeze.
+
+If `lab.option_contracts.tradingsymbol` exists, new contracts store their generated
+symbol in that column. If absent, the existing schema is preserved and Go resolves
+canonical symbols through their parsed contract attributes. Existing contracts
+are reused without duplication; adding the column later requires a separate
+backfill of existing records. No migration or backfill is performed automatically.
+Breeze continues receiving structured underlying, expiry, strike, and option type
+parameters, and candle windows and ingestion transactions are unchanged.
 
 ## Breeze and database conventions
 
@@ -229,16 +219,17 @@ single-threaded request handling; the final write phase uses no explicit row loc
 - Completeness means every requested window succeeded; availability is determined
   by Breeze. Empty successful windows are allowed, but API errors are not silently
   treated as holidays. The API cannot independently detect silent upstream gaps.
-- **Existing data:** migration 007 marks all existing contracts synced, as
-  requested. Subsequent full-history requests trust that flag; day-only
-  contracts are distinguished by `synced = false`.
 - Fetching is synchronous and buffered in memory before writing. A failure before
   commit requires a fresh fetch on retry; SQLite checkpoints and bulk generation
   have been removed.
 
-Go queries PostgreSQL first, calls `/options/fetch` for missing or unsynced full
-history, waits for completion, then queries again. Delta candidates use the
-day-only endpoint instead.
+Go queries PostgreSQL first and calls `/options/fetch` only for missing contracts.
+Trading-symbol order fills query PostgreSQL first; a missing contract is resolved
+from the parsed symbol through the same full-history ingestion flow. The
+per-contract completion flag and day-only endpoint have been removed; the chain
+completion flag remains. Existing contracts and candles are not deleted by
+migration 009. Re-fetch chains containing old partial contracts before trusting
+contract existence as a full-history marker.
 
 ## Files and tests
 

@@ -10,7 +10,7 @@ from dotenv import dotenv_values
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from ingestion import fetch_option, fetch_option_day, fetch_underlying
+from ingestion import fetch_option, fetch_underlying
 from option_chain import fetch_option_chain
 
 app = Flask(__name__, static_folder=None)
@@ -37,11 +37,6 @@ def options_fetch():
 @app.post("/underlyings/fetch")
 def underlyings_fetch():
     return jsonify(fetch_underlying(**request_fields(("underlying", "start_date", "end_date"))))
-
-
-@app.post("/options/fetch-day")
-def options_fetch_day():
-    return jsonify(fetch_option_day(**request_fields(("underlying", "expiry", "strike", "option_type", "day"))))
 
 
 @app.post("/option-chain/fetch")

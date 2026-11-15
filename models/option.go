@@ -17,5 +17,4 @@ type Option struct {
 	// Expiry is the calendar date joined from option_expiry, not a contract column.
 	Expiry     time.Time
 	OptionType OptionType
-	Synced     bool // Full 45-DTE history has been ingested.
 }

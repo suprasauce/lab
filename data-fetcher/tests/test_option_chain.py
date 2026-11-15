@@ -63,7 +63,6 @@ class OptionChainTests(unittest.TestCase):
         self.assertEqual(response.json["fetched"], len(strikes) * 2 * 4)
         self.assertEqual(response.json["inserted"], len(self.store.options))
         self.assertEqual(response.json["underlying_inserted"], 4)
-        self.assertTrue(all(self.store.synced.values()))
         self.assertTrue(self.store.chain_fetched)
         self.assertEqual(self.store.commits, 1)
         calls = self.client.historical_option.call_count
@@ -126,16 +125,15 @@ class OptionChainTests(unittest.TestCase):
             with self.subTest(failure=failure):
                 self.store = Store()
                 self.store.contracts[(7, 9, 2045000, "CALL")] = 90
-                self.store.synced[90] = False
                 row = (90, datetime(2025, 11, 15, 0, 15, tzinfo=MARKET_ZONE), "5m", 1, 2, 1, 2, 3)
                 self.store.options[row[:3]] = row
-                before = deepcopy((self.store.contracts, self.store.options, self.store.underlyings, self.store.synced))
+                before = deepcopy((self.store.contracts, self.store.options, self.store.underlyings))
                 if failure == "candle": self.store.fail_batch = 3
                 elif failure == "flag": self.store.fail_flag = True
                 else: self.store.fail_commit = True
                 response = self.post()
                 self.assertEqual(response.status_code, 500, response.json)
-                self.assertEqual((self.store.contracts, self.store.options, self.store.underlyings, self.store.synced), before)
+                self.assertEqual((self.store.contracts, self.store.options, self.store.underlyings), before)
                 self.assertEqual(self.store.rollbacks, 1)
                 self.assertEqual(self.store.commits, 0)
                 self.assertFalse(self.store.chain_fetched)

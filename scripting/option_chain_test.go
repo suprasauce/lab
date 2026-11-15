@@ -13,7 +13,7 @@ func TestFilterConstructor(t *testing.T) {
 		`filter(type="strike", value=25000)`,
 		`filter(type="price", value=150.50)`,
 	} {
-		value, err := starlark.Eval(&starlark.Thread{Name: "test"}, "test.star", expression, selectorBuiltins())
+		value, err := starlark.Eval(&starlark.Thread{Name: "test"}, "test.star", expression, scriptBuiltins())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func TestOptionChainArguments(t *testing.T) {
 		{"missing filter type", `filter(value=0.2)`, "type"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			globals := selectorBuiltins()
+			globals := scriptBuiltins()
 			globals["ctx"] = &strategyContext{}
 			_, err := starlark.Eval(&starlark.Thread{Name: "test"}, "test.star", tt.expression, globals)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {

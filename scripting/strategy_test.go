@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -14,10 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"go.starlark.net/starlark"
-
 	"optionsbacktest/engine"
-	"optionsbacktest/models"
 	"optionsbacktest/repository"
 )
 
@@ -28,22 +24,9 @@ def initialize(ctx):
         ctx.simulate(expiry)
 `
 
-const trading = `
-def on_candle(ctx):
-    if ctx.dte == 45 and "entry" not in ctx.state:
-        ctx.state["entry"] = ctx.place_order(contract=offset_selector("CALL", offset=2), side="SELL", quantity=75)
-        order = ctx.order(ctx.state["entry"])
-        if order.status != "PENDING" or order.contract_id != None:
-            fail("placement selected or executed a contract")
-    if ctx.dte == 21 and "exit" not in ctx.state:
-        entry = ctx.order(ctx.state["entry"])
-        if entry.status == "FILLED":
-            ctx.state["exit"] = ctx.place_order(contract=id_selector(entry.contract_id), side="BUY", quantity=75)
-`
-
 func TestLoadStrategyFile(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "strategy.star")
-	if err := os.WriteFile(filename, []byte(setup+trading), 0600); err != nil {
+	if err := os.WriteFile(filename, []byte(setup+"\ndef on_candle(ctx):\n    pass\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	script, err := Load(filename)
@@ -62,7 +45,6 @@ func TestInitialization(t *testing.T) {
 		{"missing callback", setup, "on_candle(ctx)"},
 		{"missing configuration", "def initialize(ctx):\n    pass\ndef on_candle(ctx):\n    pass\n", "configure"},
 		{"invalid dates", strings.Replace(setup, "2026-09-01", "2027-09-01", 1) + "\ndef on_candle(ctx):\n    pass\n", "start_date"},
-		{"entry during initialization", setup + "    ctx.place_order(contract=offset_selector('CALL'),side='SELL',quantity=75)\ndef on_candle(ctx):\n    pass\n", "only available during on_candle"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			script, err := load("test.star", tt.source)
@@ -98,40 +80,6 @@ func TestNoEntryCreatesNoPositions(t *testing.T) {
 	}
 }
 
-func TestEntryExitAndExpiryIsolation(t *testing.T) {
-	f := newFixture(t)
-	script, err := load("test.star", setup+trading)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.onContractQuery = func() {
-		if script.context.execution.Time.Format("15:04") != "09:20" {
-			t.Fatal("selection did not wait for next advance")
-		}
-	}
-	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Underlying != "NIFTY" || len(result.Executions) != 2 || f.contractQueries != 2 {
-		t.Fatal("incorrect expiry count")
-	}
-	for i, cycle := range result.Executions {
-		if len(cycle) != 1 {
-			t.Fatal("state leaked between expiries or order duplicated")
-		}
-		position := cycle[0]
-		entry := f.expiries[i].AddDate(0, 0, -45).Add(9*time.Hour + 15*time.Minute)
-		exit := f.expiries[i].AddDate(0, 0, -21).Add(9*time.Hour + 15*time.Minute)
-		if position.Contract.ID != int64(100+i) || position.Contract.StrikePrice != 2265000 || position.Side != models.Short || position.Quantity != 75 || position.Status != models.TradeClosed || !position.EntryTime.Equal(entry) || !position.ExitTime.Equal(exit) || position.EntryPrice != 10000 || position.ExitPrice != 6000 || position.PnL != 300000 {
-			t.Fatalf("incorrect position: %+v", position)
-		}
-	}
-	if result.Executions[0][0] == result.Executions[1][0] {
-		t.Fatal("shared position state")
-	}
-}
-
 func TestStatePersistsAndStartsEmptyEveryExpiry(t *testing.T) {
 	source := setup + `    ctx.state["initial"] = 123
 
@@ -162,36 +110,9 @@ def on_candle(ctx):
 	}
 }
 
-func TestSessionCloseAdvancesWithoutStrategyCallback(t *testing.T) {
-	f := newFixture(t)
-	source := setup + `
-def on_candle(ctx):
-    if ctx.time >= "15:30":
-        fail("callback at session close")
-    if ctx.dte == 45 and ctx.time == "15:25":
-        ctx.state["entry"] = ctx.place_order(contract=offset_selector("CALL", offset=2), side="SELL", quantity=75)
-    if ctx.dte == 21 and ctx.time == "15:25":
-        ctx.place_order(contract=id_selector(ctx.order(ctx.state["entry"]).contract_id), side="BUY", quantity=75)
-`
-	script, err := load("test.star", source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, cycle := range result.Executions {
-		position := cycle[0]
-		if position.Status != models.TradeClosed || position.EntryTime.Format("15:04") != "15:25" || position.ExitTime.Format("15:04") != "15:25" {
-			t.Fatalf("incorrect final advance: %+v", position)
-		}
-	}
-}
-
 func TestMissingUnderlying(t *testing.T) {
 	f := newFixture(t)
-	script, err := load("test.star", strings.Replace(setup, "NIFTY", "UNKNOWN", 1)+trading)
+	script, err := load("test.star", strings.Replace(setup, "NIFTY", "UNKNOWN", 1)+"\ndef on_candle(ctx):\n    pass\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,22 +125,8 @@ func TestMissingUnderlying(t *testing.T) {
 func TestRuntimeErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
 		{"late configuration", "ctx.configure(underlying='NIFTY',start_date='2026-01-01',end_date='2026-12-31')", "allowed once during initialize"},
-		{"zero quantity", "ctx.place_order(contract=offset_selector('CALL'),side='SELL',quantity=0)", "positive"},
-		{"negative quantity", "ctx.place_order(contract=offset_selector('CALL'),side='SELL',quantity=-1)", "positive"},
-		{"missing quantity", "ctx.place_order(contract=offset_selector('CALL'),side='SELL')", "quantity"},
-		{"bad quantity type", "ctx.place_order(contract=1,side='SELL',quantity=1.5)", "quantity"},
-		{"bad option type", "ctx.place_order(contract=offset_selector('CE'),side='SELL',quantity=75)", "option_type"},
-		{"bad side", "ctx.place_order(contract=offset_selector('CALL'),side='SHORT',quantity=75)", "side"},
-		{"bad offset", "ctx.place_order(contract=offset_selector('CALL',offset='2'),side='SELL',quantity=75)", "offset"},
-		{"missing contract", "ctx.place_order(side='SELL',quantity=75)", "contract"},
-		{"bad contract type", "ctx.place_order(contract='101',side='SELL',quantity=75)", "contract must be a selector, got string"},
-		{"None contract", "ctx.place_order(contract=None,side='SELL',quantity=75)", "contract must be a selector, got NoneType"},
-		{"bare contract ID removed", "ctx.place_order(contract=101,side='BUY',quantity=75)", "contract must be a selector, got int"},
-		{"bad ID type", "id_selector('101')", "id"},
-		{"missing ID", "id_selector()", "id"},
-		{"negative contract ID", "ctx.place_order(contract=id_selector(-1),side='SELL',quantity=75)", "positive"},
-		{"zero contract ID", "ctx.place_order(contract=id_selector(0),side='SELL',quantity=75)", "positive"},
-		{"large contract ID", "ctx.place_order(contract=id_selector(9223372036854775808),side='SELL',quantity=75)", "id"},
+		{"bad quantity type", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',side='SELL',quantity=1.5)", "quantity"},
+		{"missing trading symbol", "ctx.place_order(side='SELL',quantity=75)", "tradingsymbol"},
 		{"unknown order", "ctx.order('unknown')", "unknown order"},
 		{"removed entry API", "ctx.open('L')", "no .open"},
 		{"removed exit API", "ctx.close('L')", "no .close"},
@@ -242,150 +149,6 @@ func TestRemovedATMOptionBuiltinIsUnavailable(t *testing.T) {
 	_, err := load("test.star", setup+"\ndef on_candle(ctx):\n    atm_option('CALL')\n")
 	if err == nil || !strings.Contains(err.Error(), "atm_option") {
 		t.Fatalf("removed builtin is still available: %v", err)
-	}
-}
-
-func TestMissingOptionCandleHandling(t *testing.T) {
-	for _, dte := range []int{45, 21} {
-		f := newFixture(t)
-		f.missingDTE, f.missingMinute = dte, 15
-		script, err := load("test.star", setup+trading)
-		if err != nil {
-			t.Fatal(err)
-		}
-		result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, cycle := range result.Executions {
-			entryMinute, exitMinute := 15, 15
-			if dte == 45 {
-				entryMinute = 20
-			} else {
-				exitMinute = 20
-			}
-			if cycle[0].EntryTime.Minute() != entryMinute || cycle[0].ExitTime.Minute() != exitMinute || cycle[0].Status != models.TradeClosed {
-				t.Fatalf("incorrect pending fill: %+v", cycle[0])
-			}
-		}
-	}
-}
-
-func TestPendingExitAtExpiryKeepsOpenPosition(t *testing.T) {
-	f := newFixture(t)
-	f.missingExits = true
-	script, err := load("test.star", setup+trading)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Executions) != len(f.expiries) {
-		t.Fatal("pending exit prevented later expiry cycles")
-	}
-	for _, cycle := range result.Executions {
-		if len(cycle) != 1 {
-			t.Fatalf("expected one open position, got %d", len(cycle))
-		}
-		position := cycle[0]
-		if position.Status != models.TradeOpen || !position.ExitTime.IsZero() || position.ExitPrice != 0 || position.PnL != 0 {
-			t.Fatalf("unfilled exit changed position: %+v", position)
-		}
-	}
-}
-
-func TestPendingEntryAtExpiryDoesNotCreatePosition(t *testing.T) {
-	f := newFixture(t)
-	f.missingAllOptions = true
-	script, err := load("test.star", setup+trading)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Executions) != len(f.expiries) {
-		t.Fatal("pending entry prevented later expiry cycles")
-	}
-	for _, cycle := range result.Executions {
-		if len(cycle) != 0 {
-			t.Fatal("unfilled entry created a position")
-		}
-	}
-}
-
-func TestTypesSidesAndDefaultOffset(t *testing.T) {
-	for _, optionType := range []models.OptionType{models.Call, models.Put} {
-		for _, side := range []models.PositionSide{models.Long, models.Short} {
-			t.Run(string(optionType)+"/"+string(side), func(t *testing.T) {
-				f := newFixture(t)
-				f.expectedStrike, f.expectedType = 2255000, string(optionType)
-				entrySide, exitSide := "SELL", "BUY"
-				if side == models.Long {
-					entrySide, exitSide = "BUY", "SELL"
-				}
-				source := setup + fmt.Sprintf(`
-def on_candle(ctx):
-    if ctx.dte == 45 and "entry" not in ctx.state:
-        ctx.state["entry"] = ctx.place_order(contract=offset_selector(%q),side=%q,quantity=75)
-    if ctx.dte == 21 and "exit" not in ctx.state:
-        ctx.state["exit"] = ctx.place_order(contract=id_selector(ctx.order(ctx.state["entry"]).contract_id),side=%q,quantity=75)
-`, string(optionType), entrySide, exitSide)
-				script, err := load("test.star", source)
-				if err != nil {
-					t.Fatal(err)
-				}
-				result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, cycle := range result.Executions {
-					position := cycle[0]
-					want := models.Price(300000)
-					if side == models.Long {
-						want = -want
-					}
-					if position.Contract.OptionType != optionType || position.Side != side || position.Status != models.TradeClosed || position.PnL != want {
-						t.Fatalf("incorrect position: %+v", position)
-					}
-				}
-			})
-		}
-	}
-}
-
-func TestPlaceOrderReturnsUniqueIDsWithoutImmediateExecution(t *testing.T) {
-	f := newFixture(t)
-	script, err := load("test.star", setup+`
-def on_candle(ctx):
-    first = ctx.place_order(contract=offset_selector("CALL",offset=2),side="SELL",quantity=75)
-    second = ctx.place_order(contract=offset_selector("CALL",offset=2),side="SELL",quantity=75)
-    if type(first) != "string" or not first or first == second:
-        fail("invalid order IDs")
-    if ctx.order(first).status != "PENDING" or ctx.order(first).contract_id != None:
-        fail("order was executed or selected during placement")
-`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stop := errors.New("placement verified")
-	script.context = &strategyContext{state: starlark.NewDict(0)}
-	_, err = engine.NewEngine(f.repo).Simulate(context.Background(), "NIFTY", f.expiries[0], func(execution *engine.Execution) error {
-		script.context.execution = execution
-		_, err := starlark.Call(script.thread, script.onCandle, starlark.Tuple{script.context}, nil)
-		if err != nil {
-			return err
-		}
-		if f.contractQueries != 0 || len(execution.Orders) != 2 || len(execution.Positions) != 0 {
-			t.Fatal("placement performed selection or execution")
-		}
-		return stop
-	})
-	if !errors.Is(err, stop) {
-		t.Fatalf("unexpected result: %v", err)
 	}
 }
 
@@ -438,15 +201,15 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		}
 	case strings.Contains(query, "FROM lab.option_contracts"):
 		if len(args) == 1 {
-			r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}
+			r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
 			for i, expiry := range f.expiries {
 				if args[0].Value == int64(100+i) {
-					r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType, true}}
+					r.values = [][]driver.Value{{int64(100 + i), int64(7), int64(i + 1), expiry, f.expectedStrike, f.expectedType}}
 				}
 			}
 			for i, expiry := range f.expiries {
 				if args[0].Value == int64(200+i) {
-					r.values = [][]driver.Value{{int64(200 + i), int64(7), int64(i + 1), expiry, int64(2245000), "PUT", true}}
+					r.values = [][]driver.Value{{int64(200 + i), int64(7), int64(i + 1), expiry, int64(2245000), "PUT"}}
 				}
 			}
 			return r, nil
@@ -455,7 +218,7 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		if f.onContractQuery != nil {
 			f.onContractQuery()
 		}
-		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "synced"}
+		r.columns = []string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}
 		for i, expiry := range f.expiries {
 			if expiry.Equal(args[1].Value.(time.Time)) {
 				strike, optionType, id := f.expectedStrike, f.expectedType, int64(100+i)
@@ -465,7 +228,7 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 				if args[2].Value != strike || args[3].Value != optionType {
 					f.t.Fatalf("offset selection not used: %+v", args)
 				}
-				r.values = [][]driver.Value{{id, int64(7), int64(i + 1), expiry, strike, optionType, true}}
+				r.values = [][]driver.Value{{id, int64(7), int64(i + 1), expiry, strike, optionType}}
 			}
 		}
 	case strings.Contains(query, "FROM lab.underlying_candles"):

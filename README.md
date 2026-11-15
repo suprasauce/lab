@@ -63,29 +63,64 @@ For each expiry, the simulation starts 45 calendar days before expiry and contin
 
 The clock advances in five-minute intervals from 09:15 through 15:30 in Asia/Kolkata. Available underlying data determines which days have trading sessions. At each advance, the engine loads completed candles and processes pending orders before calling the script's `on_candle(ctx)`. The final 15:30 advance processes orders without another script callback.
 
-Scripts submit orders through `ctx.place_order(...)`. Orders are queued and processed on a subsequent advance. ATM strike selection uses the underlying candle's Open, and fills use an eligible completed option candle's Open. For example, an order placed at 09:30 can be processed at 09:35 using the 09:30 candle's Open. The strategy never receives unfinished candle OHLC data.
+Scripts submit orders through `ctx.place_order(...)`. Orders are queued and processed on a subsequent advance. Fills use an eligible completed option candle's Open. For example, an order placed at 09:30 can be processed at 09:35 using the 09:30 candle's Open. The strategy never receives unfinished candle OHLC data.
 
-The `contract` argument accepts `offset_selector("CALL", offset=2)` (or `"PUT"`) to select a contract at execution time, or `id_selector(entry.contract_id)` to use an existing contract, including for an exit. Both implement the interface in `selector/`; each runtime order holds its selector and resolves its contract once. An offset selector waits when the underlying candle is missing, while an ID selector does not need underlying price data. Fills use only the current completed five-minute candle window; missing candles leave orders pending for a later window without searching older bars. Saved scripts using the old `atm_option(...)` helper or bare contract IDs must be updated to these selector calls.
+Orders accept an opaque `tradingsymbol` string. At fill time, the repository
+queries the stored `tradingsymbol` directly; the column is required. If no contract
+exists, it parses the Lab symbol and reuses full-45-DTE ingestion through the
+Python service before continuing. Other database errors are returned immediately. Missing candles leave orders pending
+for a later completed five-minute window.
 
 Order history, positions, and `ctx.state` start fresh for every expiry. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a trade summary and position entry/exit details; open positions have null exit fields and P&L.
+
+## Lab option trading symbols
+
+Lab uses its own format, not NSE, Zerodha, or Breeze broker symbols:
+
+```text
+UNDERLYING-YYYYMMDD-STRIKE-CE/PE
+```
+
+- `UNDERLYING`: uppercase letters/digits, beginning with a letter, such as NIFTY or BANKNIFTY.
+- `YYYYMMDD`: exact expiry calendar date, with no expiry-calendar inference.
+- `STRIKE`: positive integer rupee value with no leading zeros.
+- `CE` means CALL; `PE` means PUT. Weekly and monthly expiries use identical formatting.
+
+Examples: `NIFTY-20261124-26000-CE`, `NIFTY-20261124-26000-PE`,
+`NIFTY-20261201-26500-CE`, and `BANKNIFTY-20261230-60000-CE`.
+An expiry classified as monthly and an expiry classified as weekly both encode
+their full stored date; that classification is not encoded in the symbol.
+Strikes use integer rupees: 2600000 paise becomes `26000`. Any remaining
+paise are discarded, so 2600050 also becomes `26000`.
+
+```python
+ctx.place_order(
+    tradingsymbol="NIFTY-20261124-26000-CE",
+    side="SELL",
+    quantity=75,
+)
+```
+
+No `ctx.option_chain()` call is needed to construct a symbol. A syntactically valid
+symbol does not establish that its contract exists: the database must contain it.
+The Go generator and parser live in `models/option_symbol.go`; the Python generator
+is `data-fetcher/trading_symbol.py`. Both use integer paise without float formatting.
+
+The resolver always queries `lab.option_contracts.tradingsymbol` directly.
+Migration `010_option_contract_tradingsymbol.sql` adds and backfills this column.
+There is no schema-detection query. Only a missing symbol triggers parsing and
+the existing full-history ingestion flow.
+
 
 ## Market data
 
 The database must already contain the underlying, its classified expiry dates, and historical five-minute underlying candles. Underlying ingestion is manual.
 
-`option_contracts.synced` means the full 45-DTE ingestion completed. Existing
-contracts are backfilled to true by migration `007_option_contract_synced.sql`;
-new contracts default to false. `GetOptionContract()` calls Python's
-`POST /options/fetch` when a contract is missing or unsynced, then verifies the
-committed synced record. Python marks it true only with a successful full-history
-transaction.
-
-Delta selection uses `GetOptionContractForDay()` and `POST /options/fetch-day`
-for visited candidates, fetching only the underlying candle's IST calendar day.
-The strike list is built in memory; binary search resolves contracts lazily.
-Day ingestion does not mark a contract synced. Only the chosen contract proceeds
-through full-history ingestion. Stored day candles and fully synced contracts
-avoid repeat fetches; missing individual timestamps remain unavailable.
+Option ingestion fetches the full 45-DTE history. Missing contracts may be fetched
+through `POST /options/fetch`; existing contracts are reused. The synchronous
+`POST /option-chain/fetch` endpoint ingests the full strike universe atomically
+and records completion in `option_expiry.option_chain_fetched`. Day-only ingestion
+and per-contract synchronization flags have been removed.
 
 See the [data fetcher README](data-fetcher/README.md) for ingestion setup. Go and Python must use the same database.
 

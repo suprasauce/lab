@@ -11,17 +11,12 @@ func (c *strategyContext) placeOrder(_ *starlark.Thread, b *starlark.Builtin, ar
 	if c.initializing || c.execution == nil {
 		return nil, fmt.Errorf("%s is only available during on_candle", b.Name())
 	}
-	var contract starlark.Value
-	var side string
+	var tradingSymbol, side string
 	var quantity int64
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "contract", &contract, "side", &side, "quantity", &quantity); err != nil {
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tradingsymbol", &tradingSymbol, "side", &side, "quantity", &quantity); err != nil {
 		return nil, err
 	}
-	selection, ok := contract.(*selectorValue)
-	if !ok {
-		return nil, fmt.Errorf("contract must be a selector, got %s", contract.Type())
-	}
-	id, err := c.execution.PlaceOrder(selection.selector, side, quantity)
+	id, err := c.execution.PlaceOrder(tradingSymbol, side, quantity)
 	if err != nil {
 		return nil, err
 	}

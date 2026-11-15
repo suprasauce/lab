@@ -13,7 +13,6 @@ import (
 
 	"optionsbacktest/models"
 	"optionsbacktest/repository"
-	"optionsbacktest/selector"
 )
 
 func marketTime(hour, minute int) time.Time {
@@ -25,23 +24,20 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 	var execution *Execution
 	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 		if strings.Contains(query, "FROM lab.option_contracts") {
-			if len(args) == 1 {
-				rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type", "synced"}}
-				id := args[0].Value.(int64)
-				if id >= 101 && id <= 103 {
-					underlyingID, expiry := int64(7), execution.expiry
-					if id == 102 {
-						underlyingID = 8
-					}
-					if id == 103 {
-						expiry = expiry.AddDate(0, 1, 0)
-					}
-					rows.values = []driver.Value{id, underlyingID, int64(9), expiry, int64(2260000), "CALL", true}
-				}
+			if !strings.Contains(query, "c.tradingsymbol = $1") || len(args) != 1 {
+				t.Fatalf("unexpected contract lookup: %s", query)
+			}
+			rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type"}}
+			kind, id := "CALL", int64(101)
+			switch args[0].Value {
+			case "NIFTY-20260127-22600-CE":
+			case "NIFTY-20260127-22600-PE":
+				kind, id = "PUT", 104
+			default:
 				return rows, nil
 			}
-			return &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type", "synced"},
-				values: []driver.Value{int64(101), int64(7), int64(9), execution.expiry, args[2].Value, args[3].Value, true}}, nil
+			rows.values = []driver.Value{id, int64(7), int64(9), execution.expiry, int64(2260000), kind}
+			return rows, nil
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
 		start := args[2].Value.(time.Time)
@@ -86,10 +82,6 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 	return execution
 }
 
-func offsetSelection() selector.Selector {
-	return selector.NewOffsetSelector(models.Call, 2)
-}
-
 func TestMarketOrderUsesPlacedAt(t *testing.T) {
 	for _, minute := range []int{15, 20, 25} {
 		t.Run(marketTime(9, minute).Format("15:04"), func(t *testing.T) {
@@ -97,7 +89,7 @@ func TestMarketOrderUsesPlacedAt(t *testing.T) {
 			if err := e.advance(marketTime(9, minute)); err != nil {
 				t.Fatal(err)
 			}
-			id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
+			id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -130,7 +122,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
+	_, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,8 +135,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 20)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
 		t.Fatal("wrong completed candle")
 	}
-	entry, _ := e.Order(id)
-	exitID, err := e.PlaceOrder(selector.NewIDSelector(entry.Contract.ID), "BUY", 75)
+	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "BUY", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,27 +161,27 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
 	e := executionFixture(t, nil, nil)
 	e.Time = marketTime(9, 15)
-	first, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
+	first, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
+	second, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
 	if err != nil || first == second || len(e.Orders) != 2 || len(e.Positions) != 0 {
 		t.Fatal("requests were deduplicated or executed")
 	}
 	for _, order := range e.Orders {
 		if order.Status != models.OrderPending || order.Contract != nil {
-			t.Fatal("placement selected a contract")
+			t.Fatal("placement resolved a contract")
 		}
 	}
 }
 
-func TestMissingOptionBarRetainsSelection(t *testing.T) {
+func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
 	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true}, nil)
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
+	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,13 +191,13 @@ func TestMissingOptionBarRetainsSelection(t *testing.T) {
 	order, _ := e.Order(id)
 	selected := order.Contract
 	if selected == nil || selected.StrikePrice != 2260000 || order.Status != models.OrderPending || len(e.Positions) != 0 {
-		t.Fatal("did not retain pending selection")
+		t.Fatal("did not retain pending contract")
 	}
 	if err := e.advance(marketTime(9, 25)); err != nil {
 		t.Fatal(err)
 	}
 	if order.Contract != selected || order.Status != models.OrderPending || len(e.Positions) != 0 {
-		t.Fatal("reselected or filled using the unfinished 09:25 candle")
+		t.Fatal("changed contract or filled using the unfinished 09:25 candle")
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
 		t.Fatal(err)
@@ -222,54 +213,6 @@ func TestMissingOptionBarRetainsSelection(t *testing.T) {
 	}
 }
 
-func TestStrikeSelectionUsesNextAdvanceLoadedOpen(t *testing.T) {
-	e := executionFixture(t, nil, nil)
-	if err := e.advance(marketTime(9, 20)); err != nil {
-		t.Fatal(err)
-	}
-	if e.UnderlyingCandle.Open != 2250000 {
-		t.Fatal("wrong script snapshot")
-	}
-	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
-	if err != nil {
-		t.Fatal(err)
-	}
-	order, _ := e.Order(id)
-	if order.Contract != nil {
-		t.Fatal("selected from script's snapshot")
-	}
-	if err := e.advance(marketTime(9, 25)); err != nil {
-		t.Fatal(err)
-	}
-	if order.Contract.StrikePrice != 2265000 {
-		t.Fatalf("wrong execution-time strike: %+v", order.Contract)
-	}
-}
-
-func TestMissingLoadedUnderlyingKeepsOrderPending(t *testing.T) {
-	e := executionFixture(t, nil, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true})
-	if err := e.advance(marketTime(9, 15)); err != nil {
-		t.Fatal(err)
-	}
-	id, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
-		t.Fatal(err)
-	}
-	order, _ := e.Order(id)
-	if order.Contract != nil || len(e.Positions) != 0 {
-		t.Fatal("missing underlying did not leave order pending")
-	}
-	if err := e.advance(marketTime(9, 30)); err != nil {
-		t.Fatal(err)
-	}
-	if !order.FilledAt.Equal(marketTime(9, 25)) || !order.PlacedAt.Equal(marketTime(9, 15)) {
-		t.Fatal("retroactive fill or changed placement time")
-	}
-}
-
 func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.T) {
 	for _, underlyingMissing := range []bool{true, false} {
 		missingOption, missingUnderlying := map[time.Time]bool{}, map[time.Time]bool{}
@@ -282,7 +225,7 @@ func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(offsetSelection(), "SELL", 75); err != nil {
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
@@ -311,14 +254,14 @@ func TestMissingOptionCandleDefersExit(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.PlaceOrder(offsetSelection(), "SELL", 75); err != nil {
+	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
 	position := e.Positions[0]
-	id, err := e.PlaceOrder(selector.NewIDSelector(position.ContractID), "BUY", 75)
+	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "BUY", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,6 +299,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 		for _, side := range []models.PositionSide{models.Long, models.Short} {
 			t.Run(string(optionType)+"/"+string(side), func(t *testing.T) {
 				e := executionFixture(t, nil, nil)
+				tradingSymbol := map[models.OptionType]string{models.Call: "NIFTY-20260127-22600-CE", models.Put: "NIFTY-20260127-22600-PE"}[optionType]
 				if err := e.advance(marketTime(9, 15)); err != nil {
 					t.Fatal(err)
 				}
@@ -363,7 +307,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if side == models.Long {
 					entrySide, exitSide = "BUY", "SELL"
 				}
-				if _, err := e.PlaceOrder(selector.NewOffsetSelector(optionType, 2), entrySide, 75); err != nil {
+				if _, err := e.PlaceOrder(tradingSymbol, entrySide, 75); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 20)); err != nil {
@@ -373,7 +317,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if position.Contract.OptionType != optionType || position.Side != side {
 					t.Fatal("incorrect option or side")
 				}
-				if _, err := e.PlaceOrder(selector.NewIDSelector(position.ContractID), exitSide, 75); err != nil {
+				if _, err := e.PlaceOrder(tradingSymbol, exitSide, 75); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 25)); err != nil {
@@ -391,36 +335,6 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 	}
 }
 
-func TestExactContractIDAndInvalidID(t *testing.T) {
-	for _, id := range []int64{101, 404} {
-		e := executionFixture(t, nil, nil)
-		if err := e.advance(marketTime(9, 15)); err != nil {
-			t.Fatal(err)
-		}
-		orderID, err := e.PlaceOrder(selector.NewIDSelector(id), "BUY", 75)
-		if err != nil {
-			t.Fatal(err)
-		}
-		order, _ := e.Order(orderID)
-		if order.Contract != nil || order.Status != models.OrderPending || len(e.Positions) != 0 {
-			t.Fatal("exact contract was resolved during placement")
-		}
-		err = e.advance(marketTime(9, 20))
-		if id == 404 {
-			if err != nil || order.Status != models.OrderPending || order.Contract != nil || len(e.Positions) != 0 {
-				t.Fatalf("missing ID did not remain pending: %v", err)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if order.Contract.ID != 101 || order.Status != models.OrderFilled || e.Positions[0].Side != models.Long {
-			t.Fatal("incorrect exact-ID fill")
-		}
-	}
-}
-
 func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 	for _, request := range []struct {
 		side     string
@@ -430,13 +344,13 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(offsetSelection(), "SELL", 75); err != nil {
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder(selector.NewIDSelector(101), request.side, request.quantity); err != nil {
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", request.side, request.quantity); err != nil {
 			t.Fatal("placement should only queue", err)
 		}
 		if err := e.advance(marketTime(9, 25)); err == nil {
@@ -453,11 +367,11 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	entryID, err := e.PlaceOrder(offsetSelection(), "SELL", 75)
+	entryID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exitID, err := e.PlaceOrder(selector.NewIDSelector(101), "BUY", 75)
+	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "BUY", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,23 +397,5 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	}
 	if exit.Status != models.OrderFilled || e.Positions[0].Status != models.TradeClosed || !entry.FilledAt.Equal(marketTime(9, 25)) || !exit.FilledAt.Equal(marketTime(9, 25)) {
 		t.Fatal("incorrect full exit after delayed entry")
-	}
-}
-
-func TestExactContractMustMatchUnderlyingAndExpiry(t *testing.T) {
-	for _, id := range []int64{102, 103} {
-		e := executionFixture(t, nil, nil)
-		if err := e.advance(marketTime(9, 15)); err != nil {
-			t.Fatal(err)
-		}
-		orderID, err := e.PlaceOrder(selector.NewIDSelector(id), "BUY", 75)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = e.advance(marketTime(9, 20))
-		order, _ := e.Order(orderID)
-		if err != nil || order.Status != models.OrderPending || order.Contract != nil || len(e.Positions) != 0 {
-			t.Fatalf("foreign contract did not remain pending: %v", err)
-		}
 	}
 }

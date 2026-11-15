@@ -45,40 +45,34 @@ def get_option_contract_id(connection, underlying_id, expiry_id, strike, option_
     return row[0] if row else None
 
 
-def insert_option_contract(connection, underlying_id, expiry_id, strike, option_type):
+def has_option_trading_symbol(connection):
     with connection.cursor() as cursor:
         cursor.execute(
-            """INSERT INTO lab.option_contracts (underlying_id, expiry_id, strike_price, option_type)
-               VALUES (%s, %s, %s, %s)
+            """SELECT EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'lab' AND table_name = 'option_contracts'
+                 AND column_name = 'tradingsymbol')"""
+        )
+        return cursor.fetchone()[0]
+
+
+def insert_option_contract(connection, underlying_id, expiry_id, strike, option_type, trading_symbol=None):
+    columns = "underlying_id, expiry_id, strike_price, option_type"
+    placeholders = "%s, %s, %s, %s"
+    values = (underlying_id, expiry_id, strike, option_type)
+    if trading_symbol is not None:
+        columns += ", tradingsymbol"
+        placeholders += ", %s"
+        values += (trading_symbol,)
+    with connection.cursor() as cursor:
+        # Only fixed column/placeholder fragments are interpolated; values are bound.
+        cursor.execute(
+            f"""INSERT INTO lab.option_contracts ({columns})
+               VALUES ({placeholders})
                ON CONFLICT (expiry_id, strike_price, option_type) DO NOTHING
-               RETURNING id""",
-            (underlying_id, expiry_id, strike, option_type),
+               RETURNING id""", values,
         )
         row = cursor.fetchone()
     return row[0] if row else None
-
-
-def is_option_contract_synced(connection, contract_id):
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT synced FROM lab.option_contracts WHERE id = %s", (contract_id,))
-        row = cursor.fetchone()
-    return row is not None and row[0]
-
-
-def mark_option_contract_synced(connection, contract_id):
-    with connection.cursor() as cursor:
-        cursor.execute("UPDATE lab.option_contracts SET synced = TRUE, updated_at = NOW() WHERE id = %s", (contract_id,))
-
-
-def has_option_candles(connection, contract_id, start, end):
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """SELECT EXISTS (SELECT 1 FROM lab.option_candles
-               WHERE option_contract_id = %s AND timeframe = '5m'
-                 AND start_time >= %s AND start_time < %s)""",
-            (contract_id, start, end),
-        )
-        return cursor.fetchone()[0]
 
 
 def insert_option_candles(connection, rows):

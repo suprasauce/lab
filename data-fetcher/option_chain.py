@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, time, timedelta
 
 import database
+from trading_symbol import generate_option_trading_symbol
 from breeze_client import MARKET_ZONE, get_client
 from ingestion import BATCH_SIZE, MAX_DTE, calendar_date, fetch_candles, stock_code
 
@@ -62,11 +63,14 @@ def fetch_option_chain(underlying, expiry):
     inserted = underlying_inserted = 0
     with database.connect() as connection:
         with connection.transaction():
+            has_symbol = database.has_option_trading_symbol(connection)
             for offset in range(0, len(underlying_rows), BATCH_SIZE):
                 underlying_inserted += database.insert_underlying_candles(connection,
                     [(underlying_id, *row) for row in underlying_rows[offset:offset + BATCH_SIZE]])
             for strike, option_type, rows in contracts:
-                contract_id = database.insert_option_contract(connection, underlying_id, expiry_id, strike, option_type)
+                trading_symbol = generate_option_trading_symbol(underlying, expiry_date, strike, option_type)
+                contract_id = database.insert_option_contract(connection, underlying_id, expiry_id, strike, option_type,
+                                                               trading_symbol if has_symbol else None)
                 if contract_id is None:
                     contract_id = database.get_option_contract_id(connection, underlying_id, expiry_id, strike, option_type)
                 if contract_id is None:
@@ -74,7 +78,6 @@ def fetch_option_chain(underlying, expiry):
                 for offset in range(0, len(rows), BATCH_SIZE):
                     inserted += database.insert_option_candles(connection,
                         [(contract_id, *row) for row in rows[offset:offset + BATCH_SIZE]])
-                database.mark_option_contract_synced(connection, contract_id)
             database.mark_option_chain_fetched(connection, expiry_id)
     fetched = sum(len(rows) for _, _, rows in contracts)
     logger.info("option_chain underlying=%s expiry=%s contracts=%d fetched=%d inserted=%d underlying_inserted=%d",

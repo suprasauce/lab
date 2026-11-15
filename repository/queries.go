@@ -92,16 +92,8 @@ const queryGetExpiries = `
 	ORDER BY expiry_date ASC;
 `
 
-const queryHasOptionCandlesForDay = `
-	SELECT EXISTS (
-		SELECT 1 FROM lab.option_candles
-		WHERE option_contract_id = $1 AND timeframe = '5m'
-		  AND start_time >= $2 AND start_time < $3
-	);
-`
-
 const queryGetOptionContract = `
-	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type, c.synced
+	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
 	FROM lab.option_contracts AS c
 	JOIN lab.option_expiry AS e ON e.id = c.expiry_id
 	WHERE c.underlying_id = $1
@@ -111,11 +103,11 @@ const queryGetOptionContract = `
 	  AND c.option_type = $4;
 `
 
-const queryGetOptionContractByID = `
-	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type, c.synced
-	FROM lab.option_contracts AS c
-	JOIN lab.option_expiry AS e ON e.id = c.expiry_id
-	WHERE c.id = $1;
+const queryGetOptionContractByTradingSymbol = `
+ SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
+ FROM lab.option_contracts AS c
+ JOIN lab.option_expiry AS e ON e.id = c.expiry_id
+ WHERE c.tradingsymbol = $1;
 `
 
 const queryGetUnderlyingCandle = `

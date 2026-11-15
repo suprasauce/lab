@@ -32,7 +32,7 @@ func LoadSource(filename, source string) (*Script, error) {
 
 func load(filename string, source any) (*Script, error) {
 	thread := &starlark.Thread{Name: filename}
-	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, filename, source, selectorBuiltins())
+	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, filename, source, scriptBuiltins())
 	if err != nil {
 		return nil, fmt.Errorf("load strategy: %w", err)
 	}
@@ -83,4 +83,10 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 	}
 	result.Underlying = c.underlying
 	return result, nil
+}
+
+func scriptBuiltins() starlark.StringDict {
+	return starlark.StringDict{
+		"filter": starlark.NewBuiltin("filter", newFilter),
+	}
 }

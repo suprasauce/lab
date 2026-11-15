@@ -7,7 +7,6 @@ import (
 
 	"optionsbacktest/models"
 	"optionsbacktest/repository"
-	"optionsbacktest/selector"
 )
 
 // Position reuses Trade's complete entry/exit lifecycle and price representation.
@@ -34,12 +33,9 @@ func newExecution(ctx context.Context, repo *repository.Repository, underlyingID
 	return &Execution{ctx: ctx, repo: repo, underlyingID: underlyingID, expiry: expiry}
 }
 
-// PlaceOrder always creates a new pending order; it never selects or executes.
-func (e *Execution) PlaceOrder(selection selector.Selector, side string, quantity int64) (string, error) {
-	if selection == nil {
-		return "", fmt.Errorf("a contract selector is required")
-	}
-	order := &Order{Order: models.Order{Side: side, Quantity: quantity}, Selector: selection}
+// PlaceOrder queues an opaque trading symbol without resolving or executing it.
+func (e *Execution) PlaceOrder(tradingSymbol, side string, quantity int64) (string, error) {
+	order := &Order{Order: models.Order{TradingSymbol: tradingSymbol, Side: side, Quantity: quantity}}
 	if err := order.Validate(); err != nil {
 		return "", err
 	}
@@ -117,12 +113,11 @@ func (e *Execution) fillOrders() error {
 // subsequent advance can fill them. Selected contracts are retained while waiting.
 func (e *Execution) fillOrder(order *Order) error {
 	if order.Contract == nil {
-		contract, err := order.Selector.Select(e.ctx, e.underlyingID, e.UnderlyingCandle, e.expiry, e.repo)
-		if err != nil || contract == nil {
-			// Retry selection on a later advance while keeping the order pending.
-			return nil
+		contract, err := e.repo.GetOptionContractByTradingSymbol(e.ctx, order.TradingSymbol)
+		if err != nil {
+			return fmt.Errorf("resolve option contract: %w", err)
 		}
-		order.Contract = contract
+		order.Contract = &contract
 	}
 
 	var position *Position

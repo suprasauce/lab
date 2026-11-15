@@ -66,12 +66,14 @@ CREATE TABLE option_contracts (
 
     strike_price BIGINT NOT NULL,
 
-   option_type option_type_enum NOT NULL,
+    tradingsymbol TEXT NOT NULL,
 
-    synced BOOLEAN NOT NULL DEFAULT FALSE,
+   option_type option_type_enum NOT NULL,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT unique_option_contract_tradingsymbol UNIQUE (tradingsymbol),
 
     CONSTRAINT unique_option_contract UNIQUE (
         expiry_id,

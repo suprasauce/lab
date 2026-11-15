@@ -12,16 +12,17 @@ const (
 	OrderFilled  OrderStatus = "FILLED"
 )
 
-// Order retains placement and execution details; selectors live in the engine.
+// Order retains the requested trading symbol and placement/execution details.
 type Order struct {
-	ID        string
-	Side      string
-	Quantity  int64
-	PlacedAt  time.Time
-	Status    OrderStatus
-	Contract  *Option
-	FilledAt  time.Time
-	FillPrice Price
+	TradingSymbol string
+	ID            string
+	Side          string
+	Quantity      int64
+	PlacedAt      time.Time
+	Status        OrderStatus
+	Contract      *Option
+	FilledAt      time.Time
+	FillPrice     Price
 }
 
 // GenerateID assigns an ID scoped to the expiry and order sequence.
@@ -31,6 +32,9 @@ func (o *Order) GenerateID(expiry time.Time, sequence int) {
 
 // Validate checks order inputs without resolving contracts or inspecting positions.
 func (o Order) Validate() error {
+	if o.TradingSymbol == "" {
+		return fmt.Errorf("tradingsymbol must be nonempty")
+	}
 	if o.Side != "BUY" && o.Side != "SELL" {
 		return fmt.Errorf("invalid side %q: expected BUY or SELL", o.Side)
 	}
