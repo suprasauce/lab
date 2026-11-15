@@ -1,6 +1,7 @@
 package scripting
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,8 @@ func TestOptionChainArguments(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			globals := scriptBuiltins()
-			globals["ctx"] = &strategyContext{execution: &engine.Execution{Time: time.Date(2026, 1, 5, 9, 20, 0, 0, time.UTC)}}
+			f := newFixture(t)
+			globals["ctx"] = &strategyContext{ctx: context.Background(), repo: f.repo, execution: &engine.Execution{Time: time.Date(2026, 1, 5, 9, 20, 0, 0, time.UTC)}}
 			_, err := starlark.Eval(&starlark.Thread{Name: "test"}, "test.star", tt.expression, globals)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error=%v; want %s", err, tt.want)

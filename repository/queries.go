@@ -92,6 +92,13 @@ const queryGetExpiries = `
 	ORDER BY expiry_date ASC;
 `
 
+const queryGetOptionChainStatus = `
+ SELECT e.id, e.option_chain_fetched
+ FROM lab.option_expiry AS e
+ JOIN lab.underlyings AS u ON u.id = e.underlying_id
+ WHERE u.symbol = $1 AND e.expiry_date = $2::date;
+`
+
 const queryGetOptionContract = `
 	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
 	FROM lab.option_contracts AS c

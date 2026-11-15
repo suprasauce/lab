@@ -51,7 +51,7 @@ func load(filename string, source any) (*Script, error) {
 // Run calls initialize once; the script synchronously chooses each expiry run.
 func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestResult, error) {
 	result := &engine.BacktestResult{Executions: make([][]*engine.Position, 0)}
-	c := &strategyContext{initializing: true, state: starlark.NewDict(0)}
+	c := &strategyContext{ctx: ctx, repo: e.Repository(), initializing: true, state: starlark.NewDict(0)}
 	s.context = c
 	callbackThread := &starlark.Thread{Name: s.thread.Name + ":on_candle"}
 	c.getExpiries = func(underlying string, start, end time.Time) ([]time.Time, error) {

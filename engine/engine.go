@@ -34,6 +34,11 @@ func NewEngine(repo *repository.Repository) *Engine {
 	return &Engine{marketDataRepository: repo}
 }
 
+// Repository exposes the existing data dependency for scripting service wiring.
+func (e *Engine) Repository() *repository.Repository {
+	return e.marketDataRepository
+}
+
 // GetExpiries resolves the underlying and discovers available expiry dates.
 func (e *Engine) GetExpiries(ctx context.Context, symbol string, start, end time.Time) ([]time.Time, error) {
 	underlying, err := e.marketDataRepository.GetUnderlying(ctx, symbol)

@@ -119,7 +119,10 @@ The database must already contain the underlying, its classified expiry dates, a
 Option ingestion fetches the full 45-DTE history. Missing contracts may be fetched
 through `POST /options/fetch`; existing contracts are reused. The synchronous
 `POST /option-chain/fetch` endpoint ingests the full strike universe atomically
-and records completion in `option_expiry.option_chain_fetched`. Day-only ingestion
+and records completion in `option_expiry.option_chain_fetched`. `OptionChainService.GetSymbol()`
+checks this flag before filter dispatch, synchronously requests full-chain
+ingestion when false, and verifies the committed flag before continuing.
+Delta, offset, and price selection themselves remain TODOs. Day-only ingestion
 and per-contract synchronization flags have been removed.
 
 See the [data fetcher README](data-fetcher/README.md) for ingestion setup. Go and Python must use the same database.

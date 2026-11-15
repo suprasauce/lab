@@ -1,15 +1,19 @@
 package scripting
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"go.starlark.net/starlark"
 
 	"optionsbacktest/engine"
+	"optionsbacktest/repository"
 )
 
 type strategyContext struct {
+	ctx            context.Context
+	repo           *repository.Repository
 	initializing   bool
 	configured     bool
 	underlying     string

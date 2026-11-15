@@ -183,6 +183,9 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) query(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	r := &rows{}
 	switch {
+	case strings.Contains(query, "e.option_chain_fetched"):
+		r.columns = []string{"id", "option_chain_fetched"}
+		r.values = [][]driver.Value{{int64(9), true}}
 	case strings.Contains(query, "FROM lab.underlyings"):
 		if !strings.Contains(query, "WHERE symbol = $1") || len(args) != 1 {
 			f.t.Fatal("underlying lookup must filter by symbol")

@@ -59,8 +59,8 @@ func (c *strategyContext) optionChain(_ *starlark.Thread, b *starlark.Builtin, a
 	if c.initializing || c.execution == nil {
 		return nil, fmt.Errorf("option_chain is only available during on_candle")
 	}
-	service := optionchain.NewOptionChainService()
-	symbol, err := service.GetSymbol(underlying, expiryDate, optionType,
+	service := optionchain.NewOptionChainService(c.repo)
+	symbol, err := service.GetSymbol(c.ctx, underlying, expiryDate, optionType,
 		selection.OptionFilter, c.execution.Time)
 	if err != nil {
 		return nil, err
