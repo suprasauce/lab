@@ -152,6 +152,17 @@ func (r *Repository) GetOptionContractByTradingSymbol(ctx context.Context, tradi
 	return contract, nil
 }
 
+// GetOptionTradingSymbol reads an existing contract's symbol without ingestion.
+func (r *Repository) GetOptionTradingSymbol(ctx context.Context, underlyingID int64, expiry time.Time, strike models.Price, optionType models.OptionType) (string, error) {
+	r.logger.DebugContext(ctx, "fetching option trading symbol", "underlying_id", underlyingID,
+		"expiry", expiry, "strike_price", strike, "option_type", optionType)
+	var symbol string
+	if err := r.db.QueryRowContext(ctx, queryGetOptionTradingSymbol, underlyingID, expiry, strike, optionType).Scan(&symbol); err != nil {
+		return "", fmt.Errorf("get option trading symbol: %w", err)
+	}
+	return symbol, nil
+}
+
 func (r *Repository) queryOptionContract(ctx context.Context, underlyingID int64, expiry time.Time, strikePrice models.Price, optionType models.OptionType) (models.Option, error) {
 	var contract models.Option
 	err := r.db.QueryRowContext(ctx, queryGetOptionContract, underlyingID, expiry, strikePrice, optionType).Scan(
@@ -195,6 +206,19 @@ func (r *Repository) GetUnderlyingCandle(
 	)
 	if err != nil {
 		return models.Candle{}, fmt.Errorf("get underlying candle: %w", err)
+	}
+	return candle, nil
+}
+
+// GetLatestCompletedUnderlyingCandle returns the latest five-minute bar whose
+// close time is at or before at. It never returns an unfinished candle.
+func (r *Repository) GetLatestCompletedUnderlyingCandle(ctx context.Context, underlyingID int64, at time.Time) (models.Candle, error) {
+	r.logger.DebugContext(ctx, "fetching latest completed underlying candle", "underlying_id", underlyingID, "at", at)
+	var candle models.Candle
+	if err := r.db.QueryRowContext(ctx, queryGetLatestCompletedUnderlyingCandle, underlyingID, at).Scan(
+		&candle.Timestamp, &candle.Timeframe, &candle.Open, &candle.High, &candle.Low, &candle.Close, &candle.Volume,
+	); err != nil {
+		return models.Candle{}, fmt.Errorf("get latest completed underlying candle: %w", err)
 	}
 	return candle, nil
 }

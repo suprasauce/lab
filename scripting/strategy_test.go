@@ -183,9 +183,20 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) query(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	r := &rows{}
 	switch {
+	case strings.Contains(query, "SELECT c.tradingsymbol"):
+		f.contractQueries++
+		if args[0].Value != int64(7) || args[2].Value != int64(2265000) || args[3].Value != "PUT" {
+			f.t.Fatalf("unexpected symbol lookup: %v", args)
+		}
+		r.columns = []string{"tradingsymbol"}
+		r.values = [][]driver.Value{{"NIFTY-20260127-22650-PE"}}
 	case strings.Contains(query, "e.option_chain_fetched"):
 		r.columns = []string{"id", "option_chain_fetched"}
 		r.values = [][]driver.Value{{int64(9), true}}
+	case strings.Contains(query, "FROM lab.underlying_candles") && strings.Contains(query, "ORDER BY start_time DESC"):
+		r.columns = []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}
+		at := args[1].Value.(time.Time)
+		r.values = [][]driver.Value{candleRow(at.Add(-5*time.Minute), 2253000)}
 	case strings.Contains(query, "FROM lab.underlyings"):
 		if !strings.Contains(query, "WHERE symbol = $1") || len(args) != 1 {
 			f.t.Fatal("underlying lookup must filter by symbol")

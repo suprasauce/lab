@@ -35,7 +35,6 @@ func TestFilterConstructor(t *testing.T) {
 func TestOptionChainArguments(t *testing.T) {
 	for _, tt := range []struct{ name, expression, want string }{
 		{"CE TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="CE", filter=filter(type="delta", value=0.2))`, "delta selection is not implemented"},
-		{"PE TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="PE", filter=filter(type="offset", value=2))`, "offset selection is not implemented"},
 		{"price TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="CE", filter=filter(type="price", value=150))`, "price selection is not implemented"},
 		{"missing underlying", `ctx.option_chain(expiry="2026-01-27", option_type="CE", filter=filter(type="delta", value=0.2))`, "underlying"},
 		{"missing expiry", `ctx.option_chain(underlying="NIFTY", option_type="CE", filter=filter(type="delta", value=0.2))`, "expiry"},
@@ -59,5 +58,23 @@ func TestOptionChainArguments(t *testing.T) {
 				t.Fatalf("error=%v; want %s", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestOptionChainOffsetReturnsSymbol(t *testing.T) {
+	f := newFixture(t)
+	globals := scriptBuiltins()
+	globals["ctx"] = &strategyContext{ctx: context.Background(), repo: f.repo,
+		execution: &engine.Execution{Time: time.Date(2026, 1, 5, 9, 25, 0, 0, time.UTC)}}
+	value, err := starlark.Eval(&starlark.Thread{Name: "test"}, "test.star",
+		`ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="PE", filter=filter(type="offset", value=2))`, globals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != starlark.String("NIFTY-20260127-22650-PE") {
+		t.Fatalf("unexpected symbol: %v", value)
+	}
+	if f.contractQueries != 1 {
+		t.Fatal("offset selection must read the stored trading symbol")
 	}
 }

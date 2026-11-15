@@ -110,6 +110,15 @@ const queryGetOptionContract = `
 	  AND c.option_type = $4;
 `
 
+const queryGetOptionTradingSymbol = `
+ SELECT c.tradingsymbol
+ FROM lab.option_contracts AS c
+ JOIN lab.option_expiry AS e ON e.id = c.expiry_id
+ WHERE c.underlying_id = $1 AND e.underlying_id = $1
+   AND e.expiry_date = $2::date
+   AND c.strike_price = $3 AND c.option_type = $4;
+`
+
 const queryGetOptionContractByTradingSymbol = `
  SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
  FROM lab.option_contracts AS c
@@ -125,6 +134,16 @@ const queryGetUnderlyingCandle = `
 	  AND start_time >= $3
 	ORDER BY start_time ASC
 	LIMIT 1;
+`
+
+const queryGetLatestCompletedUnderlyingCandle = `
+ SELECT start_time, timeframe, open, high, low, close, volume
+ FROM lab.underlying_candles
+ WHERE underlying_id = $1
+   AND timeframe = '5m'
+   AND start_time <= $2::timestamptz - INTERVAL '5 minutes'
+ ORDER BY start_time DESC
+ LIMIT 1;
 `
 
 const queryGetUnderlyingCandles = `
