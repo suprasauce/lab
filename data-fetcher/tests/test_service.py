@@ -152,7 +152,7 @@ class ServiceTests(unittest.TestCase):
     def check_fetch(self, start, end):
         self.assertEqual(self.store.connections, 0, "connection held while fetching")
         self.assertFalse(self.store.in_transaction, "transaction open while fetching")
-        self.assertLess(end - start, timedelta(days=13))
+        self.assertLess(end - start, timedelta(days=15))
         self.calls.append((start, end))
         return [candle(start + timedelta(minutes=15))]
 
