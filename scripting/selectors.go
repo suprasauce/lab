@@ -63,6 +63,7 @@ func deltaSelector(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple,
 
 func selectorBuiltins() starlark.StringDict {
 	return starlark.StringDict{
+		"filter":          starlark.NewBuiltin("filter", newFilter),
 		"offset_selector": starlark.NewBuiltin("offset_selector", offsetSelector),
 		"id_selector":     starlark.NewBuiltin("id_selector", idSelector),
 		"delta_selector":  starlark.NewBuiltin("delta_selector", deltaSelector),
