@@ -15,7 +15,7 @@ func TestScriptControlsSynchronousExpiryOrder(t *testing.T) {
 def initialize(ctx):
     print("initialize")
     ctx.configure(underlying="NIFTY")
-    expiries = ctx.get_expiries(start="2026-09-01", end="2026-10-31")
+    expiries = ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")
     if expiries != ["2026-09-29", "2026-10-27"]:
         fail("incorrect expiries")
     for expiry in reversed(expiries):
@@ -54,13 +54,13 @@ def on_candle(ctx):
 
 func TestSimulationAPIErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, callback, want string }{
-		{"invalid start", `ctx.get_expiries(start="bad", end="2026-10-31")`, "pass", "start:"},
-		{"invalid end", `ctx.get_expiries(start="2026-09-01", end="bad")`, "pass", "end:"},
-		{"reversed range", `ctx.get_expiries(start="2026-10-31", end="2026-09-01")`, "pass", "must not be after"},
+		{"invalid start", `ctx.get_expiries(underlying="NIFTY", start="bad", end="2026-10-31")`, "pass", "start:"},
+		{"invalid end", `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="bad")`, "pass", "end:"},
+		{"reversed range", `ctx.get_expiries(underlying="NIFTY", start="2026-10-31", end="2026-09-01")`, "pass", "must not be after"},
 		{"invalid expiry", `ctx.simulate("bad")`, "pass", "expiry:"},
 		{"callback failure", `ctx.simulate("2026-09-29")`, `fail("callback failed")`, "callback failed"},
 		{"nested simulation", `ctx.simulate("2026-09-29")`, `ctx.simulate("2026-10-27")`, "simulate requires configure during initialize"},
-		{"late discovery", `ctx.simulate("2026-09-29")`, `ctx.get_expiries(start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
+		{"late discovery", `ctx.simulate("2026-09-29")`, `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)

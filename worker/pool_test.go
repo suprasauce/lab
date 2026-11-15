@@ -20,7 +20,7 @@ import (
 const validScript = `
 def initialize(ctx):
     ctx.configure(underlying="NIFTY")
-    for expiry in ctx.get_expiries(start="2026-01-01", end="2026-01-31"):
+    for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
         ctx.simulate(expiry)
 
 def on_candle(ctx):

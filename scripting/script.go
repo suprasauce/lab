@@ -54,8 +54,8 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 	c := &strategyContext{initializing: true, state: starlark.NewDict(0)}
 	s.context = c
 	callbackThread := &starlark.Thread{Name: s.thread.Name + ":on_candle"}
-	c.getExpiries = func(start, end time.Time) ([]time.Time, error) {
-		return e.GetExpiries(ctx, c.underlying, start, end)
+	c.getExpiries = func(underlying string, start, end time.Time) ([]time.Time, error) {
+		return e.GetExpiries(ctx, underlying, start, end)
 	}
 	c.simulateExpiry = func(expiry time.Time) error {
 		c.state = starlark.NewDict(0)

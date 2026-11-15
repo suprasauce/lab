@@ -41,7 +41,7 @@ Both GET endpoints use `X-User-ID` to restrict results to that user. This header
 ```python
 def initialize(ctx):
     ctx.configure(underlying="NIFTY")
-    for expiry in ctx.get_expiries(start="2026-01-01", end="2026-06-30"):
+    for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-06-30"):
         ctx.simulate(expiry)
 
 

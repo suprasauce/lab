@@ -13,7 +13,7 @@ type strategyContext struct {
 	initializing   bool
 	configured     bool
 	underlying     string
-	getExpiries    func(time.Time, time.Time) ([]time.Time, error)
+	getExpiries    func(string, time.Time, time.Time) ([]time.Time, error)
 	simulateExpiry func(time.Time) error
 	execution      *engine.Execution
 	state          *starlark.Dict
@@ -80,9 +80,12 @@ func (c *strategyContext) expiries(_ *starlark.Thread, b *starlark.Builtin, args
 	if !c.initializing || !c.configured {
 		return nil, fmt.Errorf("get_expiries requires configure during initialize")
 	}
-	var start, end string
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "start", &start, "end", &end); err != nil {
+	var underlying, start, end string
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "underlying", &underlying, "start", &start, "end", &end); err != nil {
 		return nil, err
+	}
+	if underlying == "" {
+		return nil, fmt.Errorf("underlying must be nonempty")
 	}
 	startDate, err := time.Parse(time.DateOnly, start)
 	if err != nil {
@@ -95,7 +98,7 @@ func (c *strategyContext) expiries(_ *starlark.Thread, b *starlark.Builtin, args
 	if startDate.After(endDate) {
 		return nil, fmt.Errorf("start_date must not be after end date")
 	}
-	dates, err := c.getExpiries(startDate, endDate)
+	dates, err := c.getExpiries(underlying, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("get expiries: %w", err)
 	}

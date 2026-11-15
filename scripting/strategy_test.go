@@ -20,7 +20,7 @@ import (
 const setup = `
 def initialize(ctx):
     ctx.configure(underlying="NIFTY")
-    for expiry in ctx.get_expiries(start="2026-09-01", end="2026-10-31"):
+    for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
         ctx.simulate(expiry)
 `
 
