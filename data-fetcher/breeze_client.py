@@ -70,7 +70,7 @@ class BreezeClient:
 
         try:
             response = self._sdk.get_historical_data_v2(**parameters)
-        except RequestException as exc:
+        except (RequestException, OSError) as exc:
             raise RetryableBreezeError("Breeze historical network request failed") from exc
         if not isinstance(response, dict):
             raise RetryableBreezeError("Breeze historical request returned an invalid response")
@@ -89,7 +89,7 @@ class BreezeClient:
         return candles
 
     def historical_underlying(self, symbol, start, end):
-        return self._historical_request(
+        return self._historical_with_retry(
             interval="5minute",
             from_date=start.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             to_date=end.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
@@ -97,7 +97,7 @@ class BreezeClient:
         )
 
     def historical_option(self, symbol, expiry, strike, option_type, start, end):
-        """Read one 5-minute options window, retrying transient errors three times."""
+        """Read one 5-minute options window with at most three attempts total."""
         from decimal import Decimal
 
         parameters = dict(
@@ -108,6 +108,9 @@ class BreezeClient:
             expiry_date=expiry.strftime("%Y-%m-%dT00:00:00.000Z"),
             right=option_type.lower(), strike_price=format(Decimal(strike) / 100, "f"),
         )
+        return self._historical_with_retry(**parameters)
+
+    def _historical_with_retry(self, **parameters):
         for attempt in range(3):
             try:
                 return self._historical_request(**parameters)
@@ -115,6 +118,6 @@ class BreezeClient:
                 if attempt == 2:
                     raise
                 delay = 2 ** (attempt + 1)
-                logger.warning("Retrying Breeze options request stock=%s strike_paise=%d right=%s attempt=%d backoff_seconds=%d",
-                               symbol, strike, option_type, attempt + 1, delay)
+                logger.warning("Retrying Breeze historical request stock=%s attempt=%d backoff_seconds=%d",
+                               parameters["stock_code"], attempt + 1, delay)
                 time.sleep(delay)

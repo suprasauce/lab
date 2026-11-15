@@ -1,9 +1,10 @@
 # Historical data ingestion service
 
 Independent Python 3.11+ service sharing the Go application's existing PostgreSQL
-`lab` schema. Three synchronous application endpoints provide full option
-history, one option day, and underlying history. Apply
-`scripts/migrations/007_option_contract_synced.sql` before deploying this version.
+`lab` schema. Four synchronous application endpoints provide full option
+history, one option day, underlying history, and a historical option chain. Apply
+`scripts/migrations/007_option_contract_synced.sql` and
+`scripts/migrations/008_option_chain_fetched.sql` before deploying this version.
 
 ## Install and start
 
@@ -144,6 +145,65 @@ These APIs return JSON errors: 400 for invalid input or missing catalog records,
 502 for Breeze/runtime failures, and 500 for unexpected/database failures. A
 failure must not be treated by callers as completed option ingestion.
 
+## POST /option-chain/fetch
+
+Fetch the historical strike universe for one already-classified expiry:
+
+```sh
+curl -X POST http://localhost:8000/option-chain/fetch \
+  -H "Content-Type: application/json" \
+  -d '{"underlying":"NIFTY","expiry":"2025-12-30"}'
+```
+
+Only `underlying` and `expiry` are accepted. Both catalog records must exist;
+expiry must be before today. NIFTY uses a fixed Rs50 strike interval and BANKNIFTY
+uses Rs100, stored internally as paise. The range is the underlying's minimum Low
+rounded down and maximum High rounded up, extended by 40 intervals on each side.
+Only positive strikes are generated. Both CALL and PUT contracts are fetched for
+every strike, from expiry minus 45 calendar days through expiry inclusive.
+
+All historical requests use 5-minute candles and at most 15-calendar-day windows.
+Transient network, rate-limit, and server errors have at most three attempts total
+(initial attempt plus two retries), with existing pacing and 2/4-second backoff.
+Permanent errors fail immediately. A terminal option failure identifies the
+underlying, expiry, strike in paise, option type, failed window, and reason.
+
+Stored underlying candles are reused and their values preserved. Because there
+is no underlying coverage marker, the full underlying range is also fetched
+before deriving the strike universe, avoiding assumptions that partial stored
+data is complete. Silent gaps in successful Breeze responses cannot be detected
+independently. No market calendar or synthetic candles are introduced.
+
+All fetched data is buffered in memory. Only after **every request succeeds** does
+one database transaction insert any new underlying candles, all required
+contracts and option candles, set contract `synced = true`, and set
+`option_expiry.option_chain_fetched = true`. Conflicting candles are preserved.
+Any failure rolls back all new ingestion data and flag changes. Successful empty
+option windows are valid, including contracts with no available candles; these
+contracts are still marked synced because their entire historical range was
+checked. Empty underlying data with no stored candles is an error.
+
+Success is HTTP 200, after commit, for example:
+
+```json
+{"status":"ingested","expiry_id":9,"contracts":166,"fetched":664,"inserted":664,"underlying_inserted":4}
+```
+
+Counts are illustrative. `contracts` counts generated contracts; `fetched` counts
+option candles returned after per-contract deduplication; `inserted` counts new
+option candles. `underlying_inserted` counts new underlying candles.
+An expiry already flagged complete returns without Breeze calls:
+
+```json
+{"status":"already_exists","expiry_id":9,"contracts":0,"fetched":0,"inserted":0}
+```
+
+The synchronous service remains occupied until completion. Large chains can take
+many minutes and consume substantial portions of the existing daily API budget.
+No partial progress is committed, so a failure requires fetching again on retry.
+The initial completion check is sufficient for the service's single-process,
+single-threaded request handling; the final write phase uses no explicit row lock.
+
 ## Breeze and database conventions
 
 - The existing official SDK authentication and request parameters are preserved:
@@ -154,8 +214,8 @@ failure must not be treated by callers as completed option ingestion.
   Responses reaching 1000 rows are rejected as potentially truncated.
 - Existing pacing remains one request/second with a 5000-request daily process
   budget, respecting the documented [100/minute and 5000/day limits](https://api.icicidirect.com/breezeapi/documents/index.html).
-  Options retry transient failures up to three attempts with 2/4-second backoff.
-  The cash request path retains its existing immediate error propagation.
+  Both options and underlying requests retry transient failures with at most
+  three total attempts and 2/4-second backoff.
 - Budget accounting is process-local, resets on restart, and cannot account for
   other applications using the same credentials. Run a single service process.
 - Naive Breeze timestamps are interpreted as Asia/Kolkata. Aware timestamps are

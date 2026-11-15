@@ -51,6 +51,7 @@ CREATE TABLE option_expiry (
     underlying_id BIGINT NOT NULL REFERENCES underlyings(id),
     expiry_date DATE NOT NULL,
     expiry_type expiry_type NOT NULL,
+    option_chain_fetched BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (underlying_id, expiry_date)
 );

@@ -49,3 +49,18 @@ Python services:
 ```powershell
 psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migrations/007_option_contract_synced.sql
 ```
+
+## Historical option-chain completion
+
+`008_option_chain_fetched.sql` adds `lab.option_expiry.option_chain_fetched` as
+`BOOLEAN NOT NULL DEFAULT FALSE`. The flag was absent from the checked-in schema
+and live database when this endpoint was introduced. Existing expiries remain
+false: individual synced contracts do not prove a complete chain was ingested.
+Apply this migration before using Python's `/option-chain/fetch` endpoint:
+
+```powershell
+psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migrations/008_option_chain_fetched.sql
+```
+
+The endpoint updates the flag only in the transaction that commits the complete
+historical strike universe and candles. No migration is applied automatically.

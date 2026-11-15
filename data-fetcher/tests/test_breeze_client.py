@@ -77,6 +77,20 @@ class BreezeTests(unittest.TestCase):
                 self.client.historical_option("NIFTY", self.start.date(), 2250000, "CALL", self.start, self.end)
             self.assertEqual(self.sdk.get_historical_data_v2.call_count, expected_calls)
 
+    @patch("breeze_client.time.sleep")
+    def test_underlying_retries_network_timeout_and_caps_attempts(self, sleep):
+        from requests import Timeout
+        self.sdk.get_historical_data_v2.side_effect = [
+            Timeout("temporary"), {"Status": 200, "Error": None, "Success": []},
+        ]
+        self.assertEqual(self.client.historical_underlying("NIFTY", self.start, self.end), [])
+        self.assertEqual(self.sdk.get_historical_data_v2.call_count, 2)
+        self.sdk.get_historical_data_v2.reset_mock()
+        self.sdk.get_historical_data_v2.side_effect = Timeout("temporary")
+        with self.assertRaisesRegex(RuntimeError, "network request failed"):
+            self.client.historical_underlying("NIFTY", self.start, self.end)
+        self.assertEqual(self.sdk.get_historical_data_v2.call_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

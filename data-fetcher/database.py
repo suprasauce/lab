@@ -101,3 +101,31 @@ def insert_underlying_candles(connection, rows):
                ON CONFLICT (underlying_id, timeframe, start_time) DO NOTHING""", rows,
         )
         return cursor.rowcount
+
+
+def is_option_chain_fetched(connection, expiry_id):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT option_chain_fetched FROM lab.option_expiry WHERE id = %s", (expiry_id,))
+        row = cursor.fetchone()
+    if row is None:
+        raise ValueError("Option expiry no longer exists")
+    return bool(row[0])
+
+
+def mark_option_chain_fetched(connection, expiry_id):
+    with connection.cursor() as cursor:
+        cursor.execute("UPDATE lab.option_expiry SET option_chain_fetched = TRUE WHERE id = %s", (expiry_id,))
+        if cursor.rowcount != 1:
+            raise RuntimeError("Option expiry could not be marked fetched")
+
+
+def get_underlying_candles(connection, underlying_id, start, end):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT start_time, timeframe, open, high, low, close, volume
+               FROM lab.underlying_candles
+               WHERE underlying_id = %s AND timeframe = '5m'
+                 AND start_time >= %s AND start_time < %s
+               ORDER BY start_time""", (underlying_id, start, end),
+        )
+        return cursor.fetchall()

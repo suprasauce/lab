@@ -11,6 +11,7 @@ from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from ingestion import fetch_option, fetch_option_day, fetch_underlying
+from option_chain import fetch_option_chain
 
 app = Flask(__name__, static_folder=None)
 logger = logging.getLogger(__name__)
@@ -41,6 +42,11 @@ def underlyings_fetch():
 @app.post("/options/fetch-day")
 def options_fetch_day():
     return jsonify(fetch_option_day(**request_fields(("underlying", "expiry", "strike", "option_type", "day"))))
+
+
+@app.post("/option-chain/fetch")
+def option_chain_fetch():
+    return jsonify(fetch_option_chain(**request_fields(("underlying", "expiry"))))
 
 
 def safe_message(error):

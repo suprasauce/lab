@@ -27,6 +27,8 @@ class Store:
     def __init__(self):
         self.contracts = {}
         self.synced = {}
+        self.chain_fetched = False
+        self.fail_flag = False
         self.options = {}
         self.underlyings = {}
         self.connections = 0
@@ -52,14 +54,14 @@ class Connection:
     @contextmanager
     def transaction(self):
         s = self.store
-        snapshot = deepcopy((s.contracts, s.options, s.underlyings, s.synced))
+        snapshot = deepcopy((s.contracts, s.options, s.underlyings, s.synced, s.chain_fetched))
         s.in_transaction = True
         try:
             yield
             if s.fail_commit:
                 raise OSError("commit failed")
         except BaseException:
-            s.contracts, s.options, s.underlyings, s.synced = snapshot
+            s.contracts, s.options, s.underlyings, s.synced, s.chain_fetched = snapshot
             s.rollbacks += 1
             raise
         else:
@@ -85,7 +87,19 @@ class Cursor:
 
     def execute(self, query, args):
         s = self.store
-        if "SELECT id FROM lab.underlyings" in query:
+        if "SELECT option_chain_fetched" in query:
+            self.row = (s.chain_fetched,) if s.has_expiry else None
+        elif "UPDATE lab.option_expiry SET option_chain_fetched" in query:
+            assert s.in_transaction
+            if s.fail_flag:
+                raise OSError("flag update failed")
+            s.chain_fetched = True
+            self.rowcount = 1
+        elif "SELECT start_time, timeframe, open, high, low, close, volume" in query:
+            underlying_id, start, end = args
+            self.rows = [row[1:] for row in s.underlyings.values()
+                         if row[0] == underlying_id and start <= row[1] < end]
+        elif "SELECT id FROM lab.underlyings" in query:
             self.row = (7,) if s.has_underlying else None
         elif "SELECT id FROM lab.option_expiry" in query:
             self.row = (9,) if s.has_expiry else None
@@ -106,11 +120,15 @@ class Cursor:
             if tuple(args) in s.contracts:
                 self.row = None
             else:
-                s.contracts[tuple(args)] = 42
-                s.synced[42] = False
-                self.row = (42,)
+                contract_id = max(s.contracts.values(), default=41) + 1
+                s.contracts[tuple(args)] = contract_id
+                s.synced[contract_id] = False
+                self.row = (contract_id,)
         else:
             raise AssertionError(f"Unexpected query: {query}")
+
+    def fetchall(self):
+        return self.rows
 
     def fetchone(self):
         return self.row
@@ -184,7 +202,7 @@ class ServiceTests(unittest.TestCase):
         return self.http.post("/options/fetch", json=OPTION)
 
     def test_application_endpoints(self):
-        self.assertEqual({rule.rule for rule in app.url_map.iter_rules()}, {"/options/fetch", "/options/fetch-day", "/underlyings/fetch"})
+        self.assertEqual({rule.rule for rule in app.url_map.iter_rules()}, {"/options/fetch", "/options/fetch-day", "/underlyings/fetch", "/option-chain/fetch"})
         self.assertEqual(self.http.get("/options/fetch").status_code, 405)
 
     def test_existing_contract_skips_breeze(self):

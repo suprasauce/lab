@@ -1,4 +1,4 @@
-"""Two synchronous ingestion operations, fixed at 5-minute candles."""
+"""Shared candle helpers and synchronous ingestion, fixed at 5-minute candles."""
 
 import logging
 from datetime import date, datetime, time, timedelta
@@ -63,14 +63,17 @@ def fetch_candles(start, end, request_window):
     rows = {}
     while current < stop:
         window_stop = min(current + REQUEST_WINDOW, stop)
-        candles = request_window(current, window_stop - timedelta(seconds=1))
+        try:
+            candles = request_window(current, window_stop - timedelta(seconds=1))
+        except RuntimeError as exc:
+            raise RuntimeError(f"Historical window {current.isoformat()} through {(window_stop - timedelta(seconds=1)).isoformat()}: {exc}") from exc
         for candle in candles:
             try:
                 row = candle_row(candle)
             except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
-                raise RuntimeError("Breeze returned invalid candle data") from exc
+                raise RuntimeError(f"Breeze returned invalid candle data in window {current.isoformat()} through {window_stop.isoformat()}") from exc
             if not current <= row[0] < window_stop:
-                raise RuntimeError("Breeze returned a candle outside the requested local-time window")
+                raise RuntimeError(f"Breeze returned a candle outside the requested local-time window {current.isoformat()} through {window_stop.isoformat()}")
             rows[row[0]] = row
         current = window_stop
     return [rows[timestamp] for timestamp in sorted(rows)]
