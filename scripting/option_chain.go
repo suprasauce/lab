@@ -28,9 +28,9 @@ func newFilter(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwa
 		return nil, err
 	}
 	switch filter.Type {
-	case "delta", "strike", "price":
+	case "delta", "offset", "price":
 	default:
-		return nil, fmt.Errorf("invalid filter type %q: expected delta, strike, or price", filter.Type)
+		return nil, fmt.Errorf("invalid filter type %q: expected delta, offset, or price", filter.Type)
 	}
 	return &filterValue{OptionFilter: filter}, nil
 }

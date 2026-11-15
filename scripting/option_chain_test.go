@@ -13,7 +13,7 @@ import (
 func TestFilterConstructor(t *testing.T) {
 	for _, expression := range []string{
 		`filter(type="delta", value=0.2)`,
-		`filter(type="strike", value=25000)`,
+		`filter(type="offset", value=2)`,
 		`filter(type="price", value=150.50)`,
 	} {
 		value, err := starlark.Eval(&starlark.Thread{Name: "test"}, "test.star", expression, scriptBuiltins())
@@ -33,9 +33,9 @@ func TestFilterConstructor(t *testing.T) {
 
 func TestOptionChainArguments(t *testing.T) {
 	for _, tt := range []struct{ name, expression, want string }{
-		{"CE TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="CE", filter=filter(type="delta", value=0.2))`, "option chain contract selection is not implemented"},
-		{"PE TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="PE", filter=filter(type="strike", value=25000))`, "option chain contract selection is not implemented"},
-		{"price TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="CE", filter=filter(type="price", value=150))`, "option chain contract selection is not implemented"},
+		{"CE TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="CE", filter=filter(type="delta", value=0.2))`, "delta selection is not implemented"},
+		{"PE TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="PE", filter=filter(type="offset", value=2))`, "offset selection is not implemented"},
+		{"price TODO", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", option_type="CE", filter=filter(type="price", value=150))`, "price selection is not implemented"},
 		{"missing underlying", `ctx.option_chain(expiry="2026-01-27", option_type="CE", filter=filter(type="delta", value=0.2))`, "underlying"},
 		{"missing expiry", `ctx.option_chain(underlying="NIFTY", option_type="CE", filter=filter(type="delta", value=0.2))`, "expiry"},
 		{"missing option type", `ctx.option_chain(underlying="NIFTY", expiry="2026-01-27", filter=filter(type="delta", value=0.2))`, "option_type"},

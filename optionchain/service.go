@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// OptionFilter describes a delta, strike, or price selection target.
+// OptionFilter describes a delta, offset, or price selection target.
 type OptionFilter struct {
 	Type  string
 	Value float64
@@ -27,6 +27,29 @@ func (s *OptionChainService) GetSymbol(
 	filter OptionFilter,
 	at time.Time,
 ) (string, error) {
-	// TODO: Return the selected contract's trading symbol using data available at at.
-	return "", fmt.Errorf("option chain contract selection is not implemented")
+	switch filter.Type {
+	case "delta":
+		return s.getSymbolByDelta(underlying, expiry, optionType, filter.Value, at)
+	case "offset":
+		return s.getSymbolByOffset(underlying, expiry, optionType, filter.Value, at)
+	case "price":
+		return s.getSymbolByPrice(underlying, expiry, optionType, filter.Value, at)
+	default:
+		return "", fmt.Errorf("unsupported option filter type: %s", filter.Type)
+	}
+}
+
+func (s *OptionChainService) getSymbolByDelta(underlying string, expiry time.Time, optionType string, value float64, at time.Time) (string, error) {
+	// TODO: Select the contract closest to the target delta.
+	return "", fmt.Errorf("delta selection is not implemented")
+}
+
+func (s *OptionChainService) getSymbolByOffset(underlying string, expiry time.Time, optionType string, value float64, at time.Time) (string, error) {
+	// TODO: Select the contract at the requested ATM strike offset.
+	return "", fmt.Errorf("offset selection is not implemented")
+}
+
+func (s *OptionChainService) getSymbolByPrice(underlying string, expiry time.Time, optionType string, value float64, at time.Time) (string, error) {
+	// TODO: Select the contract closest to the target premium.
+	return "", fmt.Errorf("price selection is not implemented")
 }
