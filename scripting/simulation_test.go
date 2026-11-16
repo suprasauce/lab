@@ -20,15 +20,16 @@ def initialize(ctx):
         fail("incorrect expiries")
     for expiry in reversed(expiries):
         print("start " + expiry)
-        ctx.state["initialization_value"] = True
+        ctx.clear_state()
+        ctx.state["expiry"] = expiry
         ctx.simulate(expiry)
         if "visited" not in ctx.state:
             fail("simulate returned before callbacks")
         print("done " + expiry)
 
 def on_candle(ctx):
-    if "initialization_value" in ctx.state:
-        fail("state leaked into simulation")
+    if "expiry" not in ctx.state:
+        fail("state was cleared automatically")
     if "visited" not in ctx.state:
         ctx.state["visited"] = True
 `)
@@ -42,7 +43,7 @@ def on_candle(ctx):
 		t.Fatal(err)
 	}
 	// Callback prints use their own thread; completion checks in initialize prove
-	// that callbacks finished synchronously and state was reset for both runs.
+	// that callbacks finished synchronously with script-managed state resets.
 	want := "initialize|start 2026-10-27|done 2026-10-27|start 2026-09-29|done 2026-09-29"
 	if strings.Join(messages, "|") != want {
 		t.Fatalf("messages: %v", messages)
@@ -90,5 +91,50 @@ func TestEmptyExpiryDiscovery(t *testing.T) {
 	}
 	if len(result.Executions) != 0 {
 		t.Fatal("simulated an unrequested expiry")
+	}
+}
+
+func TestStatePersistsAcrossExpiriesButNotBacktests(t *testing.T) {
+	script, err := LoadSource("state.star", `
+def initialize(ctx):
+    if len(ctx.state) != 0:
+        fail("new backtest inherited script state")
+    ctx.configure(underlying="NIFTY")
+    ctx.state["expiry_count"] = 0
+    for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
+        ctx.state["expiry"] = expiry
+        ctx.simulate(expiry)
+    if ctx.state["expiry_count"] != 2:
+        fail("state did not persist across expiries")
+
+def on_candle(ctx):
+    if ctx.dte == 45 and ctx.time == "09:15":
+        ctx.state["expiry_count"] += 1
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for run := 0; run < 2; run++ {
+		f := newFixture(t)
+		if _, err := script.Run(context.Background(), engine.NewEngine(f.repo)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestClearStateClearsExistingDictionary(t *testing.T) {
+	c := &strategyContext{state: starlark.NewDict(0)}
+	globals := starlark.StringDict{"ctx": c}
+	_, err := starlark.ExecFile(&starlark.Thread{Name: "clear-state"}, "clear.star", `
+def check(ctx):
+    saved = ctx.state
+    ctx.state["temporary"] = {"nested": [1, 2]}
+    ctx.clear_state()
+    if len(ctx.state) != 0 or len(saved) != 0:
+        fail("state was not cleared in place")
+check(ctx)
+`, globals)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

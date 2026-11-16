@@ -42,6 +42,7 @@ Both GET endpoints use `X-User-ID` to restrict results to that user. This header
 def initialize(ctx):
     ctx.configure(underlying="NIFTY")
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-06-30"):
+        ctx.clear_state()
         ctx.simulate(expiry)
 
 
@@ -53,6 +54,9 @@ def on_candle(ctx):
 `get_expiries` returns chronological YYYY-MM-DD strings, with inclusive date
 boundaries. The script chooses which dates to simulate and in what order.
 Discovery and simulation are allowed only during initialization, after configure.
+Call `ctx.clear_state()` before each simulation when independent script state is
+needed, then assign values such as `ctx.state["expiry"] = expiry`. The dictionary
+is cleared in place, so existing references see the cleared contents too.
 Existing saved scripts must move date ranges out of `configure` and explicitly
 call `simulate`; there is no automatic expiry loop. `ctx.time` remains an HH:mm
 string. No position-query or close-all API is added.
@@ -71,7 +75,9 @@ exists, it parses the Lab symbol and reuses full-45-DTE ingestion through the
 Python service before continuing. Other database errors are returned immediately. Missing candles leave orders pending
 for a later completed five-minute window.
 
-Order history, positions, and `ctx.state` start fresh for every expiry. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a trade summary and position entry/exit details; open positions have null exit fields and P&L.
+Order history and positions start fresh for every expiry. `ctx.state` persists
+across expiry simulations until the script calls `ctx.clear_state()`. Each new
+backtest starts with an empty state dictionary. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a trade summary and position entry/exit details; open positions have null exit fields and P&L.
 
 ## Lab option trading symbols
 

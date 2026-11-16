@@ -12,6 +12,7 @@ export const starterStrategy = `def initialize(ctx):
         underlying="NIFTY",
     )
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-06-30"):
+        ctx.clear_state()
         ctx.simulate(expiry)
 
 

@@ -21,6 +21,7 @@ const setup = `
 def initialize(ctx):
     ctx.configure(underlying="NIFTY")
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
+        ctx.clear_state()
         ctx.simulate(expiry)
 `
 
@@ -80,7 +81,7 @@ func TestNoEntryCreatesNoPositions(t *testing.T) {
 	}
 }
 
-func TestStatePersistsAndStartsEmptyEveryExpiry(t *testing.T) {
+func TestStatePersistsWithExplicitExpiryReset(t *testing.T) {
 	source := setup + `    ctx.state["initial"] = 123
 
 def on_candle(ctx):

@@ -58,7 +58,6 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 		return e.GetExpiries(ctx, underlying, start, end)
 	}
 	c.simulateExpiry = func(expiry time.Time) error {
-		c.state = starlark.NewDict(0)
 		c.initializing = false
 		defer func() { c.initializing = true; c.execution = nil }()
 		cycle, err := e.Simulate(ctx, c.underlying, expiry, func(execution *engine.Execution) error {

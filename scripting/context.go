@@ -31,11 +31,13 @@ func (*strategyContext) Hash() (uint32, error) {
 	return 0, fmt.Errorf("strategy context is unhashable")
 }
 func (*strategyContext) AttrNames() []string {
-	return []string{"configure", "option_chain", "get_expiries", "simulate", "place_order", "order", "state", "time", "dte"}
+	return []string{"configure", "option_chain", "get_expiries", "simulate", "place_order", "order", "state", "clear_state", "time", "dte"}
 }
 
 func (c *strategyContext) Attr(name string) (starlark.Value, error) {
 	switch name {
+	case "clear_state":
+		return starlark.NewBuiltin(name, c.clearState), nil
 	case "option_chain":
 		return starlark.NewBuiltin(name, c.optionChain), nil
 	case "get_expiries":
@@ -127,6 +129,16 @@ func (c *strategyContext) simulate(_ *starlark.Thread, b *starlark.Builtin, args
 	}
 	if err := c.simulateExpiry(date); err != nil {
 		return nil, err
+	}
+	return starlark.None, nil
+}
+
+func (c *strategyContext) clearState(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs); err != nil {
+		return nil, err
+	}
+	if err := c.state.Clear(); err != nil {
+		return nil, fmt.Errorf("clear state: %w", err)
 	}
 	return starlark.None, nil
 }
