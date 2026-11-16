@@ -19,7 +19,7 @@ func marketTime(hour, minute int) time.Time {
 	return time.Date(2026, 1, 5, hour, minute, 0, 0, marketLocation)
 }
 
-func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]bool) *Execution {
+func executionFixture(t *testing.T, missing map[time.Time]bool) *Execution {
 	t.Helper()
 	var execution *Execution
 	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
@@ -41,14 +41,10 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
 		start := args[2].Value.(time.Time)
-		option := strings.Contains(query, "FROM lab.option_candles")
-		if !option && !strings.Contains(query, "FROM lab.underlying_candles") {
+		if !strings.Contains(query, "FROM lab.option_candles") {
 			t.Fatalf("unexpected query: %s", query)
 		}
-		if !option && len(args) == 3 {
-			t.Fatal("order execution must reuse the loaded underlying candle")
-		}
-		if option && !args[3].Value.(time.Time).Before(execution.Time) {
+		if !args[3].Value.(time.Time).Before(execution.Time) {
 			t.Fatal("option lookup requests an unfinished candle")
 		}
 		for _, minute := range []int{15, 20, 25, 30} {
@@ -56,36 +52,24 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 			if at.Before(start) {
 				continue
 			}
-			if len(args) == 4 {
-				end := args[3].Value.(time.Time)
-				if option && at.After(end) || !option && !at.Before(end) {
-					continue
-				}
-			}
-			if option && missing[at] || !option && missingUnderlying[at] {
+			if at.After(args[3].Value.(time.Time)) || missing[at] {
 				continue
 			}
-			price := int64(2250000 + (minute-15)*1000)
-			if option {
-				price = int64(10000 - (minute-15)*100)
-			}
+			price := int64(10000 - (minute-15)*100)
 			rows.records = append(rows.records, []driver.Value{at, "5m", price, int64(9999999), int64(1), int64(7777777), int64(0)})
-			if len(args) == 3 {
-				break
-			}
 		}
 		return rows, nil
 	}})
 	t.Cleanup(func() { db.Close() })
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	execution = newExecution(context.Background(), repo, 7, time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation))
+	execution = newExecution(context.Background(), repo, time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation))
 	return execution
 }
 
 func TestMarketOrderUsesPlacedAt(t *testing.T) {
 	for _, minute := range []int{15, 20, 25} {
 		t.Run(marketTime(9, minute).Format("15:04"), func(t *testing.T) {
-			e := executionFixture(t, nil, nil)
+			e := executionFixture(t, nil)
 			if err := e.advance(marketTime(9, minute)); err != nil {
 				t.Fatal(err)
 			}
@@ -118,7 +102,7 @@ func TestMarketOrderUsesPlacedAt(t *testing.T) {
 }
 
 func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
-	e := executionFixture(t, nil, nil)
+	e := executionFixture(t, nil)
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +116,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if err := e.advance(marketTime(9, 25)); err != nil {
 		t.Fatal(err)
 	}
-	if !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 20)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
+	if !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
 		t.Fatal("wrong completed candle")
 	}
 	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "BUY", 75)
@@ -159,7 +143,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 }
 
 func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
-	e := executionFixture(t, nil, nil)
+	e := executionFixture(t, nil)
 	e.Time = marketTime(9, 15)
 	first, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
 	if err != nil {
@@ -177,7 +161,7 @@ func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
 }
 
 func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
-	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true}, nil)
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
@@ -214,43 +198,32 @@ func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
 }
 
 func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.T) {
-	for _, underlyingMissing := range []bool{true, false} {
-		missingOption, missingUnderlying := map[time.Time]bool{}, map[time.Time]bool{}
-		if underlyingMissing {
-			missingUnderlying[marketTime(9, 20)] = true
-		} else {
-			missingOption[marketTime(9, 20)] = true
-		}
-		e := executionFixture(t, missingOption, missingUnderlying)
-		if err := e.advance(marketTime(9, 15)); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
-			t.Fatal(err)
-		}
-		if err := e.advance(marketTime(9, 20)); err != nil {
-			t.Fatal(err)
-		}
-		if err := e.advance(marketTime(9, 25)); err != nil {
-			t.Fatal(err)
-		}
-		if underlyingMissing && e.UnderlyingCandle != nil || !underlyingMissing && e.Positions[0].Candle != nil || e.Positions[0].Status != models.TradeOpen {
-			t.Fatal("stale snapshot or changed position")
-		}
-		if underlyingMissing && (e.Positions[0].Candle == nil || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20))) {
-			t.Fatal("missing underlying prevented option candle loading")
-		}
-		if err := e.advance(marketTime(9, 30)); err != nil {
-			t.Fatal(err)
-		}
-		if e.UnderlyingCandle == nil || e.Positions[0].Candle == nil || !e.UnderlyingCandle.Timestamp.Equal(marketTime(9, 25)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
-			t.Fatal("subsequent completed candles were not loaded")
-		}
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 20): true})
+	if err := e.advance(marketTime(9, 15)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 20)); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 25)); err != nil {
+		t.Fatal(err)
+	}
+	if e.Positions[0].Candle != nil || e.Positions[0].Status != models.TradeOpen {
+		t.Fatal("stale snapshot or changed position")
+	}
+	if err := e.advance(marketTime(9, 30)); err != nil {
+		t.Fatal(err)
+	}
+	if e.Positions[0].Candle == nil || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
+		t.Fatal("subsequent completed candle was not loaded")
 	}
 }
 
 func TestMissingOptionCandleDefersExit(t *testing.T) {
-	e := executionFixture(t, map[time.Time]bool{marketTime(9, 20): true}, nil)
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 20): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +261,8 @@ func TestAdvancePropagatesCandleQueryFailure(t *testing.T) {
 	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return nil, failure }})
 	defer db.Close()
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	e := newExecution(context.Background(), repo, 7, marketTime(0, 0))
+	e := newExecution(context.Background(), repo, marketTime(0, 0))
+	e.Positions = []*Position{{Trade: models.Trade{ContractID: 101, Status: models.TradeOpen}}}
 	if err := e.advance(marketTime(9, 20)); !errors.Is(err, failure) {
 		t.Fatalf("database failure was not propagated: %v", err)
 	}
@@ -298,7 +272,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 	for _, optionType := range []models.OptionType{models.Call, models.Put} {
 		for _, side := range []models.PositionSide{models.Long, models.Short} {
 			t.Run(string(optionType)+"/"+string(side), func(t *testing.T) {
-				e := executionFixture(t, nil, nil)
+				e := executionFixture(t, nil)
 				tradingSymbol := map[models.OptionType]string{models.Call: "NIFTY-20260127-22600-CE", models.Put: "NIFTY-20260127-22600-PE"}[optionType]
 				if err := e.advance(marketTime(9, 15)); err != nil {
 					t.Fatal(err)
@@ -340,7 +314,7 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 		side     string
 		quantity int64
 	}{{"BUY", 1}, {"BUY", 100}, {"SELL", 75}} {
-		e := executionFixture(t, nil, nil)
+		e := executionFixture(t, nil)
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
@@ -363,7 +337,7 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 }
 
 func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
-	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true}, nil)
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}

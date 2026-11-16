@@ -18,19 +18,17 @@ type Position struct {
 
 // Execution contains fresh orders and position history for one expiry.
 type Execution struct {
-	Time             time.Time
-	UnderlyingCandle *models.Candle
-	DTE              int
-	Orders           []*Order
-	Positions        []*Position
-	ctx              context.Context
-	repo             *repository.Repository
-	underlyingID     int64
-	expiry           time.Time
+	Time      time.Time
+	DTE       int
+	Orders    []*Order
+	Positions []*Position
+	ctx       context.Context
+	repo      *repository.Repository
+	expiry    time.Time
 }
 
-func newExecution(ctx context.Context, repo *repository.Repository, underlyingID int64, expiry time.Time) *Execution {
-	return &Execution{ctx: ctx, repo: repo, underlyingID: underlyingID, expiry: expiry}
+func newExecution(ctx context.Context, repo *repository.Repository, expiry time.Time) *Execution {
+	return &Execution{ctx: ctx, repo: repo, expiry: expiry}
 }
 
 // PlaceOrder queues an opaque trading symbol without resolving or executing it.
@@ -57,7 +55,6 @@ func (e *Execution) Order(id string) (*Order, error) {
 
 // advance loads completed bars before filling previously submitted orders.
 func (e *Execution) advance(at time.Time) error {
-	e.UnderlyingCandle = nil
 	for _, position := range e.Positions {
 		position.Candle = nil
 	}
@@ -73,14 +70,6 @@ func (e *Execution) loadCompletedCandles() error {
 	start := e.Time.Add(-candleInterval)
 	if startTime, _ := time.Parse(timeLayout, start.Format(timeLayout)); startTime.Before(sessionStartTime) {
 		return nil
-	}
-	// PostgreSQL timestamp precision is one microsecond; this is an exact lookup.
-	candles, err := e.repo.GetUnderlyingCandles(e.ctx, e.underlyingID, start, start.Add(time.Microsecond), models.Timeframe5m)
-	if err != nil {
-		return fmt.Errorf("completed underlying candle: %w", err)
-	}
-	if len(candles) > 0 {
-		e.UnderlyingCandle = &candles[0]
 	}
 	for _, position := range e.Positions {
 		if position.Status != models.TradeOpen {

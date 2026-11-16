@@ -58,7 +58,7 @@ func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, 
 		return nil, fmt.Errorf("resolve underlying: %w", err)
 	}
 	expiry = calendarDate(expiry)
-	execution := newExecution(ctx, e.marketDataRepository, underlying.ID, expiry)
+	execution := newExecution(ctx, e.marketDataRepository, expiry)
 	err = e.backtestExpiry(ctx, underlying.ID, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
 		if err := execution.advance(at); err != nil {
 			return err

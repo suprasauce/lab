@@ -91,8 +91,6 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 		}
 		for tick := 1; tick <= 75; tick++ {
 			start := session.Add(9*time.Hour + 15*time.Minute + time.Duration(tick-1)*5*time.Minute)
-			mock.ExpectQuery("FROM lab.underlying_candles").WithArgs(int64(7), "5m", start, start.Add(time.Microsecond)).
-				WillReturnRows(workerCandleRows().AddRow(start, "5m", 2253000, 2253000, 2253000, 2253000, 0))
 			if tick == 1 {
 				mock.ExpectQuery("FROM lab.option_contracts").WithArgs("NIFTY-20260127-22650-CE").
 					WillReturnRows(workerContractRows())
