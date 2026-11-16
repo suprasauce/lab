@@ -9,28 +9,48 @@ import type { CreateStrategyRequest } from '../types/strategy'
 
 export const starterStrategy = `def initialize(ctx):
     ctx.configure()
-    for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-06-30"):
-        ctx.clear_state()
+
+    expiries = ctx.get_expiries(
+        underlying="NIFTY",
+        start="2026-01-01",
+        end="2026-06-30",
+    )
+
+    for expiry in expiries:
+        ctx.state.clear()
+        ctx.state["expiry"] = expiry
         ctx.simulate(expiry)
 
 
 def on_candle(ctx):
-    # Sell one call at 45 DTE.
-    if ctx.dte <= 45 and ctx.time >= "09:30":
+    expiry = ctx.state["expiry"]
+
+    # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
+    if 21 < ctx.dte <= 45 and ctx.time > "09:30":
         if "entry_order_id" not in ctx.state:
-            ctx.state["entry_order_id"] = ctx.place_order(
-                contract=offset_selector("CALL", offset=2),
-                side="SELL",
-                quantity=75,
+            symbol = ctx.option_chain(
+                underlying=expiry["underlying"],
+                expiry=expiry["date"],
+                option_type="CE",
+                filter=filter(type="offset", value=2),
             )
 
-    # Close the position at 21 DTE.
+            if symbol != None:
+                ctx.state["symbol"] = symbol
+                ctx.state["entry_order_id"] = ctx.place_order(
+                    tradingsymbol=symbol,
+                    side="SELL",
+                    quantity=75,
+                )
+
+    # Close at or below 21 DTE, from 15:15 onward.
     if ctx.dte <= 21 and ctx.time >= "15:15":
         if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
             entry = ctx.order(ctx.state["entry_order_id"])
+
             if entry.status == "FILLED":
                 ctx.state["exit_order_id"] = ctx.place_order(
-                    contract=id_selector(entry.contract_id),
+                    tradingsymbol=ctx.state["symbol"],
                     side="BUY",
                     quantity=75,
                 )
