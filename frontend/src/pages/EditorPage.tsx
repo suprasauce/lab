@@ -8,9 +8,7 @@ import { createStrategy, listStrategies, updateStrategy } from '../api/strategie
 import type { CreateStrategyRequest } from '../types/strategy'
 
 export const starterStrategy = `def initialize(ctx):
-    ctx.configure(
-        underlying="NIFTY",
-    )
+    ctx.configure()
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-06-30"):
         ctx.clear_state()
         ctx.simulate(expiry)

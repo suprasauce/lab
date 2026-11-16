@@ -16,9 +16,8 @@ type strategyContext struct {
 	repo           *repository.Repository
 	initializing   bool
 	configured     bool
-	underlying     string
 	getExpiries    func(string, time.Time, time.Time) ([]time.Time, error)
-	simulateExpiry func(time.Time) error
+	simulateExpiry func(string, time.Time) error
 	execution      *engine.Execution
 	state          *starlark.Dict
 }
@@ -71,14 +70,10 @@ func (c *strategyContext) configure(_ *starlark.Thread, b *starlark.Builtin, arg
 	if !c.initializing || c.configured {
 		return nil, fmt.Errorf("configure is allowed once during initialize")
 	}
-	var underlying string
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "underlying", &underlying); err != nil {
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs); err != nil {
 		return nil, err
 	}
-	if underlying == "" {
-		return nil, fmt.Errorf("underlying must be nonempty")
-	}
-	c.underlying, c.configured = underlying, true
+	c.configured = true
 	return starlark.None, nil
 }
 
@@ -110,7 +105,10 @@ func (c *strategyContext) expiries(_ *starlark.Thread, b *starlark.Builtin, args
 	}
 	values := make([]starlark.Value, len(dates))
 	for i, date := range dates {
-		values[i] = starlark.String(date.Format(time.DateOnly))
+		value := starlark.NewDict(2)
+		value.SetKey(starlark.String("date"), starlark.String(date.Format(time.DateOnly)))
+		value.SetKey(starlark.String("underlying"), starlark.String(underlying))
+		values[i] = value
 	}
 	return starlark.NewList(values), nil
 }
@@ -119,15 +117,26 @@ func (c *strategyContext) simulate(_ *starlark.Thread, b *starlark.Builtin, args
 	if !c.initializing || !c.configured {
 		return nil, fmt.Errorf("simulate requires configure during initialize")
 	}
-	var expiry string
+	var expiry starlark.Value
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "expiry", &expiry); err != nil {
 		return nil, err
 	}
-	date, err := time.Parse(time.DateOnly, expiry)
+	value, ok := expiry.(*starlark.Dict)
+	if !ok {
+		return nil, fmt.Errorf("expiry must be a dictionary containing date and underlying")
+	}
+	var dateText, underlying string
+	if err := starlark.UnpackArgs("expiry", nil, value.Items(), "date", &dateText, "underlying", &underlying); err != nil {
+		return nil, err
+	}
+	if underlying == "" {
+		return nil, fmt.Errorf("expiry underlying must be nonempty")
+	}
+	date, err := time.Parse(time.DateOnly, dateText)
 	if err != nil {
 		return nil, fmt.Errorf("expiry: %w", err)
 	}
-	if err := c.simulateExpiry(date); err != nil {
+	if err := c.simulateExpiry(underlying, date); err != nil {
 		return nil, err
 	}
 	return starlark.None, nil

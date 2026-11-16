@@ -42,9 +42,9 @@ func (db *contractDB) query(_ context.Context, query string, args []driver.Named
 		if db.queries > 1 && db.afterErr != nil {
 			return nil, db.afterErr
 		}
-		rows := &contractRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike_price", "option_type"}}
+		rows := &contractRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike_price", "option_type", "underlying_symbol"}}
 		if db.existing || (db.queries > 1 && db.inserted) {
-			rows.row = []driver.Value{int64(101), int64(7), int64(9), testExpiry, int64(db.strike), "CALL"}
+			rows.row = []driver.Value{int64(101), int64(7), int64(9), testExpiry, int64(db.strike), "CALL", "NIFTY"}
 		}
 		return rows, nil
 	case queryGetUnderlyingSymbol:
@@ -73,7 +73,7 @@ func TestExistingOptionContractDoesNotFetch(t *testing.T) {
 	state := &contractDB{existing: true, strike: 2500000}
 	r := testRepository(t, state)
 	contract, err := r.GetOptionContract(context.Background(), 7, testExpiry, state.strike, models.Call)
-	if err != nil || contract.ID != 101 || contract.ExpiryID != 9 || contract.UnderlyingID != 7 || contract.StrikePrice != state.strike || !contract.Expiry.Equal(testExpiry) || contract.OptionType != models.Call {
+	if err != nil || contract.ID != 101 || contract.ExpiryID != 9 || contract.UnderlyingID != 7 || contract.StrikePrice != state.strike || !contract.Expiry.Equal(testExpiry) || contract.OptionType != models.Call || contract.UnderlyingSymbol != "NIFTY" {
 		t.Fatalf("contract=%+v err=%v", contract, err)
 	}
 	if state.queries != 1 || state.symbols != 0 {

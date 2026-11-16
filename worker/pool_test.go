@@ -19,7 +19,7 @@ import (
 
 const validScript = `
 def initialize(ctx):
-    ctx.configure(underlying="NIFTY")
+    ctx.configure()
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
         ctx.clear_state()
         ctx.simulate(expiry)
@@ -295,6 +295,6 @@ func workerCandleRows() *sqlmock.Rows {
 }
 
 func workerContractRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type"}).
-		AddRow(int64(101), int64(7), int64(9), workerExpiry(), int64(2265000), "CALL")
+	return sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "underlying_symbol"}).
+		AddRow(int64(101), int64(7), int64(9), workerExpiry(), int64(2265000), "CALL", "NIFTY")
 }

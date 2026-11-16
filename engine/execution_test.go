@@ -27,7 +27,7 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 			if !strings.Contains(query, "c.tradingsymbol = $1") || len(args) != 1 {
 				t.Fatalf("unexpected contract lookup: %s", query)
 			}
-			rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type"}}
+			rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type", "underlying_symbol"}}
 			kind, id := "CALL", int64(101)
 			switch args[0].Value {
 			case "NIFTY-20260127-22600-CE":
@@ -36,7 +36,7 @@ func executionFixture(t *testing.T, missing, missingUnderlying map[time.Time]boo
 			default:
 				return rows, nil
 			}
-			rows.values = []driver.Value{id, int64(7), int64(9), execution.expiry, int64(2260000), kind}
+			rows.values = []driver.Value{id, int64(7), int64(9), execution.expiry, int64(2260000), kind, "NIFTY"}
 			return rows, nil
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}

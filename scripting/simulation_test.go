@@ -14,18 +14,18 @@ func TestScriptControlsSynchronousExpiryOrder(t *testing.T) {
 	script, err := LoadSource("simulation.star", `
 def initialize(ctx):
     print("initialize")
-    ctx.configure(underlying="NIFTY")
+    ctx.configure()
     expiries = ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")
-    if expiries != ["2026-09-29", "2026-10-27"]:
+    if expiries != [{"date": "2026-09-29", "underlying": "NIFTY"}, {"date": "2026-10-27", "underlying": "NIFTY"}]:
         fail("incorrect expiries")
     for expiry in reversed(expiries):
-        print("start " + expiry)
+        print("start " + expiry["date"])
         ctx.clear_state()
         ctx.state["expiry"] = expiry
         ctx.simulate(expiry)
         if "visited" not in ctx.state:
             fail("simulate returned before callbacks")
-        print("done " + expiry)
+        print("done " + expiry["date"])
 
 def on_candle(ctx):
     if "expiry" not in ctx.state:
@@ -48,7 +48,7 @@ def on_candle(ctx):
 	if strings.Join(messages, "|") != want {
 		t.Fatalf("messages: %v", messages)
 	}
-	if len(result.Executions) != 2 || result.Underlying != "NIFTY" {
+	if len(result.Executions) != 2 {
 		t.Fatalf("result: %+v", result)
 	}
 }
@@ -58,14 +58,14 @@ func TestSimulationAPIErrors(t *testing.T) {
 		{"invalid start", `ctx.get_expiries(underlying="NIFTY", start="bad", end="2026-10-31")`, "pass", "start:"},
 		{"invalid end", `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="bad")`, "pass", "end:"},
 		{"reversed range", `ctx.get_expiries(underlying="NIFTY", start="2026-10-31", end="2026-09-01")`, "pass", "must not be after"},
-		{"invalid expiry", `ctx.simulate("bad")`, "pass", "expiry:"},
-		{"callback failure", `ctx.simulate("2026-09-29")`, `fail("callback failed")`, "callback failed"},
-		{"nested simulation", `ctx.simulate("2026-09-29")`, `ctx.simulate("2026-10-27")`, "simulate requires configure during initialize"},
-		{"late discovery", `ctx.simulate("2026-09-29")`, `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
+		{"invalid expiry", `ctx.simulate({"date":"bad", "underlying":"NIFTY"})`, "pass", "expiry:"},
+		{"callback failure", `ctx.simulate({"date":"2026-09-29", "underlying":"NIFTY"})`, `fail("callback failed")`, "callback failed"},
+		{"nested simulation", `ctx.simulate({"date":"2026-09-29", "underlying":"NIFTY"})`, `ctx.simulate({"date":"2026-10-27", "underlying":"NIFTY"})`, "simulate requires configure during initialize"},
+		{"late discovery", `ctx.simulate({"date":"2026-09-29", "underlying":"NIFTY"})`, `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
-			source := "def initialize(ctx):\n    ctx.configure(underlying='NIFTY')\n    " + tt.body + "\ndef on_candle(ctx):\n    " + tt.callback + "\n"
+			source := "def initialize(ctx):\n    ctx.configure()\n    " + tt.body + "\ndef on_candle(ctx):\n    " + tt.callback + "\n"
 			script, err := LoadSource("error.star", source)
 			if err != nil {
 				t.Fatal(err)
@@ -99,7 +99,7 @@ func TestStatePersistsAcrossExpiriesButNotBacktests(t *testing.T) {
 def initialize(ctx):
     if len(ctx.state) != 0:
         fail("new backtest inherited script state")
-    ctx.configure(underlying="NIFTY")
+    ctx.configure()
     ctx.state["expiry_count"] = 0
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
         ctx.state["expiry"] = expiry

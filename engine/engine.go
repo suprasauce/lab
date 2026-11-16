@@ -68,7 +68,7 @@ func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, 
 		}
 		return onCandle(execution)
 	})
-	result := &BacktestResult{Underlying: underlying.Symbol, Executions: [][]*Position{execution.Positions}}
+	result := &BacktestResult{Executions: [][]*Position{execution.Positions}}
 	if err != nil {
 		return result, fmt.Errorf("expiry %s: %w", expiry.Format(time.DateOnly), err)
 	}

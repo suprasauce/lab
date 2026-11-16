@@ -51,7 +51,7 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 			}
 			trade := backtestTrade{
 				Expiry:         position.Contract.Expiry.Format(time.DateOnly),
-				Underlying:     result.Underlying,
+				Underlying:     position.Contract.UnderlyingSymbol,
 				Strike:         json.Number(formatPrice(position.Contract.StrikePrice)),
 				OptionType:     position.Contract.OptionType,
 				Side:           position.Side,

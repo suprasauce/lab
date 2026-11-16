@@ -57,10 +57,10 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 	c.getExpiries = func(underlying string, start, end time.Time) ([]time.Time, error) {
 		return e.GetExpiries(ctx, underlying, start, end)
 	}
-	c.simulateExpiry = func(expiry time.Time) error {
+	c.simulateExpiry = func(underlying string, expiry time.Time) error {
 		c.initializing = false
 		defer func() { c.initializing = true; c.execution = nil }()
-		cycle, err := e.Simulate(ctx, c.underlying, expiry, func(execution *engine.Execution) error {
+		cycle, err := e.Simulate(ctx, underlying, expiry, func(execution *engine.Execution) error {
 			c.execution = execution
 			_, err := starlark.Call(callbackThread, s.onCandle, starlark.Tuple{c}, nil)
 			if err != nil {
@@ -80,7 +80,6 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 	if !c.configured {
 		return result, fmt.Errorf("initialize must configure the strategy")
 	}
-	result.Underlying = c.underlying
 	return result, nil
 }
 

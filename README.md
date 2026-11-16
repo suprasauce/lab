@@ -29,7 +29,7 @@ HTTP request ? Controller ? Service ? Repository ? PostgreSQL
 1. The client submits a Starlark script to `POST /api/backtests`, with a numeric `X-User-ID` header.
 2. The API validates the request, inserts a `PENDING` backtest in PostgreSQL, and queues its ID.
 3. The API returns `202 Accepted` with the backtest ID without waiting for execution.
-4. The worker retrieves the saved script, compiles it, and calls `initialize(ctx)` once. The script configures the underlying, retrieves expiries, and explicitly simulates the chosen dates.
+4. The worker retrieves the saved script, compiles it, and calls `initialize(ctx)` once. The script calls `ctx.configure()`, retrieves expiries for explicit underlyings, and simulates the chosen dates.
 5. Each `ctx.simulate(expiry)` call runs synchronously in Go, invoking `on_candle(ctx)` on a separate Starlark callback thread. Results are aggregated in the order the script runs the expiries.
 6. After execution, the worker saves the summary and trades as JSON and sets the status to `COMPLETED`. Script or execution errors are saved with status `FAILED`.
 7. The client retrieves status and results using `GET /api/backtests/{id}`, or lists its backtests using `GET /api/backtests`.
@@ -40,7 +40,7 @@ Both GET endpoints use `X-User-ID` to restrict results to that user. This header
 
 ```python
 def initialize(ctx):
-    ctx.configure(underlying="NIFTY")
+    ctx.configure()
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-06-30"):
         ctx.clear_state()
         ctx.simulate(expiry)
@@ -51,11 +51,14 @@ def on_candle(ctx):
     pass
 ```
 
-`get_expiries` returns chronological YYYY-MM-DD strings, with inclusive date
-boundaries. The script chooses which dates to simulate and in what order.
+`get_expiries` returns chronological dictionaries such as
+`{"date": "2026-03-30", "underlying": "NIFTY"}`, with inclusive date boundaries.
+`simulate` uses that object's underlying. `configure()` takes no arguments.
+Each returned trade uses its contract's underlying symbol, allowing different
+underlyings across expiry simulations. The script chooses which dates to simulate and in what order.
 Discovery and simulation are allowed only during initialization, after configure.
 Call `ctx.clear_state()` before each simulation when independent script state is
-needed, then assign values such as `ctx.state["expiry"] = expiry`. The dictionary
+needed, then assign values such as `ctx.state["expiry"] = expiry["date"]`. The dictionary
 is cleared in place, so existing references see the cleared contents too.
 Existing saved scripts must move date ranges out of `configure` and explicitly
 call `simulate`; there is no automatic expiry loop. `ctx.time` remains an HH:mm

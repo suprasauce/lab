@@ -94,9 +94,10 @@ const queryGetOptionChainStatus = `
 `
 
 const queryGetOptionContract = `
-	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
+	SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type, u.symbol
 	FROM lab.option_contracts AS c
 	JOIN lab.option_expiry AS e ON e.id = c.expiry_id
+ JOIN lab.underlyings AS u ON u.id = c.underlying_id
 	WHERE c.underlying_id = $1
 	  AND e.underlying_id = $1
 	  AND e.expiry_date = $2::date
@@ -114,9 +115,10 @@ const queryGetOptionTradingSymbol = `
 `
 
 const queryGetOptionContractByTradingSymbol = `
- SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type
+ SELECT c.id, c.underlying_id, c.expiry_id, e.expiry_date, c.strike_price, c.option_type, u.symbol
  FROM lab.option_contracts AS c
  JOIN lab.option_expiry AS e ON e.id = c.expiry_id
+ JOIN lab.underlyings AS u ON u.id = c.underlying_id
  WHERE c.tradingsymbol = $1;
 `
 

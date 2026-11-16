@@ -12,9 +12,9 @@ import (
 )
 
 func backtestResult() *engine.BacktestResult {
-	contract := &models.Option{ID: 101, StrikePrice: 2500005, OptionType: models.Call, Expiry: time.Date(2026, 1, 27, 0, 0, 0, 0, time.UTC)}
+	contract := &models.Option{ID: 101, UnderlyingSymbol: "NIFTY", StrikePrice: 2500005, OptionType: models.Call, Expiry: time.Date(2026, 1, 27, 0, 0, 0, 0, time.UTC)}
 
-	return &engine.BacktestResult{Underlying: "NIFTY", Executions: [][]*engine.Position{{
+	return &engine.BacktestResult{Executions: [][]*engine.Position{{
 		{Contract: contract, Trade: models.Trade{ContractID: 101, Side: models.Short, Quantity: 75,
 			EntryTime: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), EntryPrice: 12705,
 			ExitTime: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), ExitPrice: 8010,
@@ -73,5 +73,27 @@ func TestMarshalBacktestResultRejectsMissingContract(t *testing.T) {
 		if _, err := MarshalBacktestResult(result); err == nil {
 			t.Fatal("expected invalid result error")
 		}
+	}
+}
+
+func TestMarshalBacktestResultUsesEachContractUnderlying(t *testing.T) {
+	result := backtestResult()
+	other := *result.Executions[0][1].Contract
+	other.UnderlyingSymbol = "BANKNIFTY"
+	result.Executions[0][1].Contract = &other
+	payload, err := MarshalBacktestResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output struct {
+		Trades []struct {
+			Underlying string `json:"underlying"`
+		} `json:"trades"`
+	}
+	if err := json.Unmarshal(payload, &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Trades) != 2 || output.Trades[0].Underlying != "NIFTY" || output.Trades[1].Underlying != "BANKNIFTY" {
+		t.Fatalf("incorrect underlying labels: %s", payload)
 	}
 }

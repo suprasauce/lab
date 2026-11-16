@@ -19,7 +19,7 @@ import (
 
 const setup = `
 def initialize(ctx):
-    ctx.configure(underlying="NIFTY")
+    ctx.configure()
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
         ctx.clear_state()
         ctx.simulate(expiry)
@@ -125,7 +125,7 @@ func TestMissingUnderlying(t *testing.T) {
 
 func TestRuntimeErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
-		{"late configuration", "ctx.configure(underlying='NIFTY',start_date='2026-01-01',end_date='2026-12-31')", "allowed once during initialize"},
+		{"late configuration", "ctx.configure()", "allowed once during initialize"},
 		{"bad quantity type", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',side='SELL',quantity=1.5)", "quantity"},
 		{"missing trading symbol", "ctx.place_order(side='SELL',quantity=75)", "tradingsymbol"},
 		{"unknown order", "ctx.order('unknown')", "unknown order"},

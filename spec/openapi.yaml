@@ -145,7 +145,7 @@ paths:
                     status: PENDING
                     script: |
                       def initialize(ctx):
-                          ctx.configure(underlying="NIFTY")
+                          ctx.configure()
                           for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
                               ctx.clear_state()
                               ctx.simulate(expiry)
@@ -169,7 +169,7 @@ paths:
                     status: COMPLETED
                     script: |
                       def initialize(ctx):
-                          ctx.configure(underlying="NIFTY")
+                          ctx.configure()
                           for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
                               ctx.clear_state()
                               ctx.simulate(expiry)
@@ -208,7 +208,7 @@ paths:
                     status: FAILED
                     script: |
                       def initialize(ctx):
-                          ctx.configure(underlying="NIFTY")
+                          ctx.configure()
                           for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
                               ctx.clear_state()
                               ctx.simulate(expiry)
@@ -552,7 +552,7 @@ components:
           description: Starlark source defining initialize(ctx) and on_candle(ctx).
           example: |
             def initialize(ctx):
-                ctx.configure(underlying="NIFTY", start_date="2026-01-01", end_date="2026-06-30")
+                ctx.configure()
 
             def on_candle(ctx):
                 if ctx.dte <= 45 and ctx.time >= "09:30" and "entry" not in ctx.state:
