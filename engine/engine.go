@@ -20,6 +20,7 @@ var marketLocation = func() *time.Location {
 }()
 
 const SimulationDTE = 45
+const tradingCalendarUnderlyingID int64 = 1
 const candleInterval = 5 * time.Minute
 const timeLayout = "15:04"
 
@@ -53,13 +54,16 @@ func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, 
 	if onCandle == nil {
 		return nil, fmt.Errorf("on_candle callback is required")
 	}
-	underlying, err := e.marketDataRepository.GetUnderlying(ctx, symbol)
-	if err != nil {
-		return nil, fmt.Errorf("resolve underlying: %w", err)
-	}
 	expiry = calendarDate(expiry)
+	exists, err := e.marketDataRepository.OptionExpiryExists(ctx, symbol, expiry)
+	if err != nil {
+		return nil, fmt.Errorf("validate expiry: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("expiry %s does not exist for %s", expiry.Format(time.DateOnly), symbol)
+	}
 	execution := newExecution(ctx, e.marketDataRepository, expiry)
-	err = e.backtestExpiry(ctx, underlying.ID, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
+	err = e.backtestExpiry(ctx, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
 		if err := execution.advance(at); err != nil {
 			return err
 		}
@@ -79,14 +83,14 @@ func calendarDate(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, marketLocation)
 }
 
-func (e *Engine) backtestExpiry(ctx context.Context, underlyingID int64, expiry, startDate time.Time, onTime func(time.Time) error) error {
+func (e *Engine) backtestExpiry(ctx context.Context, expiry, startDate time.Time, onTime func(time.Time) error) error {
 	expiryDate := calendarDate(expiry)
 	for day := calendarDate(startDate); !day.After(expiryDate); day = day.AddDate(0, 0, 1) {
 		start := day.Add(9*time.Hour + 15*time.Minute)
 		end := day.Add(15*time.Hour + 30*time.Minute)
 		// Probe for session data without loading the day's candle slice. This
 		// candle is used only to establish that a session exists, never exposed.
-		first, err := e.marketDataRepository.GetUnderlyingCandle(ctx, underlyingID, start, models.Timeframe5m)
+		first, err := e.marketDataRepository.GetUnderlyingCandle(ctx, tradingCalendarUnderlyingID, start, models.Timeframe5m)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}

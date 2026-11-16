@@ -20,6 +20,16 @@ func (r *Repository) GetUnderlying(ctx context.Context, symbol string) (models.U
 	return underlying, nil
 }
 
+// OptionExpiryExists checks whether an expiry is registered for the symbol.
+func (r *Repository) OptionExpiryExists(ctx context.Context, symbol string, expiry time.Time) (bool, error) {
+	r.logger.DebugContext(ctx, "checking option expiry", "symbol", symbol, "expiry", expiry)
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, queryOptionExpiryExists, symbol, expiry).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check option expiry for %s: %w", symbol, err)
+	}
+	return exists, nil
+}
+
 // GetExpiries returns distinct expiry dates in ascending order within the inclusive range.
 // The expiry range selects contracts, not the strategy's trading timestamps.
 func (r *Repository) GetExpiries(

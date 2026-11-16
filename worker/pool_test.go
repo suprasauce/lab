@@ -75,8 +75,8 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)).
 		WillReturnRows(sqlmock.NewRows([]string{"expiry_date"}).AddRow(workerExpiry()))
 
-	mock.ExpectQuery("FROM lab.underlyings").WithArgs("NIFTY").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "symbol"}).AddRow(int64(7), "NIFTY"))
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("NIFTY", workerExpiry()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	session := time.Date(2026, 1, 5, 0, 0, 0, 0, workerExpiry().Location())
 	for day := workerExpiry().AddDate(0, 0, -45); !day.After(workerExpiry()); day = day.AddDate(0, 0, 1) {
@@ -84,7 +84,7 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 		if !day.After(session) {
 			first = workerCandleRows().AddRow(session.Add(9*time.Hour+15*time.Minute), "5m", 2253000, 2253000, 2253000, 2253000, 0)
 		}
-		mock.ExpectQuery("FROM lab.underlying_candles").WithArgs(int64(7), "5m", day.Add(9*time.Hour+15*time.Minute)).
+		mock.ExpectQuery("FROM lab.underlying_candles").WithArgs(int64(1), "5m", day.Add(9*time.Hour+15*time.Minute)).
 			WillReturnRows(first)
 		if !day.Equal(session) {
 			continue

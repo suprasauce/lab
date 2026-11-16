@@ -161,3 +161,12 @@ const queryGetOptionCandles = `
 	  AND start_time <= $4
 	ORDER BY start_time ASC;
 `
+
+const queryOptionExpiryExists = `
+ SELECT EXISTS (
+  SELECT 1
+  FROM lab.option_expiry AS e
+  JOIN lab.underlyings AS u ON u.id = e.underlying_id
+  WHERE u.symbol = $1 AND e.expiry_date = $2::date
+ );
+`

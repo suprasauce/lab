@@ -198,13 +198,25 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		if args[0].Value == "NIFTY" {
 			r.values = [][]driver.Value{{int64(7), "NIFTY"}}
 		}
+	case strings.Contains(query, "SELECT EXISTS"):
+		r.columns = []string{"exists"}
+		exists := false
+		for _, expiry := range f.expiries {
+			if args[0].Value == "NIFTY" && expiry.Equal(args[1].Value.(time.Time)) {
+				exists = true
+			}
+		}
+		r.values = [][]driver.Value{{exists}}
 	case strings.Contains(query, "FROM lab.option_expiry"):
-		if args[0].Value != int64(7) || args[1].Value.(time.Time).Format(time.DateOnly) != "2026-09-01" || args[2].Value.(time.Time).Format(time.DateOnly) != "2026-10-31" {
-			f.t.Fatalf("script configuration not used: %+v", args)
+		if args[0].Value != int64(7) {
+			f.t.Fatalf("unexpected expiry underlying: %+v", args)
 		}
 		r.columns = []string{"expiry_date"}
+		start, end := args[1].Value.(time.Time), args[2].Value.(time.Time)
 		for _, expiry := range f.expiries {
-			r.values = append(r.values, []driver.Value{expiry})
+			if !expiry.Before(start) && !expiry.After(end) {
+				r.values = append(r.values, []driver.Value{expiry})
+			}
 		}
 	case strings.Contains(query, "FROM lab.underlying_candles"):
 		r.columns = candleColumns()
