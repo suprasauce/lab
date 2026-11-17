@@ -73,7 +73,7 @@ func TestMarketOrderUsesPlacedAt(t *testing.T) {
 			if err := e.advance(marketTime(9, minute)); err != nil {
 				t.Fatal(err)
 			}
-			id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
+			id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,7 +106,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	_, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
+	_, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
 		t.Fatal("wrong completed candle")
 	}
-	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "BUY", 75)
+	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,11 +145,11 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
 	e := executionFixture(t, nil)
 	e.Time = marketTime(9, 15)
-	first, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
+	first, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
+	second, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
 	if err != nil || first == second || len(e.Orders) != 2 || len(e.Positions) != 0 {
 		t.Fatal("requests were deduplicated or executed")
 	}
@@ -165,7 +165,7 @@ func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
+	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
+	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
@@ -227,14 +227,14 @@ func TestMissingOptionCandleDefersExit(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
+	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
 	position := e.Positions[0]
-	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "BUY", 75)
+	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 75)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,21 +277,21 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if err := e.advance(marketTime(9, 15)); err != nil {
 					t.Fatal(err)
 				}
-				entrySide, exitSide := "SELL", "BUY"
+				entryQuantity, exitQuantity := int64(-75), int64(75)
 				if side == models.Long {
-					entrySide, exitSide = "BUY", "SELL"
+					entryQuantity, exitQuantity = 75, -75
 				}
-				if _, err := e.PlaceOrder(tradingSymbol, entrySide, 75); err != nil {
+				if _, err := e.PlaceOrder(tradingSymbol, entryQuantity); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 20)); err != nil {
 					t.Fatal(err)
 				}
 				position := e.Positions[0]
-				if position.Contract.OptionType != optionType || position.Side != side {
+				if position.Contract.OptionType != optionType || position.Quantity != entryQuantity {
 					t.Fatal("incorrect option or side")
 				}
-				if _, err := e.PlaceOrder(tradingSymbol, exitSide, 75); err != nil {
+				if _, err := e.PlaceOrder(tradingSymbol, exitQuantity); err != nil {
 					t.Fatal(err)
 				}
 				if err := e.advance(marketTime(9, 25)); err != nil {
@@ -310,27 +310,24 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 }
 
 func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
-	for _, request := range []struct {
-		side     string
-		quantity int64
-	}{{"BUY", 1}, {"BUY", 100}, {"SELL", 75}} {
+	for _, quantity := range []int64{1, 100, -75} {
 		e := executionFixture(t, nil)
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75); err != nil {
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", request.side, request.quantity); err != nil {
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", quantity); err != nil {
 			t.Fatal("placement should only queue", err)
 		}
 		if err := e.advance(marketTime(9, 25)); err == nil {
 			t.Fatal("unsupported position change executed")
 		}
-		if e.Positions[0].Status != models.TradeOpen || e.Positions[0].Quantity != 75 {
+		if e.Positions[0].Status != models.TradeOpen || e.Positions[0].Quantity != -75 {
 			t.Fatal("position mutated")
 		}
 	}
@@ -341,11 +338,11 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	entryID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "SELL", 75)
+	entryID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", "BUY", 75)
+	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 75)
 	if err != nil {
 		t.Fatal(err)
 	}

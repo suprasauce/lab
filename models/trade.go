@@ -10,10 +10,10 @@ const (
 )
 
 // Trade records the complete lifecycle of a position in one option contract.
+// Quantity is positive for long positions and negative for short positions.
 type Trade struct {
 	ContractID int64
 
-	Side     PositionSide
 	Quantity int64
 
 	EntryTime  time.Time

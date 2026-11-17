@@ -127,8 +127,10 @@ func TestMissingUnderlying(t *testing.T) {
 func TestRuntimeErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
 		{"late configuration", "ctx.configure()", "allowed once during initialize"},
-		{"bad quantity type", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',side='SELL',quantity=1.5)", "quantity"},
-		{"missing trading symbol", "ctx.place_order(side='SELL',quantity=75)", "tradingsymbol"},
+		{"bad quantity type", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',quantity=-1.5)", "quantity"},
+		{"missing trading symbol", "ctx.place_order(quantity=-75)", "tradingsymbol"},
+		{"zero quantity", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',quantity=0)", "nonzero"},
+		{"removed side argument", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',side='SELL',quantity=-75)", "side"},
 		{"unknown order", "ctx.order('unknown')", "unknown order"},
 		{"removed entry API", "ctx.open('L')", "no .open"},
 		{"removed exit API", "ctx.close('L')", "no .close"},

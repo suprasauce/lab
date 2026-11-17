@@ -13,11 +13,11 @@ const (
 	OrderFilled  OrderStatus = "FILLED"
 )
 
-// Order retains the requested trading symbol and placement/execution details.
+// Order retains the trading symbol, signed quantity, and execution details.
+// Positive quantity buys; negative quantity sells.
 type Order struct {
 	TradingSymbol string
 	ID            string
-	Side          string
 	Quantity      int64
 	PlacedAt      time.Time
 	Status        OrderStatus
@@ -36,11 +36,8 @@ func (o Order) Validate() error {
 	if o.TradingSymbol == "" {
 		return fmt.Errorf("tradingsymbol must be nonempty")
 	}
-	if o.Side != "BUY" && o.Side != "SELL" {
-		return fmt.Errorf("invalid side %q: expected BUY or SELL", o.Side)
-	}
-	if o.Quantity <= 0 {
-		return fmt.Errorf("quantity must be positive")
+	if o.Quantity == 0 {
+		return fmt.Errorf("quantity must be nonzero")
 	}
 	return nil
 }

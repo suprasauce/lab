@@ -54,10 +54,13 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 				Underlying:     position.Contract.UnderlyingSymbol,
 				Strike:         json.Number(formatPrice(position.Contract.StrikePrice)),
 				OptionType:     position.Contract.OptionType,
-				Side:           position.Side,
+				Side:           models.Long,
 				EntryTimestamp: position.EntryTime.In(location).Format(time.RFC3339),
 				EntryPrice:     json.Number(formatPrice(position.EntryPrice)),
 				Quantity:       position.Quantity,
+			}
+			if position.Quantity < 0 {
+				trade.Side = models.Short
 			}
 			if position.Status == models.TradeClosed {
 				exitTime := position.ExitTime.In(location).Format(time.RFC3339)

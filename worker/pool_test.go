@@ -26,11 +26,11 @@ def initialize(ctx):
 
 def on_candle(ctx):
     if ctx.time == "09:15":
-        ctx.state["entry"] = ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", side="SELL", quantity=75)
+        ctx.state["entry"] = ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=-75)
     if ctx.time == "09:20":
         entry = ctx.order(ctx.state["entry"])
         if entry.status == "FILLED":
-            ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", side="BUY", quantity=75)
+            ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=75)
 `
 
 func newPoolTest(t *testing.T) (*WorkerPool, sqlmock.Sqlmock, *bytes.Buffer) {

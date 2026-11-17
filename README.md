@@ -154,3 +154,6 @@ Run tests with `go test ./...`.
 
 The simulation exposes `ctx.date` (`YYYY-MM-DD`) and `ctx.time` (`HH:mm`) in IST.
 Expiry objects expose `.date`, `.underlying`, and `.get_dte(ctx.date)` for calendar-day DTE; `ctx.dte` is no longer available.
+
+Orders use signed quantities: `ctx.place_order(tradingsymbol=symbol, quantity=-75)` sells,
+and `quantity=75` buys. There is no `side` argument. Trades retain their original signed quantity after closing.
