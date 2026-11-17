@@ -170,3 +170,14 @@ const queryOptionExpiryExists = `
   WHERE u.symbol = $1 AND e.expiry_date = $2::date
  );
 `
+
+const queryGetOptionDeltaCandidates = `
+ SELECT c.tradingsymbol, c.strike_price, oc.close
+ FROM lab.option_contracts AS c
+ JOIN lab.option_expiry AS e ON e.id = c.expiry_id
+ JOIN lab.option_candles AS oc ON oc.option_contract_id = c.id
+ WHERE c.underlying_id = $1 AND e.underlying_id = $1
+   AND e.expiry_date = $2::date AND c.option_type = $3
+   AND oc.timeframe = '5m' AND oc.start_time = $4
+ ORDER BY c.strike_price ASC, c.id ASC;
+`

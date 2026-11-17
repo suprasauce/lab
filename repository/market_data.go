@@ -304,3 +304,31 @@ func (r *Repository) GetOptionCandles(
 	}
 	return candles, nil
 }
+
+// OptionDeltaCandidate pairs a contract with its premium at a single candle timestamp.
+type OptionDeltaCandidate struct {
+	TradingSymbol string
+	StrikePrice   models.Price
+	Premium       models.Price
+}
+
+func (r *Repository) GetOptionDeltaCandidates(ctx context.Context, underlyingID int64, expiry time.Time, optionType models.OptionType, candleTime time.Time) ([]OptionDeltaCandidate, error) {
+	r.logger.DebugContext(ctx, "fetching delta candidates", "underlying_id", underlyingID, "expiry", expiry, "option_type", optionType, "candle_time", candleTime)
+	rows, err := r.db.QueryContext(ctx, queryGetOptionDeltaCandidates, underlyingID, expiry, optionType, candleTime)
+	if err != nil {
+		return nil, fmt.Errorf("query delta candidates: %w", err)
+	}
+	defer rows.Close()
+	candidates := make([]OptionDeltaCandidate, 0)
+	for rows.Next() {
+		var candidate OptionDeltaCandidate
+		if err := rows.Scan(&candidate.TradingSymbol, &candidate.StrikePrice, &candidate.Premium); err != nil {
+			return nil, fmt.Errorf("scan delta candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate delta candidates: %w", err)
+	}
+	return candidates, nil
+}
