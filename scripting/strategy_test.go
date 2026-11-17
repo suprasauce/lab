@@ -22,6 +22,7 @@ def initialize(ctx):
     ctx.configure()
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
         ctx.clear_state()
+        ctx.state["expiry"] = expiry
         ctx.simulate(expiry)
 `
 
@@ -85,9 +86,9 @@ func TestStatePersistsWithExplicitExpiryReset(t *testing.T) {
 	source := setup + `    ctx.state["initial"] = 123
 
 def on_candle(ctx):
-    if ctx.dte == 45 and ctx.time == "09:15":
-        if len(ctx.state) != 0:
-            fail("expiry state must start empty")
+    if ctx.state["expiry"].get_dte(ctx.date) == 45 and ctx.time == "09:15":
+        if len(ctx.state) != 1:
+            fail("expiry state must start with only its expiry")
         ctx.state["counter"] = 0
         ctx.state["label"] = "fresh"
         ctx.state[1] = {"items": [], "pair": (1, "value")}

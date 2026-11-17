@@ -24,13 +24,14 @@ export const starterStrategy = `def initialize(ctx):
 
 def on_candle(ctx):
     expiry = ctx.state["expiry"]
+    dte = expiry.get_dte(ctx.date)
 
     # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
-    if 21 < ctx.dte <= 45 and ctx.time > "09:30":
+    if 21 < dte <= 45 and ctx.time > "09:30":
         if "entry_order_id" not in ctx.state:
             symbol = ctx.option_chain(
-                underlying=expiry["underlying"],
-                expiry=expiry["date"],
+                underlying=expiry.underlying,
+                expiry=expiry.date,
                 option_type="CE",
                 filter=filter(type="offset", value=2),
             )
@@ -44,7 +45,7 @@ def on_candle(ctx):
                 )
 
     # Close at or below 21 DTE, from 15:15 onward.
-    if ctx.dte <= 21 and ctx.time >= "15:15":
+    if dte <= 21 and ctx.time >= "15:15":
         if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
             entry = ctx.order(ctx.state["entry_order_id"])
 

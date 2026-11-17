@@ -16,16 +16,16 @@ def initialize(ctx):
     print("initialize")
     ctx.configure()
     expiries = ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")
-    if expiries != [{"date": "2026-09-29", "underlying": "NIFTY"}, {"date": "2026-10-27", "underlying": "NIFTY"}]:
+    if [(e.date, e.underlying) for e in expiries] != [("2026-09-29", "NIFTY"), ("2026-10-27", "NIFTY")]:
         fail("incorrect expiries")
     for expiry in reversed(expiries):
-        print("start " + expiry["date"])
+        print("start " + expiry.date)
         ctx.clear_state()
         ctx.state["expiry"] = expiry
         ctx.simulate(expiry)
         if "visited" not in ctx.state:
             fail("simulate returned before callbacks")
-        print("done " + expiry["date"])
+        print("done " + expiry.date)
 
 def on_candle(ctx):
     if "expiry" not in ctx.state:
@@ -58,10 +58,10 @@ func TestSimulationAPIErrors(t *testing.T) {
 		{"invalid start", `ctx.get_expiries(underlying="NIFTY", start="bad", end="2026-10-31")`, "pass", "start:"},
 		{"invalid end", `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="bad")`, "pass", "end:"},
 		{"reversed range", `ctx.get_expiries(underlying="NIFTY", start="2026-10-31", end="2026-09-01")`, "pass", "must not be after"},
-		{"invalid expiry", `ctx.simulate({"date":"bad", "underlying":"NIFTY"})`, "pass", "expiry:"},
-		{"callback failure", `ctx.simulate({"date":"2026-09-29", "underlying":"NIFTY"})`, `fail("callback failed")`, "callback failed"},
-		{"nested simulation", `ctx.simulate({"date":"2026-09-29", "underlying":"NIFTY"})`, `ctx.simulate({"date":"2026-10-27", "underlying":"NIFTY"})`, "simulate requires configure during initialize"},
-		{"late discovery", `ctx.simulate({"date":"2026-09-29", "underlying":"NIFTY"})`, `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
+		{"invalid expiry", `ctx.simulate({"date":"bad", "underlying":"NIFTY"})`, "pass", "expiry object"},
+		{"callback failure", `ctx.simulate(ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0])`, `fail("callback failed")`, "callback failed"},
+		{"nested simulation", `ctx.simulate(ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0])`, `ctx.simulate(None)`, "simulate requires configure during initialize"},
+		{"late discovery", `ctx.simulate(ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0])`, `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -108,7 +108,7 @@ def initialize(ctx):
         fail("state did not persist across expiries")
 
 def on_candle(ctx):
-    if ctx.dte == 45 and ctx.time == "09:15":
+    if ctx.state["expiry"].get_dte(ctx.date) == 45 and ctx.time == "09:15":
         ctx.state["expiry_count"] += 1
 `)
 	if err != nil {

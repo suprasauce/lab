@@ -62,7 +62,7 @@ func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, 
 	if !exists {
 		return nil, fmt.Errorf("expiry %s does not exist for %s", expiry.Format(time.DateOnly), symbol)
 	}
-	execution := newExecution(ctx, e.marketDataRepository, expiry)
+	execution := newExecution(ctx, e.marketDataRepository)
 	err = e.backtestExpiry(ctx, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
 		if err := execution.advance(at); err != nil {
 			return err

@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -25,9 +26,9 @@ type Order struct {
 	FillPrice     Price
 }
 
-// GenerateID assigns an ID scoped to the expiry and order sequence.
-func (o *Order) GenerateID(expiry time.Time, sequence int) {
-	o.ID = fmt.Sprintf("%s/%d", expiry.Format(time.DateOnly), sequence)
+// GenerateID assigns a sequential ID scoped to one execution.
+func (o *Order) GenerateID(sequence int) {
+	o.ID = strconv.Itoa(sequence)
 }
 
 // Validate checks order inputs without resolving contracts or inspecting positions.

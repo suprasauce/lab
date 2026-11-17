@@ -51,14 +51,14 @@ def on_candle(ctx):
     pass
 ```
 
-`get_expiries` returns chronological dictionaries such as
-`{"date": "2026-03-30", "underlying": "NIFTY"}`, with inclusive date boundaries.
+`get_expiries` returns chronological expiry objects with `.date`, `.underlying`,
+and `.get_dte(ctx.date)`, with inclusive date boundaries.
 `simulate` uses that object's underlying. `configure()` takes no arguments.
 Each returned trade uses its contract's underlying symbol, allowing different
 underlyings across expiry simulations. The script chooses which dates to simulate and in what order.
 Discovery and simulation are allowed only during initialization, after configure.
 Call `ctx.clear_state()` before each simulation when independent script state is
-needed, then assign values such as `ctx.state["expiry"] = expiry["date"]`. The dictionary
+needed, then assign values such as `ctx.state["expiry"] = expiry.date`. The dictionary
 is cleared in place, so existing references see the cleared contents too.
 Existing saved scripts must move date ranges out of `configure` and explicitly
 call `simulate`; there is no automatic expiry loop. `ctx.time` remains an HH:mm
@@ -151,3 +151,6 @@ The server listens on port 8080. API contracts are documented in [spec/openapi.y
 The queue is in memory. On startup, the worker reloads all `PENDING` backtest IDs from PostgreSQL, oldest first, and queues them for execution. Interrupted backtests restart from the beginning. There is no `RUNNING` status or automatic retry during normal operation.
 
 Run tests with `go test ./...`.
+
+The simulation exposes `ctx.date` (`YYYY-MM-DD`) and `ctx.time` (`HH:mm`) in IST.
+Expiry objects expose `.date`, `.underlying`, and `.get_dte(ctx.date)` for calendar-day DTE; `ctx.dte` is no longer available.

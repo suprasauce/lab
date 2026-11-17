@@ -19,16 +19,14 @@ type Position struct {
 // Execution contains fresh orders and position history for one expiry.
 type Execution struct {
 	Time      time.Time
-	DTE       int
 	Orders    []*Order
 	Positions []*Position
 	ctx       context.Context
 	repo      *repository.Repository
-	expiry    time.Time
 }
 
-func newExecution(ctx context.Context, repo *repository.Repository, expiry time.Time) *Execution {
-	return &Execution{ctx: ctx, repo: repo, expiry: expiry}
+func newExecution(ctx context.Context, repo *repository.Repository) *Execution {
+	return &Execution{ctx: ctx, repo: repo}
 }
 
 // PlaceOrder queues an opaque trading symbol without resolving or executing it.
@@ -37,7 +35,7 @@ func (e *Execution) PlaceOrder(tradingSymbol, side string, quantity int64) (stri
 	if err := order.Validate(); err != nil {
 		return "", err
 	}
-	order.GenerateID(e.expiry, len(e.Orders)+1)
+	order.GenerateID(len(e.Orders) + 1)
 	order.PlacedAt = e.Time
 	order.Status = models.OrderPending
 	e.Orders = append(e.Orders, order)
@@ -59,7 +57,6 @@ func (e *Execution) advance(at time.Time) error {
 		position.Candle = nil
 	}
 	e.Time = at
-	e.DTE = int(calendarDate(e.expiry).Sub(calendarDate(at)) / (24 * time.Hour))
 	if err := e.loadCompletedCandles(); err != nil {
 		return err
 	}

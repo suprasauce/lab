@@ -36,7 +36,7 @@ func executionFixture(t *testing.T, missing map[time.Time]bool) *Execution {
 			default:
 				return rows, nil
 			}
-			rows.values = []driver.Value{id, int64(7), int64(9), execution.expiry, int64(2260000), kind, "NIFTY"}
+			rows.values = []driver.Value{id, int64(7), int64(9), time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation), int64(2260000), kind, "NIFTY"}
 			return rows, nil
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
@@ -62,7 +62,7 @@ func executionFixture(t *testing.T, missing map[time.Time]bool) *Execution {
 	}})
 	t.Cleanup(func() { db.Close() })
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	execution = newExecution(context.Background(), repo, time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation))
+	execution = newExecution(context.Background(), repo)
 	return execution
 }
 
@@ -261,7 +261,7 @@ func TestAdvancePropagatesCandleQueryFailure(t *testing.T) {
 	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return nil, failure }})
 	defer db.Close()
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	e := newExecution(context.Background(), repo, marketTime(0, 0))
+	e := newExecution(context.Background(), repo)
 	e.Positions = []*Position{{Trade: models.Trade{ContractID: 101, Status: models.TradeOpen}}}
 	if err := e.advance(marketTime(9, 20)); !errors.Is(err, failure) {
 		t.Fatalf("database failure was not propagated: %v", err)
