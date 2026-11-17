@@ -30,7 +30,7 @@ func (*strategyContext) Hash() (uint32, error) {
 	return 0, fmt.Errorf("strategy context is unhashable")
 }
 func (*strategyContext) AttrNames() []string {
-	return []string{"configure", "option_chain", "get_expiries", "simulate", "place_order", "order", "state", "clear_state", "time", "date"}
+	return []string{"configure", "option_chain", "get_expiries", "simulate", "place_order", "order", "get_positions", "state", "clear_state", "time", "date"}
 }
 
 func (c *strategyContext) Attr(name string) (starlark.Value, error) {
@@ -47,6 +47,8 @@ func (c *strategyContext) Attr(name string) (starlark.Value, error) {
 		return starlark.NewBuiltin(name, c.configure), nil
 	case "place_order":
 		return starlark.NewBuiltin(name, c.placeOrder), nil
+	case "get_positions":
+		return starlark.NewBuiltin(name, c.getPositions), nil
 	case "order":
 		return starlark.NewBuiltin(name, c.order), nil
 	case "state":

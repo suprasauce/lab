@@ -12,8 +12,9 @@ import (
 // Position reuses Trade's complete entry/exit lifecycle and price representation.
 type Position struct {
 	models.Trade
-	Contract *models.Option
-	Candle   *models.Candle
+	TradingSymbol string
+	Contract      *models.Option
+	Candle        *models.Candle
 }
 
 // Execution contains fresh orders and position history for one expiry.
@@ -40,6 +41,17 @@ func (e *Execution) PlaceOrder(tradingSymbol string, quantity int64) (string, er
 	order.Status = models.OrderPending
 	e.Orders = append(e.Orders, order)
 	return order.ID, nil
+}
+
+// GetPositions returns matching open and closed positions in creation order.
+func (e *Execution) GetPositions(tradingSymbol string) []*Position {
+	positions := make([]*Position, 0)
+	for _, position := range e.Positions {
+		if position.TradingSymbol == tradingSymbol {
+			positions = append(positions, position)
+		}
+	}
+	return positions
 }
 
 func (e *Execution) Order(id string) (*Order, error) {
@@ -141,7 +153,7 @@ func (e *Execution) fillOrder(order *Order) error {
 			return nil
 		}
 		fill = candles[0]
-		position = &Position{Contract: order.Contract, Trade: models.Trade{ContractID: order.Contract.ID, Quantity: order.Quantity, EntryTime: fill.Timestamp, EntryPrice: fill.Open, Status: models.TradeOpen}}
+		position = &Position{TradingSymbol: order.TradingSymbol, Contract: order.Contract, Trade: models.Trade{ContractID: order.Contract.ID, Quantity: order.Quantity, EntryTime: fill.Timestamp, EntryPrice: fill.Open, Status: models.TradeOpen}}
 		position.Candle = &fill
 		e.Positions = append(e.Positions, position)
 	}

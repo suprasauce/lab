@@ -62,7 +62,7 @@ needed, then assign values such as `ctx.state["expiry"] = expiry.date`. The dict
 is cleared in place, so existing references see the cleared contents too.
 Existing saved scripts must move date ranges out of `configure` and explicitly
 call `simulate`; there is no automatic expiry loop. `ctx.time` remains an HH:mm
-string. No position-query or close-all API is added.
+string. No close-all API is added.
 
 ## How the simulation works
 
@@ -157,3 +157,9 @@ Expiry objects expose `.date`, `.underlying`, and `.get_dte(ctx.date)` for calen
 
 Orders use signed quantities: `ctx.place_order(tradingsymbol=symbol, quantity=-75)` sells,
 and `quantity=75` buys. There is no `side` argument. Trades retain their original signed quantity after closing.
+
+During `on_candle`, `ctx.get_positions(tradingsymbol)` returns open and closed positions
+for that symbol in the current expiry execution, in creation order. Each read-only snapshot
+exposes `status`, signed `quantity`, `entry_price`, `exit_price`, and `curr_price`.
+Prices are in rupees. Open positions have `exit_price=None`; `curr_price` is the completed
+option candle's Close, or `None` when missing or closed. No matches returns an empty list.

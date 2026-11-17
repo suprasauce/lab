@@ -288,6 +288,9 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 					t.Fatal(err)
 				}
 				position := e.Positions[0]
+				if got := e.GetPositions(tradingSymbol); len(got) != 1 || got[0] != position {
+					t.Fatal("filled position not indexed by trading symbol")
+				}
 				if position.Contract.OptionType != optionType || position.Quantity != entryQuantity {
 					t.Fatal("incorrect option or side")
 				}
