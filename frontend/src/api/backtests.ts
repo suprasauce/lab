@@ -8,21 +8,6 @@ export interface BacktestListItem {
   created_at: string
 }
 
-// Historical results remain readable in their original entry/exit format.
-export interface LegacyBacktestTrade {
-  expiry: string
-  underlying: string
-  strike: number
-  option_type: 'CALL' | 'PUT'
-  side: 'LONG' | 'SHORT'
-  entry_timestamp: string
-  exit_timestamp: string | null
-  entry_price: number
-  exit_price: number | null
-  quantity: number
-  pnl: number | null
-}
-
 export interface BacktestTrade {
   id: string
   simulation_id: string
@@ -38,11 +23,13 @@ export interface BacktestPosition {
   quantity: number
   average_price: number
   realized_pnl: number
+  unrealized_pnl?: number | null
+  total_pnl?: number | null
 }
 
 export type Backtest = { script: string } & (
   | { id: string; status: 'PENDING' }
-  | { id: string; status: 'COMPLETED'; summary: { total_trades: number; total_pnl: number }; trades: (BacktestTrade | LegacyBacktestTrade)[]; positions?: BacktestPosition[] }
+  | { id: string; status: 'COMPLETED'; summary: { total_trades: number; total_pnl: number }; trades: BacktestTrade[]; positions: BacktestPosition[] }
   | { id: string; status: 'FAILED'; error?: string }
 )
 
