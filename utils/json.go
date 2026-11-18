@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sort"
 	"time"
 
 	"optionsbacktest/engine"
@@ -16,21 +17,24 @@ type backtestSummary struct {
 }
 
 type backtestTrade struct {
-	Expiry         string              `json:"expiry"`
-	Underlying     string              `json:"underlying"`
-	Strike         json.Number         `json:"strike"`
-	OptionType     models.OptionType   `json:"option_type"`
-	Side           models.PositionSide `json:"side"`
-	EntryTimestamp string              `json:"entry_timestamp"`
-	ExitTimestamp  *string             `json:"exit_timestamp"`
-	EntryPrice     json.Number         `json:"entry_price"`
-	ExitPrice      *json.Number        `json:"exit_price"`
-	Quantity       int64               `json:"quantity"`
-	PnL            *json.Number        `json:"pnl"`
+	ID            string      `json:"id"`
+	SimulationID  string      `json:"simulation_id"`
+	TradingSymbol string      `json:"tradingsymbol"`
+	Timestamp     string      `json:"timestamp"`
+	Price         json.Number `json:"price"`
+	Quantity      int64       `json:"quantity"`
 }
 
-// MarshalBacktestResult preserves result fields, IST timestamps, and exact rupee decimals.
-// Open positions have null exit fields and P&L and contribute no realized P&L.
+type backtestPosition struct {
+	SimulationID  string      `json:"simulation_id"`
+	TradingSymbol string      `json:"tradingsymbol"`
+	Quantity      int64       `json:"quantity"`
+	AveragePrice  json.Number `json:"average_price"`
+	RealizedPnL   json.Number `json:"realized_pnl"`
+}
+
+// MarshalBacktestResult serializes positions and fills without pairing trades.
+// Prices and realized P&L are in rupees with exact paise precision.
 func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 	if result == nil {
 		return nil, fmt.Errorf("backtest result cannot be nil")
@@ -40,36 +44,36 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 		return nil, fmt.Errorf("load result timezone: %w", err)
 	}
 	output := struct {
-		Summary backtestSummary `json:"summary"`
-		Trades  []backtestTrade `json:"trades"`
-	}{Trades: make([]backtestTrade, 0)}
+		Summary   backtestSummary    `json:"summary"`
+		Positions []backtestPosition `json:"positions"`
+		Trades    []backtestTrade    `json:"trades"`
+	}{Positions: make([]backtestPosition, 0), Trades: make([]backtestTrade, 0)}
 	totalPnL := new(big.Int)
-	for _, cycle := range result.Executions {
-		for _, position := range cycle {
-			if position == nil || position.Contract == nil {
-				return nil, fmt.Errorf("backtest position has no contract")
+	for _, simulation := range result.Executions {
+		if simulation == nil {
+			return nil, fmt.Errorf("backtest execution is nil")
+		}
+		// Position histories are grouped by symbol internally; order fills by timestamp for display.
+		fills := make([]models.Trade, 0)
+		for _, position := range simulation.Positions {
+			if position == nil {
+				return nil, fmt.Errorf("backtest position is nil")
 			}
-			trade := backtestTrade{
-				Expiry:         position.Contract.Expiry.Format(time.DateOnly),
-				Underlying:     position.Contract.UnderlyingSymbol,
-				Strike:         json.Number(formatPrice(position.Contract.StrikePrice)),
-				OptionType:     position.Contract.OptionType,
-				Side:           models.Long,
-				EntryTimestamp: position.EntryTime.In(location).Format(time.RFC3339),
-				EntryPrice:     json.Number(formatPrice(position.EntryPrice)),
-				Quantity:       position.Quantity,
-			}
-			if position.Quantity < 0 {
-				trade.Side = models.Short
-			}
-			if position.Status == models.TradeClosed {
-				exitTime := position.ExitTime.In(location).Format(time.RFC3339)
-				exitPrice := json.Number(formatPrice(position.ExitPrice))
-				pnl := json.Number(formatPrice(position.PnL))
-				trade.ExitTimestamp, trade.ExitPrice, trade.PnL = &exitTime, &exitPrice, &pnl
-				totalPnL.Add(totalPnL, big.NewInt(int64(position.PnL)))
-			}
-			output.Trades = append(output.Trades, trade)
+			output.Positions = append(output.Positions, backtestPosition{
+				SimulationID: position.SimulationID, TradingSymbol: position.TradingSymbol,
+				Quantity: position.Quantity, AveragePrice: json.Number(formatPrice(position.AveragePrice)),
+				RealizedPnL: json.Number(formatPrice(position.RealizedPnL)),
+			})
+			totalPnL.Add(totalPnL, big.NewInt(int64(position.RealizedPnL)))
+			fills = append(fills, position.Trades...)
+		}
+		sort.SliceStable(fills, func(i, j int) bool { return fills[i].Timestamp.Before(fills[j].Timestamp) })
+		for _, fill := range fills {
+			output.Trades = append(output.Trades, backtestTrade{
+				ID: fill.ID, SimulationID: fill.SimulationID, TradingSymbol: fill.TradingSymbol,
+				Timestamp: fill.Timestamp.In(location).Format(time.RFC3339),
+				Price:     json.Number(formatPrice(fill.Price)), Quantity: fill.Quantity,
+			})
 		}
 	}
 	output.Summary.TotalTrades = len(output.Trades)
@@ -77,6 +81,4 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 	return json.Marshal(output)
 }
 
-func formatPrice(price models.Price) string {
-	return big.NewRat(int64(price), 100).FloatString(2)
-}
+func formatPrice(price models.Price) string { return big.NewRat(int64(price), 100).FloatString(2) }

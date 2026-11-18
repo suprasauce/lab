@@ -10,9 +10,9 @@ import (
 
 func positionContext() *strategyContext {
 	return &strategyContext{execution: &engine.Execution{Positions: []*engine.Position{
-		{TradingSymbol: "CE", Trade: models.Trade{Status: models.TradeClosed, Quantity: -75, EntryPrice: 15050, ExitPrice: 11025}, Candle: &models.Candle{Close: 99999}},
-		{TradingSymbol: "PE", Trade: models.Trade{Status: models.TradeOpen, Quantity: -75}},
-		{TradingSymbol: "CE", Trade: models.Trade{Status: models.TradeOpen, Quantity: 75, EntryPrice: 12025}, Candle: &models.Candle{Close: 13050}},
+		{TradingSymbol: "CLOSED", SimulationID: "1", Quantity: 0, AveragePrice: 15050, RealizedPnL: 10000, Candle: &models.Candle{Close: 99999}},
+		{TradingSymbol: "PE", Quantity: -75},
+		{TradingSymbol: "CE", SimulationID: "1", Quantity: 75, AveragePrice: 12025, Candle: &models.Candle{Close: 13050}},
 	}}}
 }
 
@@ -21,20 +21,21 @@ func TestGetPositions(t *testing.T) {
 	_, err := starlark.ExecFile(&starlark.Thread{}, "positions.star", `
 def check(ctx):
     positions = ctx.get_positions(tradingsymbol="CE")
-    if len(positions) != 2:
+    if len(positions) != 1:
         fail("incorrect symbol filter")
-    closed, opened = positions
+    closed = ctx.get_positions("CLOSED")[0]
+    opened = positions[0]
     missing = ctx.get_positions("PE")[0]
-    if closed.status != "CLOSED" or closed.quantity != -75 or closed.entry_price != 150.50 or closed.exit_price != 110.25 or closed.curr_price != None:
+    if closed.simulation_id != "1" or closed.realized_pnl != 100 or closed.status != "CLOSED" or closed.quantity != 0 or closed.average_price != 150.50 or closed.curr_price != None:
         fail("incorrect closed position")
-    if opened.status != "OPEN" or opened.quantity != 75 or opened.entry_price != 120.25 or opened.exit_price != None or opened.curr_price != 130.50:
+    if opened.status != "OPEN" or opened.quantity != 75 or opened.average_price != 120.25 or opened.curr_price != 130.50:
         fail("incorrect open position")
-    if missing.quantity != -75 or missing.curr_price != None or missing.exit_price != None:
+    if missing.quantity != -75 or missing.curr_price != None:
         fail("incorrect missing candle handling")
     if ctx.get_positions("unknown") != []:
         fail("expected empty list")
     positions.clear()
-    if len(ctx.get_positions("CE")) != 2:
+    if len(ctx.get_positions("CE")) != 1:
         fail("list mutation modified execution")
 check(ctx)
 `, starlark.StringDict{"ctx": c})
@@ -47,7 +48,11 @@ func TestGetPositionsErrors(t *testing.T) {
 	for _, expression := range []string{
 		`ctx.get_positions()`,
 		`ctx.get_positions(123)`,
+		`ctx.get_positions("CE")[0].entry_price`,
+		`ctx.get_positions("CE")[0].exit_price`,
 		`ctx.get_positions("CE")[0].quantity = 10`,
+		`ctx.get_positions("CE")[0].entry_price`,
+		`ctx.get_positions("CE")[0].exit_price`,
 	} {
 		_, err := starlark.ExecFile(&starlark.Thread{}, "positions.star", expression, starlark.StringDict{"ctx": positionContext()})
 		if err == nil {

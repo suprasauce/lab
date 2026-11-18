@@ -9,16 +9,9 @@ import (
 	"optionsbacktest/repository"
 )
 
-// Position reuses Trade's complete entry/exit lifecycle and price representation.
-type Position struct {
-	models.Trade
-	TradingSymbol string
-	Contract      *models.Option
-	Candle        *models.Candle
-}
-
 // Execution contains fresh orders and position history for one expiry.
 type Execution struct {
+	ID        string
 	Time      time.Time
 	Orders    []*Order
 	Positions []*Position
@@ -26,8 +19,8 @@ type Execution struct {
 	repo      *repository.Repository
 }
 
-func newExecution(ctx context.Context, repo *repository.Repository) *Execution {
-	return &Execution{ctx: ctx, repo: repo}
+func newExecution(ctx context.Context, repo *repository.Repository, simulationID string) *Execution {
+	return &Execution{ID: simulationID, ctx: ctx, repo: repo}
 }
 
 // PlaceOrder queues an opaque trading symbol without resolving or executing it.
@@ -43,7 +36,7 @@ func (e *Execution) PlaceOrder(tradingSymbol string, quantity int64) (string, er
 	return order.ID, nil
 }
 
-// GetPositions returns matching open and closed positions in creation order.
+// GetPositions returns the matching position, if any, whether open or closed.
 func (e *Execution) GetPositions(tradingSymbol string) []*Position {
 	positions := make([]*Position, 0)
 	for _, position := range e.Positions {
@@ -81,12 +74,16 @@ func (e *Execution) loadCompletedCandles() error {
 		return nil
 	}
 	for _, position := range e.Positions {
-		if position.Status != models.TradeOpen {
+		if position.Quantity == 0 {
 			continue
 		}
-		candles, err := e.repo.GetOptionCandles(e.ctx, position.ContractID, start, start, models.Timeframe5m)
+		contract, err := e.resolveContract(position.TradingSymbol)
 		if err != nil {
-			return fmt.Errorf("completed option candle for contract %d: %w", position.ContractID, err)
+			return fmt.Errorf("position contract: %w", err)
+		}
+		candles, err := e.repo.GetOptionCandles(e.ctx, contract.ID, start, start, models.Timeframe5m)
+		if err != nil {
+			return fmt.Errorf("completed option candle for contract %d: %w", contract.ID, err)
 		}
 		if len(candles) == 0 {
 			continue
@@ -111,22 +108,22 @@ func (e *Execution) fillOrders() error {
 // subsequent advance can fill them. Selected contracts are retained while waiting.
 func (e *Execution) fillOrder(order *Order) error {
 	if order.Contract == nil {
-		contract, err := e.repo.GetOptionContractByTradingSymbol(e.ctx, order.TradingSymbol)
+		contract, err := e.resolveContract(order.TradingSymbol)
 		if err != nil {
 			return fmt.Errorf("resolve option contract: %w", err)
 		}
-		order.Contract = &contract
+		order.Contract = contract
 	}
 
 	var position *Position
 	for _, candidate := range e.Positions {
-		if candidate.ContractID == order.Contract.ID && candidate.Status == models.TradeOpen {
+		if candidate.TradingSymbol == order.TradingSymbol {
 			position = candidate
 			break
 		}
 	}
 	var fill models.Candle
-	if position != nil {
+	if position != nil && position.Quantity != 0 {
 		closing := position.Quantity < 0 && order.Quantity > 0 || position.Quantity > 0 && order.Quantity < 0
 		if !closing {
 			return fmt.Errorf("increasing an existing position is not supported")
@@ -138,9 +135,9 @@ func (e *Execution) fillOrder(order *Order) error {
 			return nil
 		}
 		fill = *position.Candle
-		position.ExitTime, position.ExitPrice = fill.Timestamp, fill.Open
-		position.PnL = (position.ExitPrice - position.EntryPrice) * models.Price(position.Quantity)
-		position.Status = models.TradeClosed
+		position.RealizedPnL += (fill.Open - position.AveragePrice) * models.Price(position.Quantity)
+		position.Quantity = 0
+		position.Candle = nil
 	} else {
 		start := e.Time.Add(-candleInterval)
 		// Query only the current completed window [start, e.Time). The repository
@@ -153,10 +150,31 @@ func (e *Execution) fillOrder(order *Order) error {
 			return nil
 		}
 		fill = candles[0]
-		position = &Position{TradingSymbol: order.TradingSymbol, Contract: order.Contract, Trade: models.Trade{ContractID: order.Contract.ID, Quantity: order.Quantity, EntryTime: fill.Timestamp, EntryPrice: fill.Open, Status: models.TradeOpen}}
+		if position == nil {
+			position = &Position{SimulationID: e.ID, TradingSymbol: order.TradingSymbol}
+			e.Positions = append(e.Positions, position)
+		}
+		position.Quantity, position.AveragePrice = order.Quantity, fill.Open
 		position.Candle = &fill
-		e.Positions = append(e.Positions, position)
 	}
+	position.Trades = append(position.Trades, models.Trade{
+		ID: fmt.Sprintf("%s/%s", e.ID, order.ID), SimulationID: e.ID,
+		TradingSymbol: order.TradingSymbol, Timestamp: fill.Timestamp, Price: fill.Open, Quantity: order.Quantity,
+	})
 	order.FilledAt, order.FillPrice, order.Status = fill.Timestamp, fill.Open, models.OrderFilled
 	return nil
+}
+
+// Reuse metadata already resolved for an order; positions only retain the symbol.
+func (e *Execution) resolveContract(tradingSymbol string) (*models.Option, error) {
+	for _, order := range e.Orders {
+		if order.TradingSymbol == tradingSymbol && order.Contract != nil {
+			return order.Contract, nil
+		}
+	}
+	contract, err := e.repo.GetOptionContractByTradingSymbol(e.ctx, tradingSymbol)
+	if err != nil {
+		return nil, err
+	}
+	return &contract, nil
 }

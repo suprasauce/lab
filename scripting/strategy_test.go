@@ -77,7 +77,7 @@ func TestNoEntryCreatesNoPositions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Executions) != 2 || len(result.Executions[0]) != 0 || len(result.Executions[1]) != 0 || f.contractQueries != 0 {
+	if len(result.Executions) != 2 || len(result.Executions[0].Positions) != 0 || len(result.Executions[1].Positions) != 0 || f.contractQueries != 0 {
 		t.Fatal("created positions without orders")
 	}
 }

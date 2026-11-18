@@ -3,7 +3,6 @@ package utils
 import (
 	"bytes"
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 
@@ -12,22 +11,17 @@ import (
 )
 
 func backtestResult() *engine.BacktestResult {
-	contract := &models.Option{ID: 101, UnderlyingSymbol: "NIFTY", StrikePrice: 2500005, OptionType: models.Call, Expiry: time.Date(2026, 1, 27, 0, 0, 0, 0, time.UTC)}
-
-	return &engine.BacktestResult{Executions: [][]*engine.Position{{
-		{Contract: contract, Trade: models.Trade{ContractID: 101, Quantity: -75,
-			EntryTime: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), EntryPrice: 12705,
-			ExitTime: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), ExitPrice: 8010,
-			Status: models.TradeClosed, PnL: 352125}},
-		{Contract: contract, Trade: models.Trade{ContractID: 101, Quantity: 1,
-			EntryTime: time.Date(2026, 1, 7, 3, 45, 0, 0, time.UTC), EntryPrice: 29, Status: models.TradeOpen}},
-	}}}
-
+	return &engine.BacktestResult{Executions: []*engine.Execution{{ID: "1", Positions: []*engine.Position{
+		{SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, AveragePrice: 29, RealizedPnL: 352125, Trades: []models.Trade{
+			{ID: "1/1", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: -75, Timestamp: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), Price: 12705},
+			{ID: "1/2", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 75, Timestamp: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), Price: 8010},
+			{ID: "1/3", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, Timestamp: time.Date(2026, 1, 7, 3, 45, 0, 0, time.UTC), Price: 29},
+		}},
+	}}}}
 }
 
 func TestMarshalBacktestResult(t *testing.T) {
-	result := backtestResult()
-	payload, err := MarshalBacktestResult(result)
+	payload, err := MarshalBacktestResult(backtestResult())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,64 +30,70 @@ func TestMarshalBacktestResult(t *testing.T) {
 			TotalTrades int         `json:"total_trades"`
 			TotalPnL    json.Number `json:"total_pnl"`
 		} `json:"summary"`
-		Trades []map[string]any `json:"trades"`
+		Positions []map[string]any `json:"positions"`
+		Trades    []map[string]any `json:"trades"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.UseNumber()
 	if err := decoder.Decode(&output); err != nil {
 		t.Fatal(err)
 	}
-	if output.Summary.TotalTrades != 2 || output.Summary.TotalPnL.String() != "3521.25" {
-		t.Fatalf("incorrect summary: %+v", output.Summary)
+	if output.Summary.TotalTrades != 3 || output.Summary.TotalPnL.String() != "3521.25" || len(output.Positions) != 1 {
+		t.Fatalf("incorrect result: %s", payload)
 	}
-	expected := []map[string]any{
-		{"expiry": "2026-01-27", "underlying": "NIFTY", "strike": json.Number("25000.05"), "option_type": "CALL", "side": "SHORT", "entry_timestamp": "2026-01-01T09:15:00+05:30", "exit_timestamp": "2026-01-06T09:20:00+05:30", "entry_price": json.Number("127.05"), "exit_price": json.Number("80.10"), "quantity": json.Number("-75"), "pnl": json.Number("3521.25")},
-		{"expiry": "2026-01-27", "underlying": "NIFTY", "strike": json.Number("25000.05"), "option_type": "CALL", "side": "LONG", "entry_timestamp": "2026-01-07T09:15:00+05:30", "exit_timestamp": nil, "entry_price": json.Number("0.29"), "exit_price": nil, "quantity": json.Number("1"), "pnl": nil},
+	position := output.Positions[0]
+	if len(position) != 5 || position["simulation_id"] != "1" || position["quantity"] != json.Number("1") || position["average_price"] != json.Number("0.29") || position["realized_pnl"] != json.Number("3521.25") {
+		t.Fatalf("incorrect position: %v", position)
 	}
-	if !reflect.DeepEqual(output.Trades, expected) {
-		t.Fatalf("trades=%v; want %v", output.Trades, expected)
+	first := output.Trades[0]
+	if len(first) != 6 || first["id"] != "1/1" || first["simulation_id"] != "1" || first["tradingsymbol"] != "NIFTY-20260127-25000-CE" || first["timestamp"] != "2026-01-01T09:15:00+05:30" || first["price"] != json.Number("127.05") || first["quantity"] != json.Number("-75") {
+		t.Fatalf("incorrect fill: %v", first)
 	}
 }
+
 func TestMarshalBacktestResultEmpty(t *testing.T) {
 	payload, err := MarshalBacktestResult(&engine.BacktestResult{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(payload) != `{"summary":{"total_trades":0,"total_pnl":0.00},"trades":[]}` {
+	if string(payload) != `{"summary":{"total_trades":0,"total_pnl":0.00},"positions":[],"trades":[]}` {
 		t.Fatalf("unexpected empty result: %s", payload)
 	}
 }
 
-func TestMarshalBacktestResultRejectsMissingContract(t *testing.T) {
-	for _, result := range []*engine.BacktestResult{
-		nil,
-		{Executions: [][]*engine.Position{{nil}}},
-		{Executions: [][]*engine.Position{{{}}}},
-	} {
+func TestMarshalBacktestResultRejectsNil(t *testing.T) {
+	for _, result := range []*engine.BacktestResult{nil, {Executions: []*engine.Execution{nil}}, {Executions: []*engine.Execution{{Positions: []*engine.Position{nil}}}}} {
 		if _, err := MarshalBacktestResult(result); err == nil {
 			t.Fatal("expected invalid result error")
 		}
 	}
 }
 
-func TestMarshalBacktestResultUsesEachContractUnderlying(t *testing.T) {
+func TestResultsSumPositionPnLWithoutPairingTrades(t *testing.T) {
 	result := backtestResult()
-	other := *result.Executions[0][1].Contract
-	other.UnderlyingSymbol = "BANKNIFTY"
-	result.Executions[0][1].Contract = &other
+	// A second simulation may use the same symbol and local order sequence.
+	result.Executions = append(result.Executions, &engine.Execution{ID: "2", Positions: []*engine.Position{
+		{SimulationID: "2", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 0, RealizedPnL: -10000, Trades: []models.Trade{
+			{ID: "2/1", SimulationID: "2", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 75, Price: 100},
+		}},
+	}})
 	payload, err := MarshalBacktestResult(result)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var output struct {
-		Trades []struct {
-			Underlying string `json:"underlying"`
-		} `json:"trades"`
+		Summary struct {
+			TotalTrades int     `json:"total_trades"`
+			TotalPnL    float64 `json:"total_pnl"`
+		} `json:"summary"`
+		Positions []struct {
+			SimulationID string `json:"simulation_id"`
+		} `json:"positions"`
 	}
 	if err := json.Unmarshal(payload, &output); err != nil {
 		t.Fatal(err)
 	}
-	if len(output.Trades) != 2 || output.Trades[0].Underlying != "NIFTY" || output.Trades[1].Underlying != "BANKNIFTY" {
-		t.Fatalf("incorrect underlying labels: %s", payload)
+	if output.Summary.TotalTrades != 4 || output.Summary.TotalPnL != 3421.25 || len(output.Positions) != 2 || output.Positions[1].SimulationID != "2" {
+		t.Fatalf("incorrect totals or identity: %s", payload)
 	}
 }

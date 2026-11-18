@@ -146,22 +146,50 @@ paths:
                     script: |
                       def initialize(ctx):
                           ctx.configure()
-                          for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
-                              ctx.clear_state()
+
+                          expiries = ctx.get_expiries(
+                              underlying="NIFTY",
+                              start="2026-01-01",
+                              end="2026-06-30",
+                          )
+
+                          for expiry in expiries:
+                              ctx.state.clear()
+                              ctx.state["expiry"] = expiry
                               ctx.simulate(expiry)
 
 
                       def on_candle(ctx):
-                          if ctx.dte <= 45 and ctx.time >= "09:30" and "entry" not in ctx.state:
-                              ctx.state["entry"] = ctx.place_order(
-                                  contract=offset_selector("CALL", offset=2), side="SELL", quantity=75,
-                              )
-                          if ctx.dte <= 21 and ctx.time >= "15:15" and "entry" in ctx.state and "exit" not in ctx.state:
-                              entry = ctx.order(ctx.state["entry"])
-                              if entry.status == "FILLED":
-                                  ctx.state["exit"] = ctx.place_order(
-                                      contract=id_selector(entry.contract_id), side="BUY", quantity=75,
+                          expiry = ctx.state["expiry"]
+                          dte = expiry.get_dte(ctx.date)
+
+                          # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
+                          if 21 < dte <= 45 and ctx.time > "09:30":
+                              if "entry_order_id" not in ctx.state:
+                                  symbol = ctx.option_chain(
+                                      underlying=expiry.underlying,
+                                      expiry=expiry.date,
+                                      option_type="CE",
+                                      filter=filter(type="offset", value=2),
                                   )
+
+                                  if symbol != None:
+                                      ctx.state["symbol"] = symbol
+                                      ctx.state["entry_order_id"] = ctx.place_order(
+                                          tradingsymbol=symbol,
+                                          quantity=-75,
+                                      )
+
+                          # Close at or below 21 DTE, from 15:15 onward.
+                          if dte <= 21 and ctx.time >= "15:15":
+                              if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
+                                  entry = ctx.order(ctx.state["entry_order_id"])
+
+                                  if entry.status == "FILLED":
+                                      ctx.state["exit_order_id"] = ctx.place_order(
+                                          tradingsymbol=ctx.state["symbol"],
+                                          quantity=75,
+                                      )
                 completed:
                   summary: Completed backtest
                   value:
@@ -170,37 +198,72 @@ paths:
                     script: |
                       def initialize(ctx):
                           ctx.configure()
-                          for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
-                              ctx.clear_state()
+
+                          expiries = ctx.get_expiries(
+                              underlying="NIFTY",
+                              start="2026-01-01",
+                              end="2026-06-30",
+                          )
+
+                          for expiry in expiries:
+                              ctx.state.clear()
+                              ctx.state["expiry"] = expiry
                               ctx.simulate(expiry)
 
 
                       def on_candle(ctx):
-                          if ctx.dte <= 45 and ctx.time >= "09:30" and "entry" not in ctx.state:
-                              ctx.state["entry"] = ctx.place_order(
-                                  contract=offset_selector("CALL", offset=2), side="SELL", quantity=75,
-                              )
-                          if ctx.dte <= 21 and ctx.time >= "15:15" and "entry" in ctx.state and "exit" not in ctx.state:
-                              entry = ctx.order(ctx.state["entry"])
-                              if entry.status == "FILLED":
-                                  ctx.state["exit"] = ctx.place_order(
-                                      contract=id_selector(entry.contract_id), side="BUY", quantity=75,
+                          expiry = ctx.state["expiry"]
+                          dte = expiry.get_dte(ctx.date)
+
+                          # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
+                          if 21 < dte <= 45 and ctx.time > "09:30":
+                              if "entry_order_id" not in ctx.state:
+                                  symbol = ctx.option_chain(
+                                      underlying=expiry.underlying,
+                                      expiry=expiry.date,
+                                      option_type="CE",
+                                      filter=filter(type="offset", value=2),
                                   )
+
+                                  if symbol != None:
+                                      ctx.state["symbol"] = symbol
+                                      ctx.state["entry_order_id"] = ctx.place_order(
+                                          tradingsymbol=symbol,
+                                          quantity=-75,
+                                      )
+
+                          # Close at or below 21 DTE, from 15:15 onward.
+                          if dte <= 21 and ctx.time >= "15:15":
+                              if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
+                                  entry = ctx.order(ctx.state["entry_order_id"])
+
+                                  if entry.status == "FILLED":
+                                      ctx.state["exit_order_id"] = ctx.place_order(
+                                          tradingsymbol=ctx.state["symbol"],
+                                          quantity=75,
+                                      )
                     summary:
-                      total_trades: 1
+                      total_trades: 2
                       total_pnl: 5298.75
+                    positions:
+                      - simulation_id: '1'
+                        tradingsymbol: NIFTY-20260127-26000-CE
+                        quantity: 0
+                        average_price: 461.85
+                        realized_pnl: 5298.75
                     trades:
-                      - expiry: '2026-01-27'
-                        underlying: NIFTY
-                        strike: 26000.00
-                        option_type: CALL
-                        side: SHORT
-                        entry_timestamp: '2025-12-15T09:30:00+05:30'
-                        exit_timestamp: '2026-01-06T15:15:00+05:30'
-                        entry_price: 461.85
-                        exit_price: 391.20
+                      - id: 1/1
+                        simulation_id: '1'
+                        tradingsymbol: NIFTY-20260127-26000-CE
+                        timestamp: '2025-12-15T09:30:00+05:30'
+                        price: 461.85
+                        quantity: -75
+                      - id: 1/2
+                        simulation_id: '1'
+                        tradingsymbol: NIFTY-20260127-26000-CE
+                        timestamp: '2026-01-06T15:15:00+05:30'
+                        price: 391.20
                         quantity: 75
-                        pnl: 5298.75
                 failed:
                   summary: Backtest execution failed
                   value:
@@ -209,22 +272,50 @@ paths:
                     script: |
                       def initialize(ctx):
                           ctx.configure()
-                          for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-01-31"):
-                              ctx.clear_state()
+
+                          expiries = ctx.get_expiries(
+                              underlying="NIFTY",
+                              start="2026-01-01",
+                              end="2026-06-30",
+                          )
+
+                          for expiry in expiries:
+                              ctx.state.clear()
+                              ctx.state["expiry"] = expiry
                               ctx.simulate(expiry)
 
 
                       def on_candle(ctx):
-                          if ctx.dte <= 45 and ctx.time >= "09:30" and "entry" not in ctx.state:
-                              ctx.state["entry"] = ctx.place_order(
-                                  contract=offset_selector("CALL", offset=2), side="SELL", quantity=75,
-                              )
-                          if ctx.dte <= 21 and ctx.time >= "15:15" and "entry" in ctx.state and "exit" not in ctx.state:
-                              entry = ctx.order(ctx.state["entry"])
-                              if entry.status == "FILLED":
-                                  ctx.state["exit"] = ctx.place_order(
-                                      contract=id_selector(entry.contract_id), side="BUY", quantity=75,
+                          expiry = ctx.state["expiry"]
+                          dte = expiry.get_dte(ctx.date)
+
+                          # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
+                          if 21 < dte <= 45 and ctx.time > "09:30":
+                              if "entry_order_id" not in ctx.state:
+                                  symbol = ctx.option_chain(
+                                      underlying=expiry.underlying,
+                                      expiry=expiry.date,
+                                      option_type="CE",
+                                      filter=filter(type="offset", value=2),
                                   )
+
+                                  if symbol != None:
+                                      ctx.state["symbol"] = symbol
+                                      ctx.state["entry_order_id"] = ctx.place_order(
+                                          tradingsymbol=symbol,
+                                          quantity=-75,
+                                      )
+
+                          # Close at or below 21 DTE, from 15:15 onward.
+                          if dte <= 21 and ctx.time >= "15:15":
+                              if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
+                                  entry = ctx.order(ctx.state["entry_order_id"])
+
+                                  if entry.status == "FILLED":
+                                      ctx.state["exit_order_id"] = ctx.place_order(
+                                          tradingsymbol=ctx.state["symbol"],
+                                          quantity=75,
+                                      )
                     error: Insufficient historical candle data
         '401':
           description: Missing or invalid X-User-ID header.
@@ -554,13 +645,49 @@ components:
             def initialize(ctx):
                 ctx.configure()
 
+                expiries = ctx.get_expiries(
+                    underlying="NIFTY",
+                    start="2026-01-01",
+                    end="2026-06-30",
+                )
+
+                for expiry in expiries:
+                    ctx.state.clear()
+                    ctx.state["expiry"] = expiry
+                    ctx.simulate(expiry)
+
+
             def on_candle(ctx):
-                if ctx.dte <= 45 and ctx.time >= "09:30" and "entry" not in ctx.state:
-                    ctx.state["entry"] = ctx.place_order(contract=offset_selector("CALL", offset=2), side="SELL", quantity=75)
-                if ctx.dte <= 21 and ctx.time >= "15:15" and "entry" in ctx.state and "exit" not in ctx.state:
-                    entry = ctx.order(ctx.state["entry"])
-                    if entry.status == "FILLED":
-                        ctx.state["exit"] = ctx.place_order(contract=id_selector(entry.contract_id), side="BUY", quantity=75)
+                expiry = ctx.state["expiry"]
+                dte = expiry.get_dte(ctx.date)
+
+                # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
+                if 21 < dte <= 45 and ctx.time > "09:30":
+                    if "entry_order_id" not in ctx.state:
+                        symbol = ctx.option_chain(
+                            underlying=expiry.underlying,
+                            expiry=expiry.date,
+                            option_type="CE",
+                            filter=filter(type="offset", value=2),
+                        )
+
+                        if symbol != None:
+                            ctx.state["symbol"] = symbol
+                            ctx.state["entry_order_id"] = ctx.place_order(
+                                tradingsymbol=symbol,
+                                quantity=-75,
+                            )
+
+                # Close at or below 21 DTE, from 15:15 onward.
+                if dte <= 21 and ctx.time >= "15:15":
+                    if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
+                        entry = ctx.order(ctx.state["entry_order_id"])
+
+                        if entry.status == "FILLED":
+                            ctx.state["exit_order_id"] = ctx.place_order(
+                                tradingsymbol=ctx.state["symbol"],
+                                quantity=75,
+                            )
     CreateBacktestResponse:
       type: object
       required:
@@ -613,9 +740,14 @@ components:
           description: Exact saved script from this backtest record, independent of later strategy edits.
         summary:
           $ref: '#/components/schemas/BacktestSummary'
+        positions:
+          type: array
+          description: One position per simulation and trading symbol, including closed positions.
+          items:
+            $ref: '#/components/schemas/BacktestPosition'
         trades:
           type: array
-          description: One object per CSV result row, including positions left open.
+          description: Individual order fills, identified by simulation and trading symbol.
           items:
             $ref: '#/components/schemas/BacktestTrade'
         error:
@@ -629,8 +761,9 @@ components:
             anyOf:
               - required: [summary]
               - required: [trades]
+              - required: [positions]
               - required: [error]
-        - required: [summary, trades]
+        - required: [summary, positions, trades]
           properties:
             status:
               enum: [COMPLETED]
@@ -644,6 +777,7 @@ components:
             anyOf:
               - required: [summary]
               - required: [trades]
+              - required: [positions]
     BacktestSummary:
       type: object
       additionalProperties: false
@@ -653,81 +787,64 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: Number of result rows, including positions left open.
+          description: Number of filled orders across all simulations.
           example: 1
         total_pnl:
           type: number
           multipleOf: 0.01
-          description: Sum of realized trade P&L in rupees; open positions contribute zero.
+          description: Sum of positions' cumulative realized P&L in rupees, including previous closes of reopened positions.
           example: 5298.75
-    BacktestTrade:
+    BacktestPosition:
       type: object
-      description: >-
-        One CSV result row for a position lifecycle. Prices and P&L are in rupees
-        with paise precision. Timestamps are RFC3339 in Asia/Kolkata (IST).
-        CSV blank exit fields and P&L for open positions are represented as null.
-      required:
-        - expiry
-        - underlying
-        - strike
-        - option_type
-        - side
-        - entry_timestamp
-        - exit_timestamp
-        - entry_price
-        - exit_price
-        - quantity
-        - pnl
+      description: Current position for a simulation and trading symbol. Reopening reuses this position and preserves cumulative realized P&L.
+      required: [simulation_id, tradingsymbol, quantity, average_price, realized_pnl]
       properties:
-        expiry:
+        simulation_id:
           type: string
-          format: date
-          description: Option expiry calendar date.
-        underlying:
+          description: Sequential simulation identifier, scoped to the backtest.
+          example: '1'
+        tradingsymbol:
           type: string
-          description: Underlying symbol, such as NIFTY.
-        strike:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: Strike price in rupees.
-        option_type:
-          type: string
-          enum: [CALL, PUT]
-        side:
-          type: string
-          enum: [LONG, SHORT]
-          description: Position direction, as exported by the CSV.
-        entry_timestamp:
-          type: string
-          format: date-time
-          description: Actual entry candle start time in IST.
-        exit_timestamp:
-          type: string
-          format: date-time
-          nullable: true
-          description: Actual exit candle start time in IST, or null while open.
-        entry_price:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: Entry price in rupees.
-        exit_price:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          nullable: true
-          description: Exit price in rupees, or null while open.
+          example: NIFTY-20260127-26000-CE
         quantity:
           type: integer
           format: int64
-          minimum: 1
-          description: Quantity in units, not lots.
-        pnl:
+          description: Positive for long, negative for short, zero when closed.
+        average_price:
           type: number
           multipleOf: 0.01
-          nullable: true
-          description: Realized P&L in rupees; null while open.
+          description: Average entry price of the latest opening, in rupees.
+        realized_pnl:
+          type: number
+          multipleOf: 0.01
+          description: Cumulative realized P&L across all closes of this position, in rupees.
+    BacktestTrade:
+      type: object
+      description: One order execution. The simulation ID and trading symbol identify its position. Prices are in rupees and timestamps are in IST.
+      required: [id, simulation_id, tradingsymbol, timestamp, price, quantity]
+      properties:
+        id:
+          type: string
+          description: Unique fill identifier within the backtest, formed from simulation and order IDs.
+          example: 1/1
+        simulation_id:
+          type: string
+          example: '1'
+        tradingsymbol:
+          type: string
+          example: NIFTY-20260127-26000-CE
+        timestamp:
+          type: string
+          format: date-time
+          description: Actual execution candle start time in IST.
+        price:
+          type: number
+          multipleOf: 0.01
+          description: Execution price in rupees.
+        quantity:
+          type: integer
+          format: int64
+          description: Signed execution quantity; positive buys and negative sells. Never zero.
     Error:
       type: object
       required:

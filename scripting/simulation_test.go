@@ -138,3 +138,29 @@ check(ctx)
 		t.Fatal(err)
 	}
 }
+
+func TestSimulationIDsRestartPerBacktest(t *testing.T) {
+	script, err := LoadSource("ids.star", `
+def initialize(ctx):
+    ctx.configure()
+    expiry = ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0]
+    ctx.simulate(expiry)
+    ctx.simulate(expiry)
+
+def on_candle(ctx):
+    pass
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for run := 0; run < 2; run++ {
+		f := newFixture(t)
+		result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Executions) != 2 || result.Executions[0].ID != "1" || result.Executions[1].ID != "2" || result.Executions[0] == result.Executions[1] {
+			t.Fatalf("simulation IDs or state leaked: %+v", result.Executions)
+		}
+	}
+}

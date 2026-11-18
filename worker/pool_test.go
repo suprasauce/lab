@@ -100,7 +100,6 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 			if tick == 2 {
 				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "5m", start, start).
 					WillReturnRows(workerCandleRows().AddRow(start, "5m", 8000, 8000, 8000, 8000, 0))
-				mock.ExpectQuery("FROM lab.option_contracts").WithArgs("NIFTY-20260127-22650-CE").WillReturnRows(workerContractRows())
 			}
 		}
 	}
@@ -115,16 +114,21 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 		t.Fatalf("completed results were not stored: %s", logs)
 	}
 	summary := payload["summary"].(map[string]any)
-	if summary["total_trades"] != json.Number("1") || summary["total_pnl"] != json.Number("1500.00") {
+	if summary["total_trades"] != json.Number("2") || summary["total_pnl"] != json.Number("1500.00") {
 		t.Fatalf("incorrect summary: %v", summary)
 	}
 	trades := payload["trades"].([]any)
-	if len(trades) != 1 {
-		t.Fatalf("incorrect trade count: %d", len(trades))
+	if len(trades) != 2 {
+		t.Fatalf("incorrect fill count: %d", len(trades))
 	}
-	trade := trades[0].(map[string]any)
-	if len(trade) != 11 || trade["strike"] != json.Number("22650.00") || trade["entry_price"] != json.Number("100.00") || trade["exit_price"] != json.Number("80.00") || trade["pnl"] != json.Number("1500.00") || trade["side"] != "SHORT" || trade["entry_timestamp"] != "2026-01-05T09:15:00+05:30" || trade["exit_timestamp"] != "2026-01-05T09:20:00+05:30" {
-		t.Fatalf("incorrect persisted trade: %v", trade)
+	entry, exit := trades[0].(map[string]any), trades[1].(map[string]any)
+	if entry["id"] != "1/1" || entry["quantity"] != json.Number("-75") || entry["price"] != json.Number("100.00") || exit["price"] != json.Number("80.00") || exit["timestamp"] != "2026-01-05T09:20:00+05:30" {
+		t.Fatalf("incorrect fills: %v", trades)
+	}
+	positions := payload["positions"].([]any)
+	position := positions[0].(map[string]any)
+	if len(positions) != 1 || position["quantity"] != json.Number("0") || position["realized_pnl"] != json.Number("1500.00") || position["simulation_id"] != "1" {
+		t.Fatalf("incorrect position: %v", positions)
 	}
 }
 

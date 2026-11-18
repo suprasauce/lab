@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -62,7 +63,7 @@ func executionFixture(t *testing.T, missing map[time.Time]bool) *Execution {
 	}})
 	t.Cleanup(func() { db.Close() })
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	execution = newExecution(context.Background(), repo)
+	execution = newExecution(context.Background(), repo, "1")
 	return execution
 }
 
@@ -85,13 +86,13 @@ func TestMarketOrderUsesPlacedAt(t *testing.T) {
 				t.Fatal(err)
 			}
 			position := e.Positions[0]
-			if !position.EntryTime.Equal(marketTime(9, minute)) || position.EntryPrice != models.Price(10000-(minute-15)*100) || order.Status != models.OrderFilled || !order.FilledAt.Equal(position.EntryTime) {
+			if !e.Positions[0].Trades[0].Timestamp.Equal(marketTime(9, minute)) || position.AveragePrice != models.Price(10000-(minute-15)*100) || order.Status != models.OrderFilled || !order.FilledAt.Equal(e.Positions[0].Trades[0].Timestamp) {
 				t.Fatalf("incorrect fill: %+v", order)
 			}
 			if err := e.fillOrders(); err != nil {
 				t.Fatal(err)
 			}
-			if len(e.Positions) != 1 {
+			if len(e.Positions) != 1 || len(e.Positions[0].Trades) != 1 {
 				t.Fatal("duplicate fill")
 			}
 			if position.Candle != nil && position.Candle.Timestamp.Add(candleInterval).After(e.Time) {
@@ -123,7 +124,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.Positions[0].Status != models.TradeOpen {
+	if e.Positions[0].Quantity == 0 {
 		t.Fatal("exit executed during placement")
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
@@ -131,7 +132,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	}
 	position := e.Positions[0]
 	exit, _ := e.Order(exitID)
-	if position.Status != models.TradeClosed || !position.ExitTime.Equal(marketTime(9, 25)) || position.ExitPrice != 9000 || position.PnL != 75000 || exit.Status != models.OrderFilled {
+	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 25)) || e.Positions[0].Trades[1].Price != 9000 || (e.Positions[0].Trades[1].Price-e.Positions[0].Trades[0].Price)*models.Price(e.Positions[0].Trades[0].Quantity) != 75000 || exit.Status != models.OrderFilled {
 		t.Fatalf("wrong exit: %+v", position)
 	}
 	if err := e.advance(marketTime(9, 35)); err != nil {
@@ -211,7 +212,7 @@ func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.
 	if err := e.advance(marketTime(9, 25)); err != nil {
 		t.Fatal(err)
 	}
-	if e.Positions[0].Candle != nil || e.Positions[0].Status != models.TradeOpen {
+	if e.Positions[0].Candle != nil || e.Positions[0].Quantity == 0 {
 		t.Fatal("stale snapshot or changed position")
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
@@ -242,13 +243,13 @@ func TestMissingOptionCandleDefersExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	order, _ := e.Order(id)
-	if position.Candle != nil || position.Status != models.TradeOpen || order.Status != models.OrderPending || !position.ExitTime.IsZero() {
+	if position.Candle != nil || position.Quantity == 0 || order.Status != models.OrderPending || len(e.Positions[0].Trades) != 1 {
 		t.Fatal("missing candle used a stale snapshot or filled the exit")
 	}
 	if err := e.advance(marketTime(9, 30)); err != nil {
 		t.Fatal(err)
 	}
-	if position.Status != models.TradeClosed || !position.ExitTime.Equal(marketTime(9, 25)) || position.ExitPrice != 9000 || order.Status != models.OrderFilled {
+	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 25)) || e.Positions[0].Trades[1].Price != 9000 || order.Status != models.OrderFilled {
 		t.Fatal("exit did not fill with the next available completed candle")
 	}
 	if err := e.fillOrders(); err != nil || len(e.Positions) != 1 {
@@ -261,8 +262,8 @@ func TestAdvancePropagatesCandleQueryFailure(t *testing.T) {
 	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return nil, failure }})
 	defer db.Close()
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	e := newExecution(context.Background(), repo)
-	e.Positions = []*Position{{Trade: models.Trade{ContractID: 101, Status: models.TradeOpen}}}
+	e := newExecution(context.Background(), repo, "1")
+	e.Positions = []*Position{{TradingSymbol: "NIFTY-20260127-22600-CE", Quantity: -75}}
 	if err := e.advance(marketTime(9, 20)); !errors.Is(err, failure) {
 		t.Fatalf("database failure was not propagated: %v", err)
 	}
@@ -291,7 +292,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if got := e.GetPositions(tradingSymbol); len(got) != 1 || got[0] != position {
 					t.Fatal("filled position not indexed by trading symbol")
 				}
-				if position.Contract.OptionType != optionType || position.Quantity != entryQuantity {
+				if e.Orders[0].Contract.OptionType != optionType || position.Quantity != entryQuantity {
 					t.Fatal("incorrect option or side")
 				}
 				if _, err := e.PlaceOrder(tradingSymbol, exitQuantity); err != nil {
@@ -304,7 +305,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if side == models.Long {
 					want = -want
 				}
-				if position.Status != models.TradeClosed || position.PnL != want {
+				if position.Quantity != 0 || position.RealizedPnL != want {
 					t.Fatalf("incorrect P&L: %+v", position)
 				}
 			})
@@ -330,7 +331,7 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 		if err := e.advance(marketTime(9, 25)); err == nil {
 			t.Fatal("unsupported position change executed")
 		}
-		if e.Positions[0].Status != models.TradeOpen || e.Positions[0].Quantity != -75 {
+		if e.Positions[0].Quantity == 0 || e.Positions[0].Quantity != -75 {
 			t.Fatal("position mutated")
 		}
 	}
@@ -369,7 +370,79 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	if err := e.advance(marketTime(9, 30)); err != nil {
 		t.Fatal(err)
 	}
-	if exit.Status != models.OrderFilled || e.Positions[0].Status != models.TradeClosed || !entry.FilledAt.Equal(marketTime(9, 25)) || !exit.FilledAt.Equal(marketTime(9, 25)) {
+	if exit.Status != models.OrderFilled || e.Positions[0].Quantity != 0 || !entry.FilledAt.Equal(marketTime(9, 25)) || !exit.FilledAt.Equal(marketTime(9, 25)) {
 		t.Fatal("incorrect full exit after delayed entry")
+	}
+}
+
+func TestFillLedgerAndReopenedPosition(t *testing.T) {
+	e := executionFixture(t, nil)
+	symbol := "NIFTY-20260127-22600-CE"
+	quantities := []int64{-75, 75, 75, -75}
+	for i, quantity := range quantities {
+		at := marketTime(9, 15+i*5)
+		if i == 0 {
+			if err := e.advance(at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := e.PlaceOrder(symbol, quantity); err != nil {
+			t.Fatal(err)
+		}
+		if i > 0 && len(e.Positions[0].Trades) != i {
+			t.Fatal("queued order created a trade")
+		}
+		if err := e.advance(at.Add(5 * time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if len(e.Positions[0].Trades) != i+1 {
+			t.Fatal("one fill must create exactly one trade")
+		}
+		if len(e.Positions) != 1 {
+			t.Fatal("reopening created a second position")
+		}
+		if (i == 1 || i == 2) && e.Positions[0].RealizedPnL != 37500 {
+			t.Fatal("realized P&L was not retained across reopen")
+		}
+		fill := e.Positions[0].Trades[i]
+		if fill.TradingSymbol != symbol || fill.SimulationID != "1" || fill.ID != fmt.Sprintf("1/%d", i+1) || fill.Quantity != quantity || !fill.Timestamp.Equal(at) || fill.Price != models.Price(10000-i*500) {
+			t.Fatalf("incorrect fill: %+v", fill)
+		}
+	}
+	positions := e.GetPositions(symbol)
+	if len(positions) != 1 || positions[0].Quantity != 0 || positions[0].SimulationID != "1" {
+		t.Fatalf("incorrect position history: %+v", positions)
+	}
+	if positions[0].AveragePrice != 9000 || positions[0].RealizedPnL != 0 {
+		t.Fatal("reopened position did not preserve cumulative realized P&L")
+	}
+	if positions[0].Candle != nil {
+		t.Fatal("closed position retains market candle")
+	}
+	if err := e.fillOrders(); err != nil || len(e.Positions[0].Trades) != 4 {
+		t.Fatalf("duplicate trade or error: %v", err)
+	}
+}
+
+func TestTradeIdentityAcrossSimulations(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, simulationID := range []string{"1", "2"} {
+		e := executionFixture(t, nil)
+		e.ID = simulationID
+		if err := e.advance(marketTime(9, 15)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.advance(marketTime(9, 20)); err != nil {
+			t.Fatal(err)
+		}
+		position := e.Positions[0]
+		trade := position.Trades[0]
+		if position.SimulationID != simulationID || trade.SimulationID != simulationID || trade.TradingSymbol != position.TradingSymbol || seen[trade.ID] {
+			t.Fatalf("incorrect simulation/position association: %+v %+v", position, trade)
+		}
+		seen[trade.ID] = true
 	}
 }

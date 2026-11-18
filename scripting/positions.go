@@ -5,7 +5,6 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
-	"optionsbacktest/models"
 )
 
 func (c *strategyContext) getPositions(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -19,18 +18,21 @@ func (c *strategyContext) getPositions(_ *starlark.Thread, b *starlark.Builtin, 
 	positions := c.execution.GetPositions(tradingSymbol)
 	values := make([]starlark.Value, 0, len(positions))
 	for _, position := range positions {
-		var exitPrice, currentPrice starlark.Value = starlark.None, starlark.None
-		if position.Status == models.TradeClosed {
-			exitPrice = starlark.Float(float64(position.ExitPrice) / 100)
-		} else if position.Candle != nil {
-			currentPrice = starlark.Float(float64(position.Candle.Close) / 100)
+		var currentPrice starlark.Value = starlark.None
+		status := "CLOSED"
+		if position.Quantity != 0 {
+			status = "OPEN"
+			if position.Candle != nil {
+				currentPrice = starlark.Float(float64(position.Candle.Close) / 100)
+			}
 		}
 		value := starlarkstruct.FromStringDict(starlark.String("position"), starlark.StringDict{
-			"status":      starlark.String(position.Status),
-			"quantity":    starlark.MakeInt64(position.Quantity),
-			"entry_price": starlark.Float(float64(position.EntryPrice) / 100),
-			"exit_price":  exitPrice,
-			"curr_price":  currentPrice,
+			"status":        starlark.String(status),
+			"simulation_id": starlark.String(position.SimulationID),
+			"realized_pnl":  starlark.Float(float64(position.RealizedPnL) / 100),
+			"quantity":      starlark.MakeInt64(position.Quantity),
+			"average_price": starlark.Float(float64(position.AveragePrice) / 100),
+			"curr_price":    currentPrice,
 		})
 		value.Freeze()
 		values = append(values, value)

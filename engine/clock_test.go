@@ -96,7 +96,7 @@ func TestSimulateRejectsMissingExpiry(t *testing.T) {
 	defer db.Close()
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	expiry := time.Date(2026, 9, 29, 0, 0, 0, 0, marketLocation)
-	_, err := NewEngine(repo).Simulate(context.Background(), "NIFTY", expiry, func(*Execution) error {
+	_, err := NewEngine(repo).Simulate(context.Background(), "1", "NIFTY", expiry, func(*Execution) error {
 		t.Fatal("simulation must not start for a missing expiry")
 		return nil
 	})

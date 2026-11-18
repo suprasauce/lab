@@ -97,12 +97,36 @@ export default function BacktestDetailPage() {
                 <div><dt>Total P&amp;L</dt><dd className={backtest.summary.total_pnl < 0 ? 'negative-value' : 'positive-value'}>{formatMoney(backtest.summary.total_pnl)}</dd></div>
                 <div><dt>Total trades</dt><dd>{backtest.summary.total_trades}</dd></div>
               </dl>
+              {backtest.positions && (
+                <>
+                  <h2 className="section-title">Positions</h2>
+                  {backtest.positions.length === 0 ? <p className="panel-message">No positions were opened.</p> : (
+                    <div className="table-panel" tabIndex={0} role="region" aria-label="Backtest positions">
+                      <table className="data-table trades-table">
+                        <thead><tr>{['Simulation', 'Trading symbol', 'Quantity', 'Average price', 'Realized P&L'].map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
+                        <tbody>{backtest.positions.map((position) => (
+                          <tr key={`${position.simulation_id}/${position.tradingsymbol}`}>
+                            <td>{position.simulation_id}</td><td>{position.tradingsymbol}</td><td className="number-cell">{position.quantity}</td>
+                            <td className="number-cell">{formatMoney(position.average_price)}</td>
+                            <td className={`number-cell ${position.realized_pnl < 0 ? 'negative-value' : 'positive-value'}`}>{formatMoney(position.realized_pnl)}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
               <h2 className="section-title">Trades</h2>
               {backtest.trades.length === 0 ? <p className="panel-message">This backtest completed without any trades.</p> : (
                 <div className="table-panel" tabIndex={0} role="region" aria-label="Backtest trades">
                   <table className="data-table trades-table">
-                    <thead><tr>{['Expiry', 'Underlying', 'Strike', 'Option type', 'Side', 'Entry timestamp', 'Exit timestamp', 'Entry price', 'Exit price', 'Quantity', 'P&L'].map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
-                    <tbody>{backtest.trades.map((trade, index) => (
+                    <thead><tr>{(backtest.positions ? ['Simulation', 'Trade ID', 'Trading symbol', 'Timestamp', 'Price', 'Quantity'] : ['Expiry', 'Underlying', 'Strike', 'Option type', 'Side', 'Entry timestamp', 'Exit timestamp', 'Entry price', 'Exit price', 'Quantity', 'P&L']).map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
+                    <tbody>{backtest.trades.map((trade, index) => 'tradingsymbol' in trade ? (
+                      <tr key={trade.id}>
+                        <td>{trade.simulation_id}</td><td>{trade.id}</td><td>{trade.tradingsymbol}</td>
+                        <td>{formatTimestamp(trade.timestamp)}</td><td className="number-cell">{formatMoney(trade.price)}</td><td className="number-cell">{trade.quantity}</td>
+                      </tr>
+                    ) : (
                       <tr key={index}>
                         <td>{formatExpiry(trade.expiry)}</td><td>{trade.underlying}</td><td className="number-cell">{formatMoney(trade.strike)}</td>
                         <td>{trade.option_type}</td><td>{trade.side}</td><td>{formatTimestamp(trade.entry_timestamp)}</td><td>{formatTimestamp(trade.exit_timestamp)}</td>

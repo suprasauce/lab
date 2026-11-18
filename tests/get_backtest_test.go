@@ -142,3 +142,21 @@ func TestGetBacktestPreservesExactScript(t *testing.T) {
 		t.Fatalf("status=%d script=%q", response.StatusCode, result.Script)
 	}
 }
+
+func TestGetBacktestPositionsAndFills(t *testing.T) {
+	mock, server := setupAPI(t)
+	results := `{"summary":{"total_trades":2,"total_pnl":1500.00},"positions":[{"simulation_id":"1","tradingsymbol":"NIFTY-20260127-26000-CE","quantity":0,"average_price":100.00,"realized_pnl":1500.00}],"trades":[{"id":"1/1","simulation_id":"1","tradingsymbol":"NIFTY-20260127-26000-CE","quantity":-75,"price":100.00,"timestamp":"2026-01-01T09:30:00+05:30"},{"id":"1/2","simulation_id":"1","tradingsymbol":"NIFTY-20260127-26000-CE","quantity":75,"price":80.00,"timestamp":"2026-01-06T15:15:00+05:30"}]}`
+	mock.ExpectQuery(repository.QueryGetBacktestForUser).WithArgs(int64(123), int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "results", "script"}).AddRow(123, "COMPLETED", []byte(results), "saved script")).RowsWillBeClosed()
+	response, body := sendRequest(t, server, getBacktestRequest(t, server, "123", "1"))
+	var actual, expected map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &actual); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(results), &expected); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || string(actual["positions"]) != string(expected["positions"]) || string(actual["trades"]) != string(expected["trades"]) {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
+	}
+}

@@ -50,7 +50,7 @@ func (e *Engine) GetExpiries(ctx context.Context, symbol string, start, end time
 }
 
 // Simulate executes one expiry with fresh runtime state and the existing clock.
-func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, onCandle func(*Execution) error) (*BacktestResult, error) {
+func (e *Engine) Simulate(ctx context.Context, simulationID, symbol string, expiry time.Time, onCandle func(*Execution) error) (*BacktestResult, error) {
 	if onCandle == nil {
 		return nil, fmt.Errorf("on_candle callback is required")
 	}
@@ -62,7 +62,7 @@ func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, 
 	if !exists {
 		return nil, fmt.Errorf("expiry %s does not exist for %s", expiry.Format(time.DateOnly), symbol)
 	}
-	execution := newExecution(ctx, e.marketDataRepository)
+	execution := newExecution(ctx, e.marketDataRepository, simulationID)
 	err = e.backtestExpiry(ctx, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
 		if err := execution.advance(at); err != nil {
 			return err
@@ -72,7 +72,7 @@ func (e *Engine) Simulate(ctx context.Context, symbol string, expiry time.Time, 
 		}
 		return onCandle(execution)
 	})
-	result := &BacktestResult{Executions: [][]*Position{execution.Positions}}
+	result := &BacktestResult{Executions: []*Execution{execution}}
 	if err != nil {
 		return result, fmt.Errorf("expiry %s: %w", expiry.Format(time.DateOnly), err)
 	}

@@ -80,7 +80,7 @@ for a later completed five-minute window.
 
 Order history and positions start fresh for every expiry. `ctx.state` persists
 across expiry simulations until the script calls `ctx.clear_state()`. Each new
-backtest starts with an empty state dictionary. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a trade summary and position entry/exit details; open positions have null exit fields and P&L.
+backtest starts with an empty state dictionary. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a summary, positions, and individual fills.
 
 ## Lab option trading symbols
 
@@ -156,10 +156,14 @@ The simulation exposes `ctx.date` (`YYYY-MM-DD`) and `ctx.time` (`HH:mm`) in IST
 Expiry objects expose `.date`, `.underlying`, and `.get_dte(ctx.date)` for calendar-day DTE; `ctx.dte` is no longer available.
 
 Orders use signed quantities: `ctx.place_order(tradingsymbol=symbol, quantity=-75)` sells,
-and `quantity=75` buys. There is no `side` argument. Trades retain their original signed quantity after closing.
+and `quantity=75` buys. There is no `side` argument. Each filled order records a separate trade with its timestamp, price, and signed quantity.
+Each simulation has one position per trading symbol, containing its trade history. Positions store simulation ID, signed quantity, average price, cumulative realized P&L, and current candle.
+Closing sets quantity to zero and adds realized P&L; reopening reuses the position and resets its average price without clearing P&L or trades.
+Simulation IDs (`1`, `2`, ...) restart per backtest. Trade IDs (`1/1`, `1/2`, `2/1`, ...) combine simulation and order sequence.
+Results return position summaries and a flat list of fills linked by `simulation_id` and `tradingsymbol`. Summary P&L is the sum of position realized P&L, and total trades counts fills.
 
 During `on_candle`, `ctx.get_positions(tradingsymbol)` returns open and closed positions
 for that symbol in the current expiry execution, in creation order. Each read-only snapshot
-exposes `status`, signed `quantity`, `entry_price`, `exit_price`, and `curr_price`.
-Prices are in rupees. Open positions have `exit_price=None`; `curr_price` is the completed
+exposes `simulation_id`, derived `status`, signed `quantity`, `average_price`, `realized_pnl`, and `curr_price`.
+Prices are in rupees. Closed positions have zero quantity; `curr_price` is the completed
 option candle's Close, or `None` when missing or closed. No matches returns an empty list.

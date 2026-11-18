@@ -4,6 +4,7 @@ package scripting
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.starlark.net/starlark"
@@ -50,7 +51,7 @@ func load(filename string, source any) (*Script, error) {
 
 // Run calls initialize once; the script synchronously chooses each expiry run.
 func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestResult, error) {
-	result := &engine.BacktestResult{Executions: make([][]*engine.Position, 0)}
+	result := &engine.BacktestResult{Executions: make([]*engine.Execution, 0)}
 	c := &strategyContext{ctx: ctx, repo: e.Repository(), initializing: true, state: starlark.NewDict(0)}
 	s.context = c
 	callbackThread := &starlark.Thread{Name: s.thread.Name + ":on_candle"}
@@ -60,7 +61,7 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 	c.simulateExpiry = func(underlying string, expiry time.Time) error {
 		c.initializing = false
 		defer func() { c.initializing = true; c.execution = nil }()
-		cycle, err := e.Simulate(ctx, underlying, expiry, func(execution *engine.Execution) error {
+		cycle, err := e.Simulate(ctx, strconv.Itoa(len(result.Executions)+1), underlying, expiry, func(execution *engine.Execution) error {
 			c.execution = execution
 			_, err := starlark.Call(callbackThread, s.onCandle, starlark.Tuple{c}, nil)
 			if err != nil {

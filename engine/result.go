@@ -1,6 +1,6 @@
 package engine
 
-// BacktestResult retains position histories and contract metadata per expiry.
+// BacktestResult retains the execution ledger and resolved order metadata per expiry.
 type BacktestResult struct {
-	Executions [][]*Position
+	Executions []*Execution
 }

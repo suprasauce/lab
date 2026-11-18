@@ -11,12 +11,13 @@ import (
 )
 
 type BacktestResponse struct {
-	ID      string                `json:"id"`
-	Status  models.BacktestStatus `json:"status"`
-	Script  string                `json:"script"`
-	Summary json.RawMessage       `json:"summary,omitempty"`
-	Trades  json.RawMessage       `json:"trades,omitempty"`
-	Error   string                `json:"error,omitempty"`
+	ID        string                `json:"id"`
+	Status    models.BacktestStatus `json:"status"`
+	Script    string                `json:"script"`
+	Summary   json.RawMessage       `json:"summary,omitempty"`
+	Trades    json.RawMessage       `json:"trades,omitempty"`
+	Positions json.RawMessage       `json:"positions,omitempty"`
+	Error     string                `json:"error,omitempty"`
 }
 
 func GetBacktest(ctx context.Context, repo *repository.Repository, id, userID int64) (BacktestResponse, error) {
@@ -30,13 +31,14 @@ func GetBacktest(ctx context.Context, repo *repository.Repository, id, userID in
 		return response, nil
 	case models.BacktestCompleted:
 		var results struct {
-			Summary json.RawMessage `json:"summary"`
-			Trades  json.RawMessage `json:"trades"`
+			Summary   json.RawMessage `json:"summary"`
+			Trades    json.RawMessage `json:"trades"`
+			Positions json.RawMessage `json:"positions"`
 		}
 		if err := json.Unmarshal(backtest.Results, &results); err != nil {
 			return BacktestResponse{}, fmt.Errorf("decode backtest %d results: %w", id, err)
 		}
-		response.Summary, response.Trades = results.Summary, results.Trades
+		response.Summary, response.Trades, response.Positions = results.Summary, results.Trades, results.Positions
 		return response, nil
 	case models.BacktestFailed:
 		var results struct {
