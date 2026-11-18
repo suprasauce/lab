@@ -52,7 +52,7 @@ export default function BacktestResults({ positions = [], trades = [] }: {
             <div className="table-panel" tabIndex={0} role="region" aria-label="Backtest positions">
               <table className="data-table positions-table">
                 <thead><tr>
-                  {['Simulation ID', 'Trading Symbol', 'Quantity', 'Average Price', 'Realized P&L', ...(hasUnrealizedPnL ? ['Unrealized P&L'] : []), 'Total P&L', 'Status'].map((label) => <th scope="col" key={label}>{label}</th>)}
+                  {['Simulation ID', 'Trading Symbol', 'Quantity (lots)', 'Average Price', 'Realized P&L', ...(hasUnrealizedPnL ? ['Unrealized P&L'] : []), 'Total P&L', 'Status'].map((label) => <th scope="col" key={label}>{label}</th>)}
                 </tr></thead>
                 <tbody>{positions.map((position) => {
                   // Use supplied P&L amounts, never reconstruct it from fills. Without
@@ -89,7 +89,7 @@ export default function BacktestResults({ positions = [], trades = [] }: {
           {filteredTrades.length === 0 ? <p className="panel-message">{positionFilter === null ? 'No executed trades in this backtest.' : 'No executed trades for this position.'}</p> : (
             <div className="table-panel" tabIndex={0} role="region" aria-label="Executed trades">
               <table className="data-table trades-table">
-                <thead><tr>{['Execution Date/Time', 'Trading Symbol', 'Quantity', 'Execution Price'].map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
+                <thead><tr>{['Execution Date/Time', 'Trading Symbol', 'Quantity (lots)', 'Execution Price'].map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
                 <tbody>{filteredTrades.map((trade) => (
                   <tr key={`${trade.simulation_id}/${trade.id}`}>
                     <td>{formatTimestamp(trade.timestamp)}</td><td>{trade.tradingsymbol}</td>

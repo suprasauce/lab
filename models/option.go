@@ -14,6 +14,7 @@ type Option struct {
 	UnderlyingID     int64
 	UnderlyingSymbol string
 	ExpiryID         int64
+	LotSize          int64 // Units per lot, joined from option_expiry.
 	StrikePrice      Price
 	// Expiry is the calendar date joined from option_expiry, not a contract column.
 	Expiry     time.Time

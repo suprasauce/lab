@@ -13,8 +13,8 @@ import (
 func backtestResult() *engine.BacktestResult {
 	return &engine.BacktestResult{Executions: []*engine.Execution{{ID: "1", Positions: []*engine.Position{
 		{SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, AveragePrice: 29, RealizedPnL: 352125, Trades: []models.Trade{
-			{ID: "1/1", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: -75, Timestamp: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), Price: 12705},
-			{ID: "1/2", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 75, Timestamp: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), Price: 8010},
+			{ID: "1/1", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: -1, Timestamp: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), Price: 12705},
+			{ID: "1/2", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, Timestamp: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), Price: 8010},
 			{ID: "1/3", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, Timestamp: time.Date(2026, 1, 7, 3, 45, 0, 0, time.UTC), Price: 29},
 		}},
 	}}}}
@@ -46,7 +46,7 @@ func TestMarshalBacktestResult(t *testing.T) {
 		t.Fatalf("incorrect position: %v", position)
 	}
 	first := output.Trades[0]
-	if len(first) != 6 || first["id"] != "1/1" || first["simulation_id"] != "1" || first["tradingsymbol"] != "NIFTY-20260127-25000-CE" || first["timestamp"] != "2026-01-01T09:15:00+05:30" || first["price"] != json.Number("127.05") || first["quantity"] != json.Number("-75") {
+	if len(first) != 6 || first["id"] != "1/1" || first["simulation_id"] != "1" || first["tradingsymbol"] != "NIFTY-20260127-25000-CE" || first["timestamp"] != "2026-01-01T09:15:00+05:30" || first["price"] != json.Number("127.05") || first["quantity"] != json.Number("-1") {
 		t.Fatalf("incorrect fill: %v", first)
 	}
 }
@@ -74,7 +74,7 @@ func TestResultsSumPositionPnLWithoutPairingTrades(t *testing.T) {
 	// A second simulation may use the same symbol and local order sequence.
 	result.Executions = append(result.Executions, &engine.Execution{ID: "2", Positions: []*engine.Position{
 		{SimulationID: "2", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 0, RealizedPnL: -10000, Trades: []models.Trade{
-			{ID: "2/1", SimulationID: "2", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 75, Price: 100},
+			{ID: "2/1", SimulationID: "2", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, Price: 100},
 		}},
 	}})
 	payload, err := MarshalBacktestResult(result)

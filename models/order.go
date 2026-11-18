@@ -14,7 +14,7 @@ const (
 )
 
 // Order retains the trading symbol, signed quantity, and execution details.
-// Positive quantity buys; negative quantity sells.
+// Quantity is signed lots: positive buys; negative sells.
 type Order struct {
 	TradingSymbol string
 	ID            string

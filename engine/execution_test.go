@@ -22,13 +22,18 @@ func marketTime(hour, minute int) time.Time {
 
 func executionFixture(t *testing.T, missing map[time.Time]bool) *Execution {
 	t.Helper()
+	return executionFixtureWithLotSize(t, missing, 75)
+}
+
+func executionFixtureWithLotSize(t *testing.T, missing map[time.Time]bool, lotSize int64) *Execution {
+	t.Helper()
 	var execution *Execution
 	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 		if strings.Contains(query, "FROM lab.option_contracts") {
 			if !strings.Contains(query, "c.tradingsymbol = $1") || len(args) != 1 {
 				t.Fatalf("unexpected contract lookup: %s", query)
 			}
-			rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type", "underlying_symbol"}}
+			rows := &testRows{columns: []string{"id", "underlying_id", "expiry_id", "expiry", "strike", "option_type", "underlying_symbol", "lot_size"}}
 			kind, id := "CALL", int64(101)
 			switch args[0].Value {
 			case "NIFTY-20260127-22600-CE":
@@ -37,7 +42,7 @@ func executionFixture(t *testing.T, missing map[time.Time]bool) *Execution {
 			default:
 				return rows, nil
 			}
-			rows.values = []driver.Value{id, int64(7), int64(9), time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation), int64(2260000), kind, "NIFTY"}
+			rows.values = []driver.Value{id, int64(7), int64(9), time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation), int64(2260000), kind, "NIFTY", lotSize}
 			return rows, nil
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
@@ -74,7 +79,7 @@ func TestMarketOrderUsesPlacedAt(t *testing.T) {
 			if err := e.advance(marketTime(9, minute)); err != nil {
 				t.Fatal(err)
 			}
-			id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
+			id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -107,7 +112,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	_, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
+	_, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +125,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
 		t.Fatal("wrong completed candle")
 	}
-	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 75)
+	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +137,7 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	}
 	position := e.Positions[0]
 	exit, _ := e.Order(exitID)
-	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 25)) || e.Positions[0].Trades[1].Price != 9000 || (e.Positions[0].Trades[1].Price-e.Positions[0].Trades[0].Price)*models.Price(e.Positions[0].Trades[0].Quantity) != 75000 || exit.Status != models.OrderFilled {
+	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 25)) || e.Positions[0].Trades[1].Price != 9000 || (e.Positions[0].Trades[1].Price-e.Positions[0].Trades[0].Price)*models.Price(e.Positions[0].Trades[0].Quantity)*75 != 75000 || exit.Status != models.OrderFilled {
 		t.Fatalf("wrong exit: %+v", position)
 	}
 	if err := e.advance(marketTime(9, 35)); err != nil {
@@ -146,11 +151,11 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
 	e := executionFixture(t, nil)
 	e.Time = marketTime(9, 15)
-	first, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
+	first, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
+	second, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1)
 	if err != nil || first == second || len(e.Orders) != 2 || len(e.Positions) != 0 {
 		t.Fatal("requests were deduplicated or executed")
 	}
@@ -166,7 +171,7 @@ func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
+	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +208,7 @@ func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
+	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
@@ -228,14 +233,14 @@ func TestMissingOptionCandleDefersExit(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
+	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.advance(marketTime(9, 20)); err != nil {
 		t.Fatal(err)
 	}
 	position := e.Positions[0]
-	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 75)
+	id, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +268,7 @@ func TestAdvancePropagatesCandleQueryFailure(t *testing.T) {
 	defer db.Close()
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e := newExecution(context.Background(), repo, "1")
-	e.Positions = []*Position{{TradingSymbol: "NIFTY-20260127-22600-CE", Quantity: -75}}
+	e.Positions = []*Position{{TradingSymbol: "NIFTY-20260127-22600-CE", Quantity: -1}}
 	if err := e.advance(marketTime(9, 20)); !errors.Is(err, failure) {
 		t.Fatalf("database failure was not propagated: %v", err)
 	}
@@ -278,9 +283,9 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if err := e.advance(marketTime(9, 15)); err != nil {
 					t.Fatal(err)
 				}
-				entryQuantity, exitQuantity := int64(-75), int64(75)
+				entryQuantity, exitQuantity := int64(-1), int64(1)
 				if side == models.Long {
-					entryQuantity, exitQuantity = 75, -75
+					entryQuantity, exitQuantity = 1, -1
 				}
 				if _, err := e.PlaceOrder(tradingSymbol, entryQuantity); err != nil {
 					t.Fatal(err)
@@ -314,12 +319,12 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 }
 
 func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
-	for _, quantity := range []int64{1, 100, -75} {
+	for _, quantity := range []int64{2, -1} {
 		e := executionFixture(t, nil)
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
@@ -331,7 +336,7 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 		if err := e.advance(marketTime(9, 25)); err == nil {
 			t.Fatal("unsupported position change executed")
 		}
-		if e.Positions[0].Quantity == 0 || e.Positions[0].Quantity != -75 {
+		if e.Positions[0].Quantity == 0 || e.Positions[0].Quantity != -1 {
 			t.Fatal("position mutated")
 		}
 	}
@@ -342,11 +347,11 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
-	entryID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75)
+	entryID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 75)
+	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +383,7 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 func TestFillLedgerAndReopenedPosition(t *testing.T) {
 	e := executionFixture(t, nil)
 	symbol := "NIFTY-20260127-22600-CE"
-	quantities := []int64{-75, 75, 75, -75}
+	quantities := []int64{-1, 1, 1, -1}
 	for i, quantity := range quantities {
 		at := marketTime(9, 15+i*5)
 		if i == 0 {
@@ -432,7 +437,7 @@ func TestTradeIdentityAcrossSimulations(t *testing.T) {
 		if err := e.advance(marketTime(9, 15)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -75); err != nil {
+		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.advance(marketTime(9, 20)); err != nil {
@@ -444,5 +449,39 @@ func TestTradeIdentityAcrossSimulations(t *testing.T) {
 			t.Fatalf("incorrect simulation/position association: %+v %+v", position, trade)
 		}
 		seen[trade.ID] = true
+	}
+}
+
+func TestExpiryLotSizeMultiplier(t *testing.T) {
+	for _, lotSize := range []int64{25, 50, 65, 75} {
+		for _, lots := range []int64{-2, 2} {
+			t.Run(fmt.Sprintf("lot_size=%d/lots=%d", lotSize, lots), func(t *testing.T) {
+				e := executionFixtureWithLotSize(t, nil, lotSize)
+				symbol := "NIFTY-20260127-22600-CE"
+				if err := e.advance(marketTime(9, 15)); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.PlaceOrder(symbol, lots); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.advance(marketTime(9, 20)); err != nil {
+					t.Fatal(err)
+				}
+				position := e.Positions[0]
+				if position.Quantity != lots || position.Trades[0].Quantity != lots || e.Orders[0].Quantity != lots || e.Orders[0].Contract.LotSize != lotSize {
+					t.Fatal("quantities must remain in lots and contract must retain expiry lot size")
+				}
+				if _, err := e.PlaceOrder(symbol, -lots); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.advance(marketTime(9, 25)); err != nil {
+					t.Fatal(err)
+				}
+				want := models.Price(-500 * lots * lotSize)
+				if position.Quantity != 0 || position.RealizedPnL != want || position.Trades[1].Quantity != -lots {
+					t.Fatalf("P&L=%d want=%d", position.RealizedPnL, want)
+				}
+			})
+		}
 	}
 }

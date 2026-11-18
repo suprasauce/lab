@@ -106,7 +106,7 @@ paise are discarded, so 2600050 also becomes `26000`.
 ctx.place_order(
     tradingsymbol="NIFTY-20261124-26000-CE",
     side="SELL",
-    quantity=75,
+    quantity=1,
 )
 ```
 
@@ -155,8 +155,10 @@ Run tests with `go test ./...`.
 The simulation exposes `ctx.date` (`YYYY-MM-DD`) and `ctx.time` (`HH:mm`) in IST.
 Expiry objects expose `.date`, `.underlying`, and `.get_dte(ctx.date)` for calendar-day DTE; `ctx.dte` is no longer available.
 
-Orders use signed quantities: `ctx.place_order(tradingsymbol=symbol, quantity=-75)` sells,
-and `quantity=75` buys. There is no `side` argument. Each filled order records a separate trade with its timestamp, price, and signed quantity.
+Orders use signed quantities: `ctx.place_order(tradingsymbol=symbol, quantity=-1)` sells,
+and `quantity=1` buys. There is no `side` argument. Quantities are signed lots throughout orders, positions, trades, and Starlark. Each fill records its timestamp, per-unit price, and signed lot quantity.
+Lot size comes from `option_expiry.lot_size`; realized P&L is `(exit price - average price) * signed lots * lot_size`. Prices remain in rupees per unit.
+New expiry rows must specify a positive lot size.
 Each simulation has one position per trading symbol, containing its trade history. Positions store simulation ID, signed quantity, average price, cumulative realized P&L, and current candle.
 Closing sets quantity to zero and adds realized P&L; reopening reuses the position and resets its average price without clearing P&L or trades.
 Simulation IDs (`1`, `2`, ...) restart per backtest. Trade IDs (`1/1`, `1/2`, `2/1`, ...) combine simulation and order sequence.
@@ -164,6 +166,6 @@ Results return position summaries and a flat list of fills linked by `simulation
 
 During `on_candle`, `ctx.get_positions(tradingsymbol)` returns open and closed positions
 for that symbol in the current expiry execution, in creation order. Each read-only snapshot
-exposes `simulation_id`, derived `status`, signed `quantity`, `average_price`, `realized_pnl`, and `curr_price`.
+exposes `simulation_id`, derived `status`, signed lot `quantity`, `average_price`, `realized_pnl`, and `curr_price`.
 Prices are in rupees. Closed positions have zero quantity; `curr_price` is the completed
 option candle's Close, or `None` when missing or closed. No matches returns an empty list.

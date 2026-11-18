@@ -40,7 +40,7 @@ def on_candle(ctx):
                 ctx.state["symbol"] = symbol
                 ctx.state["entry_order_id"] = ctx.place_order(
                     tradingsymbol=symbol,
-                    quantity=-75,
+                    quantity=-1,
                 )
 
     # Close at or below 21 DTE, from 15:15 onward.
@@ -51,7 +51,7 @@ def on_candle(ctx):
             if entry.status == "FILLED":
                 ctx.state["exit_order_id"] = ctx.place_order(
                     tradingsymbol=ctx.state["symbol"],
-                    quantity=75,
+                    quantity=1,
                 )
 `
 

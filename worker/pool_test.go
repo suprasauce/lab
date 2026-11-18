@@ -26,11 +26,11 @@ def initialize(ctx):
 
 def on_candle(ctx):
     if ctx.time == "09:15":
-        ctx.state["entry"] = ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=-75)
+        ctx.state["entry"] = ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=-1)
     if ctx.time == "09:20":
         entry = ctx.order(ctx.state["entry"])
         if entry.status == "FILLED":
-            ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=75)
+            ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=1)
 `
 
 func newPoolTest(t *testing.T) (*WorkerPool, sqlmock.Sqlmock, *bytes.Buffer) {
@@ -122,7 +122,7 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 		t.Fatalf("incorrect fill count: %d", len(trades))
 	}
 	entry, exit := trades[0].(map[string]any), trades[1].(map[string]any)
-	if entry["id"] != "1/1" || entry["quantity"] != json.Number("-75") || entry["price"] != json.Number("100.00") || exit["price"] != json.Number("80.00") || exit["timestamp"] != "2026-01-05T09:20:00+05:30" {
+	if entry["id"] != "1/1" || entry["quantity"] != json.Number("-1") || entry["price"] != json.Number("100.00") || exit["price"] != json.Number("80.00") || exit["timestamp"] != "2026-01-05T09:20:00+05:30" {
 		t.Fatalf("incorrect fills: %v", trades)
 	}
 	positions := payload["positions"].([]any)
@@ -297,6 +297,6 @@ func workerCandleRows() *sqlmock.Rows {
 }
 
 func workerContractRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "underlying_symbol"}).
-		AddRow(int64(101), int64(7), int64(9), workerExpiry(), int64(2265000), "CALL", "NIFTY")
+	return sqlmock.NewRows([]string{"id", "underlying_id", "expiry_id", "expiry_date", "strike_price", "option_type", "underlying_symbol", "lot_size"}).
+		AddRow(int64(101), int64(7), int64(9), workerExpiry(), int64(2265000), "CALL", "NIFTY", int64(75))
 }

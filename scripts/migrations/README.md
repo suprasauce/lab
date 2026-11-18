@@ -95,3 +95,23 @@ migration. The fresh schema already includes the column and constraint.
 ```powershell
 psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migrations/010_option_contract_tradingsymbol.sql
 ```
+
+## Expiry-specific lot size
+
+`011_option_expiry_lot_size.sql` adds a positive, required `lot_size` with no default.
+It backfills the existing NIFTY monthly expiries: January 2023-April 2024 = 50,
+May 2024-January 2025 = 25, February-December 2025 = 75, January-October 2026 = 65.
+The agreed simplification assigns May 2024 a constant 25 even before April 26.
+Other underlyings, weekly expiries, or dates outside the researched range must be
+classified explicitly before applying; otherwise NOT NULL aborts the transaction.
+New expiry inserts must supply the correct lot size. Existing contracts, candles,
+backtest scripts, and saved results are not rewritten by this migration.
+
+Sources: NSE circulars [56233](https://archives.nseindia.com/content/circulars/FAOP56233.pdf),
+[61415](https://nsearchives.nseindia.com/content/circulars/FAOP61415.pdf),
+[64625](https://nsearchives.nseindia.com/content/circulars/FAOP64625.pdf), and
+[70616](https://nsearchives.nseindia.com/content/circulars/FAOP70616.pdf).
+
+```powershell
+psql --dbname "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file scripts/migrations/011_option_expiry_lot_size.sql
+```

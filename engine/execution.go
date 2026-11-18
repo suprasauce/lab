@@ -135,7 +135,7 @@ func (e *Execution) fillOrder(order *Order) error {
 			return nil
 		}
 		fill = *position.Candle
-		position.RealizedPnL += (fill.Open - position.AveragePrice) * models.Price(position.Quantity)
+		position.RealizedPnL += (fill.Open - position.AveragePrice) * models.Price(position.Quantity) * models.Price(order.Contract.LotSize)
 		position.Quantity = 0
 		position.Candle = nil
 	} else {

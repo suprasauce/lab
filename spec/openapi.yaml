@@ -177,7 +177,7 @@ paths:
                                       ctx.state["symbol"] = symbol
                                       ctx.state["entry_order_id"] = ctx.place_order(
                                           tradingsymbol=symbol,
-                                          quantity=-75,
+                                          quantity=-1,
                                       )
 
                           # Close at or below 21 DTE, from 15:15 onward.
@@ -188,7 +188,7 @@ paths:
                                   if entry.status == "FILLED":
                                       ctx.state["exit_order_id"] = ctx.place_order(
                                           tradingsymbol=ctx.state["symbol"],
-                                          quantity=75,
+                                          quantity=1,
                                       )
                 completed:
                   summary: Completed backtest
@@ -229,7 +229,7 @@ paths:
                                       ctx.state["symbol"] = symbol
                                       ctx.state["entry_order_id"] = ctx.place_order(
                                           tradingsymbol=symbol,
-                                          quantity=-75,
+                                          quantity=-1,
                                       )
 
                           # Close at or below 21 DTE, from 15:15 onward.
@@ -240,30 +240,30 @@ paths:
                                   if entry.status == "FILLED":
                                       ctx.state["exit_order_id"] = ctx.place_order(
                                           tradingsymbol=ctx.state["symbol"],
-                                          quantity=75,
+                                          quantity=1,
                                       )
                     summary:
                       total_trades: 2
-                      total_pnl: 5298.75
+                      total_pnl: 4592.25
                     positions:
                       - simulation_id: '1'
                         tradingsymbol: NIFTY-20260127-26000-CE
                         quantity: 0
                         average_price: 461.85
-                        realized_pnl: 5298.75
+                        realized_pnl: 4592.25
                     trades:
                       - id: 1/1
                         simulation_id: '1'
                         tradingsymbol: NIFTY-20260127-26000-CE
                         timestamp: '2025-12-15T09:30:00+05:30'
                         price: 461.85
-                        quantity: -75
+                        quantity: -1
                       - id: 1/2
                         simulation_id: '1'
                         tradingsymbol: NIFTY-20260127-26000-CE
                         timestamp: '2026-01-06T15:15:00+05:30'
                         price: 391.20
-                        quantity: 75
+                        quantity: 1
                 failed:
                   summary: Backtest execution failed
                   value:
@@ -303,7 +303,7 @@ paths:
                                       ctx.state["symbol"] = symbol
                                       ctx.state["entry_order_id"] = ctx.place_order(
                                           tradingsymbol=symbol,
-                                          quantity=-75,
+                                          quantity=-1,
                                       )
 
                           # Close at or below 21 DTE, from 15:15 onward.
@@ -314,7 +314,7 @@ paths:
                                   if entry.status == "FILLED":
                                       ctx.state["exit_order_id"] = ctx.place_order(
                                           tradingsymbol=ctx.state["symbol"],
-                                          quantity=75,
+                                          quantity=1,
                                       )
                     error: Insufficient historical candle data
         '401':
@@ -675,7 +675,7 @@ components:
                             ctx.state["symbol"] = symbol
                             ctx.state["entry_order_id"] = ctx.place_order(
                                 tradingsymbol=symbol,
-                                quantity=-75,
+                                quantity=-1,
                             )
 
                 # Close at or below 21 DTE, from 15:15 onward.
@@ -686,7 +686,7 @@ components:
                         if entry.status == "FILLED":
                             ctx.state["exit_order_id"] = ctx.place_order(
                                 tradingsymbol=ctx.state["symbol"],
-                                quantity=75,
+                                quantity=1,
                             )
     CreateBacktestResponse:
       type: object
@@ -792,8 +792,8 @@ components:
         total_pnl:
           type: number
           multipleOf: 0.01
-          description: Sum of positions' cumulative realized P&L in rupees, including previous closes of reopened positions.
-          example: 5298.75
+          description: Sum of positions' cumulative realized P&L in rupees, including previous closes of reopened positions and each contract's expiry lot size.
+          example: 4592.25
     BacktestPosition:
       type: object
       description: Current position for a simulation and trading symbol. Reopening reuses this position and preserves cumulative realized P&L.
@@ -809,7 +809,7 @@ components:
         quantity:
           type: integer
           format: int64
-          description: Positive for long, negative for short, zero when closed.
+          description: "Signed lots: positive for long, negative for short, zero when closed."
         average_price:
           type: number
           multipleOf: 0.01
@@ -844,7 +844,7 @@ components:
         quantity:
           type: integer
           format: int64
-          description: Signed execution quantity; positive buys and negative sells. Never zero.
+          description: Signed lots; positive buys and negative sells. Never zero.
     Error:
       type: object
       required:

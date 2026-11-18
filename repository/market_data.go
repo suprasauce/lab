@@ -117,7 +117,7 @@ func (r *Repository) GetOptionContractByTradingSymbol(ctx context.Context, tradi
 	var contract models.Option
 	err := r.db.QueryRowContext(ctx, queryGetOptionContractByTradingSymbol, tradingSymbol).Scan(
 		&contract.ID, &contract.UnderlyingID, &contract.ExpiryID, &contract.Expiry,
-		&contract.StrikePrice, &contract.OptionType, &contract.UnderlyingSymbol,
+		&contract.StrikePrice, &contract.OptionType, &contract.UnderlyingSymbol, &contract.LotSize,
 	)
 	if err == nil {
 		return contract, nil
@@ -161,6 +161,7 @@ func (r *Repository) queryOptionContract(ctx context.Context, underlyingID int64
 		&contract.StrikePrice,
 		&contract.OptionType,
 		&contract.UnderlyingSymbol,
+		&contract.LotSize,
 	)
 	if err != nil {
 		return models.Option{}, fmt.Errorf("get option contract: %w", err)
