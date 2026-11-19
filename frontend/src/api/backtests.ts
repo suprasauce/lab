@@ -17,19 +17,28 @@ export interface BacktestTrade {
   quantity: number
 }
 
+export interface PositionMTMPoint {
+  timestamp: string
+  pnl: number
+}
+
 export interface BacktestPosition {
   simulation_id: string
   tradingsymbol: string
   quantity: number
   average_price: number
   realized_pnl: number
-  unrealized_pnl?: number | null
-  total_pnl?: number | null
+  mtm?: PositionMTMPoint[]
+}
+
+export interface BacktestSummary {
+  total_trades: number
+  total_pnl: number
 }
 
 export type Backtest = { script: string } & (
   | { id: string; status: 'PENDING' }
-  | { id: string; status: 'COMPLETED'; summary: { total_trades: number; total_pnl: number }; trades: BacktestTrade[]; positions: BacktestPosition[] }
+  | { id: string; status: 'COMPLETED'; summary: BacktestSummary; trades: BacktestTrade[]; positions: BacktestPosition[] }
   | { id: string; status: 'FAILED'; error?: string }
 )
 

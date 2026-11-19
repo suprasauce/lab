@@ -6,7 +6,6 @@ import { ApiError } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import BacktestScript from '../components/BacktestScript'
 import BacktestResults from '../components/BacktestResults'
-import { formatMoney } from '../format'
 
 export default function BacktestDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -94,13 +93,7 @@ export default function BacktestDetailPage() {
           {!loading && backtest?.status === 'PENDING' && <div className="panel-message" role="status"><h2>Your backtest is being processed</h2><p>This page checks for updates every 3 seconds. You can safely navigate away.</p></div>}
           {!loading && backtest?.status === 'FAILED' && <div className="panel-message failure-panel"><h2>Backtest failed</h2><p>{backtest.error || 'The backtest could not be completed. No failure details were provided.'}</p></div>}
           {!loading && backtest?.status === 'COMPLETED' && (
-            <>
-              <dl className="summary-panel">
-                <div><dt>Total P&amp;L</dt><dd className={backtest.summary.total_pnl < 0 ? 'negative-value' : 'positive-value'}>{formatMoney(backtest.summary.total_pnl)}</dd></div>
-                <div><dt>Total trades</dt><dd>{backtest.summary.total_trades}</dd></div>
-              </dl>
-              <BacktestResults key={id} positions={backtest.positions} trades={backtest.trades} />
-            </>
+            <BacktestResults key={id} summary={backtest.summary} positions={backtest.positions} trades={backtest.trades} />
           )}
         </section>
       )}
