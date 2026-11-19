@@ -251,6 +251,9 @@ paths:
                         quantity: 0
                         average_price: 461.85
                         realized_pnl: 4592.25
+                        mtm:
+                          - timestamp: '2025-12-15T09:35:00+05:30'
+                            pnl: -65.00
                     trades:
                       - id: 1/1
                         simulation_id: '1'
@@ -797,7 +800,7 @@ components:
     BacktestPosition:
       type: object
       description: Current position for a simulation and trading symbol. Reopening reuses this position and preserves cumulative realized P&L.
-      required: [simulation_id, tradingsymbol, quantity, average_price, realized_pnl]
+      required: [simulation_id, tradingsymbol, quantity, average_price, realized_pnl, mtm]
       properties:
         simulation_id:
           type: string
@@ -818,6 +821,23 @@ components:
           type: number
           multipleOf: 0.01
           description: Cumulative realized P&L across all closes of this position, in rupees.
+        mtm:
+          type: array
+          description: Unrealized P&L history at simulation timestamps using completed option candle closes. Missing candles and closed positions add no points. Empty when no observations exist.
+          items:
+            $ref: '#/components/schemas/PositionMTMPoint'
+    PositionMTMPoint:
+      type: object
+      required: [timestamp, pnl]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Simulation observation time in IST, when the candle has completed.
+        pnl:
+          type: number
+          multipleOf: 0.01
+          description: Unrealized position P&L in rupees, including the expiry lot-size multiplier.
     BacktestTrade:
       type: object
       description: One order execution. The simulation ID and trading symbol identify its position. Prices are in rupees and timestamps are in IST.

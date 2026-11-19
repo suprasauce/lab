@@ -418,6 +418,9 @@ func TestFillLedgerAndReopenedPosition(t *testing.T) {
 	if len(positions) != 1 || positions[0].Quantity != 0 || positions[0].SimulationID != "1" {
 		t.Fatalf("incorrect position history: %+v", positions)
 	}
+	if len(positions[0].MTM) != 2 {
+		t.Fatal("MTM history was lost on reopen or recorded while closed")
+	}
 	if positions[0].AveragePrice != 9000 || positions[0].RealizedPnL != 0 {
 		t.Fatal("reopened position did not preserve cumulative realized P&L")
 	}
@@ -483,5 +486,49 @@ func TestExpiryLotSizeMultiplier(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestPositionMTMHistorySkipsMissingCandles(t *testing.T) {
+	for _, lots := range []int64{-2, 2} {
+		t.Run(fmt.Sprint(lots), func(t *testing.T) {
+			e := executionFixtureWithLotSize(t, map[time.Time]bool{marketTime(9, 20): true}, 65)
+			symbol := "NIFTY-20260127-22600-CE"
+			if err := e.advance(marketTime(9, 15)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.PlaceOrder(symbol, lots); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.advance(marketTime(9, 20)); err != nil {
+				t.Fatal(err)
+			}
+			position := e.Positions[0]
+			want := (models.Price(7777777) - 10000) * models.Price(lots) * 65
+			if len(position.MTM) != 1 || position.MTM[0].PnL != want || !position.MTM[0].Timestamp.Equal(marketTime(9, 20)) {
+				t.Fatalf("incorrect completed-candle MTM: %+v", position.MTM)
+			}
+			if err := e.advance(marketTime(9, 25)); err != nil {
+				t.Fatal(err)
+			}
+			if len(position.MTM) != 1 || position.Candle != nil {
+				t.Fatal("missing candle appended MTM or reused stale data")
+			}
+			if err := e.advance(marketTime(9, 30)); err != nil {
+				t.Fatal(err)
+			}
+			if len(position.MTM) != 2 || !position.MTM[1].Timestamp.Equal(marketTime(9, 30)) {
+				t.Fatal("MTM did not resume after missing candle")
+			}
+			if _, err := e.PlaceOrder(symbol, -lots); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.advance(marketTime(9, 35)); err != nil {
+				t.Fatal(err)
+			}
+			if position.Quantity != 0 || len(position.MTM) != 2 {
+				t.Fatal("closed position appended MTM")
+			}
+		})
 	}
 }

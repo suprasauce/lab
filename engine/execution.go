@@ -65,7 +65,21 @@ func (e *Execution) advance(at time.Time) error {
 	if err := e.loadCompletedCandles(); err != nil {
 		return err
 	}
-	return e.fillOrders()
+	if err := e.fillOrders(); err != nil {
+		return err
+	}
+	for _, position := range e.Positions {
+		if position.Quantity == 0 || position.Candle == nil {
+			continue
+		}
+		contract, err := e.resolveContract(position.TradingSymbol)
+		if err != nil {
+			return fmt.Errorf("position MTM contract: %w", err)
+		}
+		pnl := (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * models.Price(contract.LotSize)
+		position.MTM = append(position.MTM, MTMPoint{Timestamp: e.Time, PnL: pnl})
+	}
+	return nil
 }
 
 func (e *Execution) loadCompletedCandles() error {

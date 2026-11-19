@@ -26,11 +26,17 @@ type backtestTrade struct {
 }
 
 type backtestPosition struct {
-	SimulationID  string      `json:"simulation_id"`
-	TradingSymbol string      `json:"tradingsymbol"`
-	Quantity      int64       `json:"quantity"`
-	AveragePrice  json.Number `json:"average_price"`
-	RealizedPnL   json.Number `json:"realized_pnl"`
+	SimulationID  string             `json:"simulation_id"`
+	TradingSymbol string             `json:"tradingsymbol"`
+	Quantity      int64              `json:"quantity"`
+	AveragePrice  json.Number        `json:"average_price"`
+	RealizedPnL   json.Number        `json:"realized_pnl"`
+	MTM           []backtestMTMPoint `json:"mtm"`
+}
+
+type backtestMTMPoint struct {
+	Timestamp string      `json:"timestamp"`
+	PnL       json.Number `json:"pnl"`
 }
 
 // MarshalBacktestResult serializes positions and fills without pairing trades.
@@ -59,10 +65,18 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 			if position == nil {
 				return nil, fmt.Errorf("backtest position is nil")
 			}
+			mtm := make([]backtestMTMPoint, 0, len(position.MTM))
+			for _, point := range position.MTM {
+				mtm = append(mtm, backtestMTMPoint{
+					Timestamp: point.Timestamp.In(location).Format(time.RFC3339),
+					PnL:       json.Number(formatPrice(point.PnL)),
+				})
+			}
 			output.Positions = append(output.Positions, backtestPosition{
 				SimulationID: position.SimulationID, TradingSymbol: position.TradingSymbol,
 				Quantity: position.Quantity, AveragePrice: json.Number(formatPrice(position.AveragePrice)),
 				RealizedPnL: json.Number(formatPrice(position.RealizedPnL)),
+				MTM:         mtm,
 			})
 			totalPnL.Add(totalPnL, big.NewInt(int64(position.RealizedPnL)))
 			fills = append(fills, position.Trades...)

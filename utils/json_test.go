@@ -42,8 +42,11 @@ func TestMarshalBacktestResult(t *testing.T) {
 		t.Fatalf("incorrect result: %s", payload)
 	}
 	position := output.Positions[0]
-	if len(position) != 5 || position["simulation_id"] != "1" || position["quantity"] != json.Number("1") || position["average_price"] != json.Number("0.29") || position["realized_pnl"] != json.Number("3521.25") {
+	if len(position) != 6 || position["simulation_id"] != "1" || position["quantity"] != json.Number("1") || position["average_price"] != json.Number("0.29") || position["realized_pnl"] != json.Number("3521.25") {
 		t.Fatalf("incorrect position: %v", position)
+	}
+	if mtm, ok := position["mtm"].([]any); !ok || len(mtm) != 0 {
+		t.Fatal("empty MTM history must be an empty JSON array")
 	}
 	first := output.Trades[0]
 	if len(first) != 6 || first["id"] != "1/1" || first["simulation_id"] != "1" || first["tradingsymbol"] != "NIFTY-20260127-25000-CE" || first["timestamp"] != "2026-01-01T09:15:00+05:30" || first["price"] != json.Number("127.05") || first["quantity"] != json.Number("-1") {
@@ -95,5 +98,34 @@ func TestResultsSumPositionPnLWithoutPairingTrades(t *testing.T) {
 	}
 	if output.Summary.TotalTrades != 4 || output.Summary.TotalPnL != 3421.25 || len(output.Positions) != 2 || output.Positions[1].SimulationID != "2" {
 		t.Fatalf("incorrect totals or identity: %s", payload)
+	}
+}
+
+func TestMarshalPositionMTMHistory(t *testing.T) {
+	result := backtestResult()
+	result.Executions[0].Positions[0].MTM = []engine.MTMPoint{
+		{Timestamp: time.Date(2026, 1, 1, 3, 50, 0, 0, time.UTC), PnL: -12345},
+		{Timestamp: time.Date(2026, 1, 1, 4, 0, 0, 0, time.UTC), PnL: 9876},
+	}
+	payload, err := MarshalBacktestResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output struct {
+		Positions []struct {
+			MTM []struct {
+				Timestamp string      `json:"timestamp"`
+				PnL       json.Number `json:"pnl"`
+			} `json:"mtm"`
+		} `json:"positions"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&output); err != nil {
+		t.Fatal(err)
+	}
+	history := output.Positions[0].MTM
+	if len(history) != 2 || history[0].Timestamp != "2026-01-01T09:20:00+05:30" || history[0].PnL != "-123.45" || history[1].Timestamp != "2026-01-01T09:30:00+05:30" || history[1].PnL != "98.76" {
+		t.Fatalf("incorrect serialized MTM: %s", payload)
 	}
 }
