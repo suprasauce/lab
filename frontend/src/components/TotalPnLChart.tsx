@@ -90,7 +90,7 @@ export default function TotalPnLChart({ title, series }: { title: string; series
               const next = event.key === 'Home' ? 0 : event.key === 'End' ? data.times.length - 1 : event.key === 'ArrowRight' ? index + 1 : index === -1 ? data.times.length - 1 : index - 1
               setHoverTime(data.times[Math.max(0, Math.min(data.times.length - 1, next))])
             }}>
-            <title>{title}: timestamped unrealized P&amp;L, excluding realized P&amp;L</title>
+            <title>{title}: timestamped total P&amp;L, including realized and unrealized P&amp;L</title>
             <defs><clipPath id={clipId}><rect x={plot.left} y={plot.top} width={width} height={height} /></clipPath></defs>
             {[0, 1, 2, 3, 4].map((tick) => {
               const value = data.minValue + (data.maxValue - data.minValue) * tick / 4
@@ -104,18 +104,10 @@ export default function TotalPnLChart({ title, series }: { title: string; series
             <text className="total_pnl-axis-label" x={plot.left} y={plot.height - 8}>Date / time (IST)</text>
             <g clipPath={`url(#${clipId})`}>
               {visible.map((line) => {
-                let connected = false
-                const path = line.points.map((point) => {
-                  if (point.value === null) { connected = false; return '' }
-                  const segment = `${connected ? 'L' : 'M'}${x(point.time)},${y(point.value)}`
-                  connected = true
-                  return segment
-                }).join(' ')
-                return <g key={line.id}>
-                  <path d={path} fill="none" stroke={line.color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-                  {line.points.map((point, index) => point.value !== null && (index === 0 || line.points[index - 1].value === null) && (index === line.points.length - 1 || line.points[index + 1].value === null)
-                    ? <circle key={index} cx={x(point.time)} cy={y(point.value)} r={2.5} fill={line.color} /> : null)}
-                </g>
+                const path = line.points.filter((point) => point.value !== null).map((point, index) =>
+                  `${index === 0 ? 'M' : 'L'}${x(point.time)},${y(point.value!)}`,
+                ).join(' ')
+                return <path key={line.id} d={path} fill="none" stroke={line.color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
               })}
             </g>
             {hoverTime !== null && hoverRows.length > 0 && (
@@ -130,7 +122,7 @@ export default function TotalPnLChart({ title, series }: { title: string; series
           </svg>
         </div>
       )}
-      <p className="total_pnl-chart-note">Total P&L includes cumulative realized and current unrealized P&L. Missing candle data creates gaps.</p>
+      <p className="total_pnl-chart-note">Total P&L includes cumulative realized and current unrealized P&L. Lines connect available snapshots across missing data; no additional values are recorded.</p>
     </section>
   )
 }
