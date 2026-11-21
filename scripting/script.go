@@ -56,6 +56,7 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 	c := &strategyContext{ctx: ctx, repo: e.Repository(), initializing: true, state: starlark.NewDict(0)}
 	s.context = c
 	callbackThread := &starlark.Thread{Name: s.thread.Name + ":on_candle"}
+	callbackThread.SetLocal("strategy_context", c)
 	c.getExpiries = func(underlying string, start, end time.Time) ([]time.Time, error) {
 		return e.GetExpiries(ctx, underlying, start, end)
 	}
@@ -88,6 +89,7 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 func scriptBuiltins() starlark.StringDict {
 	return starlark.StringDict{
 		"filter": starlark.NewBuiltin("filter", newFilter),
+		"chart":  starlarkstruct.FromStringDict(starlark.String("chart"), starlark.StringDict{"ema": starlark.NewBuiltin("chart.ema", ema)}),
 		"date":   starlarkstruct.FromStringDict(starlark.String("date"), starlark.StringDict{"add": starlark.NewBuiltin("date.add", addDate)}),
 	}
 }
