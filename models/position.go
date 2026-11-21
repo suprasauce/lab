@@ -1,8 +1,44 @@
 package models
 
+import (
+	"encoding/json"
+	"math/big"
+	"time"
+)
+
 type PositionSide string
 
 const (
 	Long  PositionSide = "LONG"
 	Short PositionSide = "SHORT"
 )
+
+// MTMPoint records unrealized P&L observed at a simulation timestamp.
+// PnL is stored in paise; JSON represents it in rupees.
+type MTMPoint struct {
+	Timestamp time.Time
+	PnL       Price
+}
+
+func (point MTMPoint) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Timestamp string      `json:"timestamp"`
+		PnL       json.Number `json:"pnl"`
+	}{
+		Timestamp: point.Timestamp.Format(time.RFC3339),
+		PnL:       json.Number(big.NewRat(int64(point.PnL), 100).FloatString(2)),
+	})
+}
+
+// Position is reused when the same symbol is reopened within a simulation.
+// RealizedPnL accumulates across closes; quantity is signed lots, with zero closed.
+type Position struct {
+	SimulationID  string
+	TradingSymbol string
+	Quantity      int64
+	AveragePrice  Price
+	RealizedPnL   Price
+	MTM           []MTMPoint
+	Trades        []Trade
+	Candle        *Candle
+}

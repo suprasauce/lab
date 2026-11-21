@@ -14,7 +14,7 @@ type Execution struct {
 	ID        string
 	Time      time.Time
 	Orders    []*Order
-	Positions []*Position
+	Positions []*models.Position
 	ctx       context.Context
 	repo      *repository.Repository
 }
@@ -37,8 +37,8 @@ func (e *Execution) PlaceOrder(tradingSymbol string, quantity int64) (string, er
 }
 
 // GetPositions returns the matching position, if any, whether open or closed.
-func (e *Execution) GetPositions(tradingSymbol string) []*Position {
-	positions := make([]*Position, 0)
+func (e *Execution) GetPositions(tradingSymbol string) []*models.Position {
+	positions := make([]*models.Position, 0)
 	for _, position := range e.Positions {
 		if position.TradingSymbol == tradingSymbol {
 			positions = append(positions, position)
@@ -77,7 +77,7 @@ func (e *Execution) advance(at time.Time) error {
 			return fmt.Errorf("position MTM contract: %w", err)
 		}
 		pnl := (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * models.Price(contract.LotSize)
-		position.MTM = append(position.MTM, MTMPoint{Timestamp: e.Time, PnL: pnl})
+		position.MTM = append(position.MTM, models.MTMPoint{Timestamp: e.Time, PnL: pnl})
 	}
 	return nil
 }
@@ -129,7 +129,7 @@ func (e *Execution) fillOrder(order *Order) error {
 		order.Contract = contract
 	}
 
-	var position *Position
+	var position *models.Position
 	for _, candidate := range e.Positions {
 		if candidate.TradingSymbol == order.TradingSymbol {
 			position = candidate
@@ -165,7 +165,7 @@ func (e *Execution) fillOrder(order *Order) error {
 		}
 		fill = candles[0]
 		if position == nil {
-			position = &Position{SimulationID: e.ID, TradingSymbol: order.TradingSymbol}
+			position = &models.Position{SimulationID: e.ID, TradingSymbol: order.TradingSymbol}
 			e.Positions = append(e.Positions, position)
 		}
 		position.Quantity, position.AveragePrice = order.Quantity, fill.Open

@@ -11,7 +11,7 @@ import (
 )
 
 func backtestResult() *engine.BacktestResult {
-	return &engine.BacktestResult{Executions: []*engine.Execution{{ID: "1", Positions: []*engine.Position{
+	return &engine.BacktestResult{Executions: []*engine.Execution{{ID: "1", Positions: []*models.Position{
 		{SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, AveragePrice: 29, RealizedPnL: 352125, Trades: []models.Trade{
 			{ID: "1/1", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: -1, Timestamp: time.Date(2026, 1, 1, 3, 45, 0, 0, time.UTC), Price: 12705},
 			{ID: "1/2", SimulationID: "1", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, Timestamp: time.Date(2026, 1, 6, 3, 50, 0, 0, time.UTC), Price: 8010},
@@ -65,7 +65,7 @@ func TestMarshalBacktestResultEmpty(t *testing.T) {
 }
 
 func TestMarshalBacktestResultRejectsNil(t *testing.T) {
-	for _, result := range []*engine.BacktestResult{nil, {Executions: []*engine.Execution{nil}}, {Executions: []*engine.Execution{{Positions: []*engine.Position{nil}}}}} {
+	for _, result := range []*engine.BacktestResult{nil, {Executions: []*engine.Execution{nil}}, {Executions: []*engine.Execution{{Positions: []*models.Position{nil}}}}} {
 		if _, err := MarshalBacktestResult(result); err == nil {
 			t.Fatal("expected invalid result error")
 		}
@@ -75,7 +75,7 @@ func TestMarshalBacktestResultRejectsNil(t *testing.T) {
 func TestResultsSumPositionPnLWithoutPairingTrades(t *testing.T) {
 	result := backtestResult()
 	// A second simulation may use the same symbol and local order sequence.
-	result.Executions = append(result.Executions, &engine.Execution{ID: "2", Positions: []*engine.Position{
+	result.Executions = append(result.Executions, &engine.Execution{ID: "2", Positions: []*models.Position{
 		{SimulationID: "2", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 0, RealizedPnL: -10000, Trades: []models.Trade{
 			{ID: "2/1", SimulationID: "2", TradingSymbol: "NIFTY-20260127-25000-CE", Quantity: 1, Price: 100},
 		}},
@@ -103,7 +103,7 @@ func TestResultsSumPositionPnLWithoutPairingTrades(t *testing.T) {
 
 func TestMarshalPositionMTMHistory(t *testing.T) {
 	result := backtestResult()
-	result.Executions[0].Positions[0].MTM = []engine.MTMPoint{
+	result.Executions[0].Positions[0].MTM = []models.MTMPoint{
 		{Timestamp: time.Date(2026, 1, 1, 3, 50, 0, 0, time.UTC), PnL: -12345},
 		{Timestamp: time.Date(2026, 1, 1, 4, 0, 0, 0, time.UTC), PnL: 9876},
 	}

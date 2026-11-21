@@ -268,7 +268,7 @@ func TestAdvancePropagatesCandleQueryFailure(t *testing.T) {
 	defer db.Close()
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e := newExecution(context.Background(), repo, "1")
-	e.Positions = []*Position{{TradingSymbol: "NIFTY-20260127-22600-CE", Quantity: -1}}
+	e.Positions = []*models.Position{{TradingSymbol: "NIFTY-20260127-22600-CE", Quantity: -1}}
 	if err := e.advance(marketTime(9, 20)); !errors.Is(err, failure) {
 		t.Fatalf("database failure was not propagated: %v", err)
 	}
