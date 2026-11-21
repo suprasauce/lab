@@ -26,12 +26,13 @@ type backtestTrade struct {
 }
 
 type backtestPosition struct {
-	SimulationID  string                      `json:"simulation_id"`
-	TradingSymbol string                      `json:"tradingsymbol"`
-	Quantity      int64                       `json:"quantity"`
-	AveragePrice  json.Number                 `json:"average_price"`
-	RealizedPnL   json.Number                 `json:"realized_pnl"`
-	UnrealizedPnL []models.UnrealizedPnLPoint `json:"unrealized_pnl"`
+	SimulationID  string            `json:"simulation_id"`
+	TradingSymbol string            `json:"tradingsymbol"`
+	Quantity      int64             `json:"quantity"`
+	AveragePrice  json.Number       `json:"average_price"`
+	RealizedPnL   json.Number       `json:"realized_pnl"`
+	UnrealizedPnL json.Number       `json:"unrealized_pnl"`
+	TotalPnL      []models.PnLPoint `json:"total_pnl"`
 }
 
 // MarshalBacktestResult serializes positions and fills without pairing trades.
@@ -60,9 +61,9 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 			if position == nil {
 				return nil, fmt.Errorf("backtest position is nil")
 			}
-			unrealizedPnL := make([]models.UnrealizedPnLPoint, 0, len(position.UnrealizedPnL))
-			for _, point := range position.UnrealizedPnL {
-				unrealizedPnL = append(unrealizedPnL, models.UnrealizedPnLPoint{
+			totalPnLHistory := make([]models.PnLPoint, 0, len(position.TotalPnL))
+			for _, point := range position.TotalPnL {
+				totalPnLHistory = append(totalPnLHistory, models.PnLPoint{
 					Timestamp: point.Timestamp.In(location),
 					PnL:       point.PnL,
 				})
@@ -71,7 +72,8 @@ func MarshalBacktestResult(result *engine.BacktestResult) ([]byte, error) {
 				SimulationID: position.SimulationID, TradingSymbol: position.TradingSymbol,
 				Quantity: position.Quantity, AveragePrice: json.Number(formatPrice(position.AveragePrice)),
 				RealizedPnL:   json.Number(formatPrice(position.RealizedPnL)),
-				UnrealizedPnL: unrealizedPnL,
+				UnrealizedPnL: json.Number(formatPrice(position.UnrealizedPnL)),
+				TotalPnL:      totalPnLHistory,
 			})
 			totalPnL.Add(totalPnL, big.NewInt(int64(position.RealizedPnL)))
 			fills = append(fills, position.Trades...)

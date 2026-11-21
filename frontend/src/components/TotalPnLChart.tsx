@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from 'react'
 import { formatMoney } from '../format'
-import type { UnrealizedPnLSeries } from '../unrealized_pnl'
+import type { TotalPnLSeries } from '../total_pnl'
 
 const axisDate = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: '2-digit' })
 const axisTime = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -8,7 +8,7 @@ const exactDate = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', d
 const axisMoney = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', notation: 'compact', maximumFractionDigits: 1 })
 const plot = { width: 1000, height: 360, left: 88, right: 24, top: 28, bottom: 62 }
 
-export default function UnrealizedPnLChart({ title, series }: { title: string; series: UnrealizedPnLSeries[] }) {
+export default function TotalPnLChart({ title, series }: { title: string; series: TotalPnLSeries[] }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
   const [hoverTime, setHoverTime] = useState<number | null>(null)
   const clipId = useId()
@@ -52,10 +52,10 @@ export default function UnrealizedPnLChart({ title, series }: { title: string; s
   }
 
   return (
-    <section className="unrealized_pnl-chart" aria-label={title}>
-      <div className="unrealized_pnl-chart-header"><h2 className="section-title">{title}</h2><span>Unrealized P&amp;L · INR · IST</span></div>
+    <section className="total_pnl-chart" aria-label={title}>
+      <div className="total_pnl-chart-header"><h2 className="section-title">{title}</h2><span>Total P&amp;L · INR · IST</span></div>
       {series.length > 1 && (
-        <div className="unrealized_pnl-legend" aria-label="Toggle simulation lines">
+        <div className="total_pnl-legend" aria-label="Toggle simulation lines">
           {series.map((line) => (
             <button key={line.id} type="button" className="subtle-button" aria-pressed={!hidden.has(line.id)} onClick={() => {
               setHidden((previous) => {
@@ -66,16 +66,16 @@ export default function UnrealizedPnLChart({ title, series }: { title: string; s
               })
               setHoverTime(null)
             }}>
-              <span className="unrealized_pnl-swatch" style={{ background: line.color }} />{line.label}
+              <span className="total_pnl-swatch" style={{ background: line.color }} />{line.label}
             </button>
           ))}
         </div>
       )}
       {data.times.length === 0 ? (
-        <p className="unrealized_pnl-empty">{visible.length === 0 && series.length > 0 ? 'Select a simulation in the legend to show its line.' : 'No reliable Unrealized P&L history is available for this view.'}</p>
+        <p className="total_pnl-empty">{visible.length === 0 && series.length > 0 ? 'Select a simulation in the legend to show its line.' : 'No reliable Total P&L history is available for this view.'}</p>
       ) : (
-        <div className="unrealized_pnl-chart-scroll">
-          <svg className="unrealized_pnl-chart-svg" viewBox={`0 0 ${plot.width} ${plot.height}`} role="img" aria-label={`${title}. Use left and right arrow keys to inspect snapshots.`} tabIndex={0}
+        <div className="total_pnl-chart-scroll">
+          <svg className="total_pnl-chart-svg" viewBox={`0 0 ${plot.width} ${plot.height}`} role="img" aria-label={`${title}. Use left and right arrow keys to inspect snapshots.`} tabIndex={0}
             onPointerMove={(event) => {
               const bounds = event.currentTarget.getBoundingClientRect()
               const coordinate = (event.clientX - bounds.left) / bounds.width * plot.width
@@ -94,14 +94,14 @@ export default function UnrealizedPnLChart({ title, series }: { title: string; s
             <defs><clipPath id={clipId}><rect x={plot.left} y={plot.top} width={width} height={height} /></clipPath></defs>
             {[0, 1, 2, 3, 4].map((tick) => {
               const value = data.minValue + (data.maxValue - data.minValue) * tick / 4
-              return <g key={tick}><line className="unrealized_pnl-grid-line" x1={plot.left} x2={plot.width - plot.right} y1={y(value)} y2={y(value)} /><text className="unrealized_pnl-axis-label" x={plot.left - 12} y={y(value) + 4} textAnchor="end">{axisMoney.format(value)}</text></g>
+              return <g key={tick}><line className="total_pnl-grid-line" x1={plot.left} x2={plot.width - plot.right} y1={y(value)} y2={y(value)} /><text className="total_pnl-axis-label" x={plot.left - 12} y={y(value) + 4} textAnchor="end">{axisMoney.format(value)}</text></g>
             })}
-            <line className="unrealized_pnl-zero-line" x1={plot.left} x2={plot.width - plot.right} y1={y(0)} y2={y(0)} />
+            <line className="total_pnl-zero-line" x1={plot.left} x2={plot.width - plot.right} y1={y(0)} y2={y(0)} />
             {[0, 1, 2, 3, 4].map((tick) => {
               const time = data.minTime + (data.maxTime - data.minTime) * tick / 4
-              return <text key={tick} className="unrealized_pnl-axis-label" x={x(time)} y={plot.height - 30} textAnchor={tick === 0 ? 'start' : tick === 4 ? 'end' : 'middle'}>{(data.maxTime - data.minTime < 2 * 86_400_000 ? axisTime : axisDate).format(time)}</text>
+              return <text key={tick} className="total_pnl-axis-label" x={x(time)} y={plot.height - 30} textAnchor={tick === 0 ? 'start' : tick === 4 ? 'end' : 'middle'}>{(data.maxTime - data.minTime < 2 * 86_400_000 ? axisTime : axisDate).format(time)}</text>
             })}
-            <text className="unrealized_pnl-axis-label" x={plot.left} y={plot.height - 8}>Date / time (IST)</text>
+            <text className="total_pnl-axis-label" x={plot.left} y={plot.height - 8}>Date / time (IST)</text>
             <g clipPath={`url(#${clipId})`}>
               {visible.map((line) => {
                 let connected = false
@@ -120,17 +120,17 @@ export default function UnrealizedPnLChart({ title, series }: { title: string; s
             </g>
             {hoverTime !== null && hoverRows.length > 0 && (
               <g pointerEvents="none">
-                <line className="unrealized_pnl-crosshair" x1={x(hoverTime)} x2={x(hoverTime)} y1={plot.top} y2={plot.top + height} />
+                <line className="total_pnl-crosshair" x1={x(hoverTime)} x2={x(hoverTime)} y1={plot.top} y2={plot.top + height} />
                 {hoverRows.map((row) => <circle key={row.id} cx={x(hoverTime)} cy={y(row.value)} r={3.5} fill={row.color} />)}
-                <rect className="unrealized_pnl-tooltip" x={tooltipX} y={plot.top + 8} width={282} height={38 + hoverRows.length * 22} rx={8} />
-                <text className="unrealized_pnl-tooltip-date" x={tooltipX + 12} y={plot.top + 30}>{exactDate.format(hoverTime)} IST</text>
-                {hoverRows.map((row, index) => <g key={row.id}><circle cx={tooltipX + 15} cy={plot.top + 49 + index * 22} r={3} fill={row.color} /><text className="unrealized_pnl-tooltip-value" x={tooltipX + 26} y={plot.top + 53 + index * 22}>{series.length === 1 ? 'Unrealized P&L' : row.label}</text><text className="unrealized_pnl-tooltip-value" textAnchor="end" x={tooltipX + 270} y={plot.top + 53 + index * 22}>{formatMoney(row.value)}</text></g>)}
+                <rect className="total_pnl-tooltip" x={tooltipX} y={plot.top + 8} width={282} height={38 + hoverRows.length * 22} rx={8} />
+                <text className="total_pnl-tooltip-date" x={tooltipX + 12} y={plot.top + 30}>{exactDate.format(hoverTime)} IST</text>
+                {hoverRows.map((row, index) => <g key={row.id}><circle cx={tooltipX + 15} cy={plot.top + 49 + index * 22} r={3} fill={row.color} /><text className="total_pnl-tooltip-value" x={tooltipX + 26} y={plot.top + 53 + index * 22}>{series.length === 1 ? 'Total P&L' : row.label}</text><text className="total_pnl-tooltip-value" textAnchor="end" x={tooltipX + 270} y={plot.top + 53 + index * 22}>{formatMoney(row.value)}</text></g>)}
               </g>
             )}
           </svg>
         </div>
       )}
-      <p className="unrealized_pnl-chart-note">Unrealized P&L excludes realized P&L. Missing data is not zero, and values are never carried across closures or reopenings.</p>
+      <p className="total_pnl-chart-note">Total P&L includes cumulative realized and current unrealized P&L. Missing candle data creates gaps.</p>
     </section>
   )
 }

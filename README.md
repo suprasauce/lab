@@ -170,8 +170,10 @@ exposes `simulation_id`, derived `status`, signed lot `quantity`, `average_price
 Prices are in rupees. Closed positions have zero quantity; `curr_price` is the completed
 option candle's Close, or `None` when missing or closed. No matches returns an empty list.
 
-Each results position also includes `unrealized_pnl`, a timestamped unrealized P&L history
-in rupees. After fills, the engine marks open positions using completed option
-candle closes and the expiry lot size. Missing candles add no point; closed
-positions add no point. History is retained when a position is reopened.
-Unrealized P&L is not exposed to Starlark. No additional database tables are used.
+Each results position includes current `unrealized_pnl` and a timestamped `total_pnl`
+history in rupees. Total P&L is cumulative realized plus current unrealized P&L.
+After fills, open positions are marked using completed option candle closes and the
+expiry lot size. Missing candles skip history points; closed positions record
+realized P&L with zero unrealized P&L. Reopening retains realized P&L and history.
+The UI plots total P&L; simulation curves sum matching position snapshots.
+These P&L fields are not newly exposed to Starlark. No database tables are added.

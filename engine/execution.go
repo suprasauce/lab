@@ -69,15 +69,19 @@ func (e *Execution) advance(at time.Time) error {
 		return err
 	}
 	for _, position := range e.Positions {
-		if position.Quantity == 0 || position.Candle == nil {
-			continue
+		if position.Quantity == 0 {
+			position.UnrealizedPnL = 0
+		} else {
+			if position.Candle == nil {
+				continue
+			}
+			contract, err := e.resolveContract(position.TradingSymbol)
+			if err != nil {
+				return fmt.Errorf("position P&L contract: %w", err)
+			}
+			position.UnrealizedPnL = (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * models.Price(contract.LotSize)
 		}
-		contract, err := e.resolveContract(position.TradingSymbol)
-		if err != nil {
-			return fmt.Errorf("position UnrealizedPnL contract: %w", err)
-		}
-		pnl := (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * models.Price(contract.LotSize)
-		position.UnrealizedPnL = append(position.UnrealizedPnL, models.UnrealizedPnLPoint{Timestamp: e.Time, PnL: pnl})
+		position.TotalPnL = append(position.TotalPnL, models.PnLPoint{Timestamp: e.Time, PnL: position.RealizedPnL + position.UnrealizedPnL})
 	}
 	return nil
 }

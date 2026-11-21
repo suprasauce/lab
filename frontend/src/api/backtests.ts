@@ -17,7 +17,7 @@ export interface BacktestTrade {
   quantity: number
 }
 
-export interface PositionUnrealizedPnLPoint {
+export interface PnLPoint {
   timestamp: string
   pnl: number
 }
@@ -28,7 +28,8 @@ export interface BacktestPosition {
   quantity: number
   average_price: number
   realized_pnl: number
-  unrealized_pnl?: PositionUnrealizedPnLPoint[]
+  unrealized_pnl?: number
+  total_pnl?: PnLPoint[]
 }
 
 export interface BacktestSummary {

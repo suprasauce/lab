@@ -251,7 +251,8 @@ paths:
                         quantity: 0
                         average_price: 461.85
                         realized_pnl: 4592.25
-                        unrealized_pnl:
+                        unrealized_pnl: 0.00
+                        total_pnl:
                           - timestamp: '2025-12-15T09:35:00+05:30'
                             pnl: -65.00
                     trades:
@@ -800,7 +801,7 @@ components:
     BacktestPosition:
       type: object
       description: Current position for a simulation and trading symbol. Reopening reuses this position and preserves cumulative realized P&L.
-      required: [simulation_id, tradingsymbol, quantity, average_price, realized_pnl, unrealized_pnl]
+      required: [simulation_id, tradingsymbol, quantity, average_price, realized_pnl, unrealized_pnl, total_pnl]
       properties:
         simulation_id:
           type: string
@@ -822,11 +823,15 @@ components:
           multipleOf: 0.01
           description: Cumulative realized P&L across all closes of this position, in rupees.
         unrealized_pnl:
+          type: number
+          multipleOf: 0.01
+          description: Latest observed unrealized P&L in rupees; zero when closed. Missing candles retain the last observed value.
+        total_pnl:
           type: array
-          description: Unrealized P&L history at simulation timestamps using completed option candle closes. Missing candles and closed positions add no points. Empty when no observations exist.
+          description: Cumulative realized plus current unrealized P&L history. Closed positions continue recording realized P&L. Open positions with missing candles add no point.
           items:
-            $ref: '#/components/schemas/PositionUnrealizedPnLPoint'
-    PositionUnrealizedPnLPoint:
+            $ref: '#/components/schemas/PnLPoint'
+    PnLPoint:
       type: object
       required: [timestamp, pnl]
       properties:
@@ -837,7 +842,7 @@ components:
         pnl:
           type: number
           multipleOf: 0.01
-          description: Unrealized position P&L in rupees, including the expiry lot-size multiplier.
+          description: Total position P&L in rupees, including cumulative realized P&L and the expiry lot-size multiplier.
     BacktestTrade:
       type: object
       description: One order execution. The simulation ID and trading symbol identify its position. Prices are in rupees and timestamps are in IST.

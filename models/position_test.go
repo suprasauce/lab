@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestUnrealizedPnLPointMarshalJSON(t *testing.T) {
+func TestPnLPointMarshalJSON(t *testing.T) {
 	for _, test := range []struct {
 		paise  Price
 		rupees string
@@ -20,7 +20,7 @@ func TestUnrealizedPnLPointMarshalJSON(t *testing.T) {
 		{math.MinInt64, "-92233720368547758.08"},
 	} {
 		t.Run(test.rupees, func(t *testing.T) {
-			point := UnrealizedPnLPoint{Timestamp: time.Date(2026, 1, 1, 9, 20, 0, 0, time.FixedZone("IST", 19800)), PnL: test.paise}
+			point := PnLPoint{Timestamp: time.Date(2026, 1, 1, 9, 20, 0, 0, time.FixedZone("IST", 19800)), PnL: test.paise}
 			data, err := json.Marshal(point)
 			if err != nil {
 				t.Fatal(err)

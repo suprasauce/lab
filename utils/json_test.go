@@ -42,11 +42,11 @@ func TestMarshalBacktestResult(t *testing.T) {
 		t.Fatalf("incorrect result: %s", payload)
 	}
 	position := output.Positions[0]
-	if len(position) != 6 || position["simulation_id"] != "1" || position["quantity"] != json.Number("1") || position["average_price"] != json.Number("0.29") || position["realized_pnl"] != json.Number("3521.25") {
+	if len(position) != 7 || position["simulation_id"] != "1" || position["quantity"] != json.Number("1") || position["average_price"] != json.Number("0.29") || position["realized_pnl"] != json.Number("3521.25") || position["unrealized_pnl"] != json.Number("0.00") {
 		t.Fatalf("incorrect position: %v", position)
 	}
-	if unrealizedPnL, ok := position["unrealized_pnl"].([]any); !ok || len(unrealizedPnL) != 0 {
-		t.Fatal("empty UnrealizedPnL history must be an empty JSON array")
+	if totalPnLHistory, ok := position["total_pnl"].([]any); !ok || len(totalPnLHistory) != 0 {
+		t.Fatal("empty total P&L history must be an empty JSON array")
 	}
 	first := output.Trades[0]
 	if len(first) != 6 || first["id"] != "1/1" || first["simulation_id"] != "1" || first["tradingsymbol"] != "NIFTY-20260127-25000-CE" || first["timestamp"] != "2026-01-01T09:15:00+05:30" || first["price"] != json.Number("127.05") || first["quantity"] != json.Number("-1") {
@@ -101,9 +101,10 @@ func TestResultsSumPositionPnLWithoutPairingTrades(t *testing.T) {
 	}
 }
 
-func TestMarshalPositionUnrealizedPnLHistory(t *testing.T) {
+func TestMarshalPositionTotalPnLHistory(t *testing.T) {
 	result := backtestResult()
-	result.Executions[0].Positions[0].UnrealizedPnL = []models.UnrealizedPnLPoint{
+	result.Executions[0].Positions[0].UnrealizedPnL = -12345
+	result.Executions[0].Positions[0].TotalPnL = []models.PnLPoint{
 		{Timestamp: time.Date(2026, 1, 1, 3, 50, 0, 0, time.UTC), PnL: -12345},
 		{Timestamp: time.Date(2026, 1, 1, 4, 0, 0, 0, time.UTC), PnL: 9876},
 	}
@@ -113,10 +114,10 @@ func TestMarshalPositionUnrealizedPnLHistory(t *testing.T) {
 	}
 	var output struct {
 		Positions []struct {
-			UnrealizedPnL []struct {
+			TotalPnL []struct {
 				Timestamp string      `json:"timestamp"`
 				PnL       json.Number `json:"pnl"`
-			} `json:"unrealized_pnl"`
+			} `json:"total_pnl"`
 		} `json:"positions"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
@@ -124,8 +125,8 @@ func TestMarshalPositionUnrealizedPnLHistory(t *testing.T) {
 	if err := decoder.Decode(&output); err != nil {
 		t.Fatal(err)
 	}
-	history := output.Positions[0].UnrealizedPnL
+	history := output.Positions[0].TotalPnL
 	if len(history) != 2 || history[0].Timestamp != "2026-01-01T09:20:00+05:30" || history[0].PnL != "-123.45" || history[1].Timestamp != "2026-01-01T09:30:00+05:30" || history[1].PnL != "98.76" {
-		t.Fatalf("incorrect serialized UnrealizedPnL: %s", payload)
+		t.Fatalf("incorrect serialized total P&L: %s", payload)
 	}
 }

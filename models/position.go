@@ -13,14 +13,14 @@ const (
 	Short PositionSide = "SHORT"
 )
 
-// UnrealizedPnLPoint records unrealized P&L observed at a simulation timestamp.
+// PnLPoint records P&L observed at a simulation timestamp.
 // PnL is stored in paise; JSON represents it in rupees.
-type UnrealizedPnLPoint struct {
+type PnLPoint struct {
 	Timestamp time.Time
 	PnL       Price
 }
 
-func (point UnrealizedPnLPoint) MarshalJSON() ([]byte, error) {
+func (point PnLPoint) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Timestamp string      `json:"timestamp"`
 		PnL       json.Number `json:"pnl"`
@@ -38,7 +38,8 @@ type Position struct {
 	Quantity      int64
 	AveragePrice  Price
 	RealizedPnL   Price
-	UnrealizedPnL []UnrealizedPnLPoint
+	UnrealizedPnL Price
+	TotalPnL      []PnLPoint
 	Trades        []Trade
 	Candle        *Candle
 }
