@@ -12,14 +12,14 @@ import (
 )
 
 type strategyContext struct {
-	ctx            context.Context
-	repo           *repository.Repository
-	initializing   bool
-	configured     bool
-	getExpiries    func(string, time.Time, time.Time) ([]time.Time, error)
-	simulateExpiry func(string, time.Time) error
-	execution      *engine.Execution
-	state          *starlark.Dict
+	ctx           context.Context
+	repo          *repository.Repository
+	initializing  bool
+	configured    bool
+	getExpiries   func(string, time.Time, time.Time) ([]time.Time, error)
+	simulateRange func(time.Time, time.Time) error
+	execution     *engine.Execution
+	state         *starlark.Dict
 }
 
 func (*strategyContext) String() string       { return "strategy_context" }
@@ -116,15 +116,22 @@ func (c *strategyContext) simulate(_ *starlark.Thread, b *starlark.Builtin, args
 	if !c.initializing || !c.configured {
 		return nil, fmt.Errorf("simulate requires configure during initialize")
 	}
-	var expiry starlark.Value
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "expiry", &expiry); err != nil {
+	var start, end string
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "start_date", &start, "end_date", &end); err != nil {
 		return nil, err
 	}
-	value, ok := expiry.(*expiryValue)
-	if !ok {
-		return nil, fmt.Errorf("expiry must be an expiry object returned by get_expiries")
+	startDate, err := time.Parse(time.DateOnly, start)
+	if err != nil {
+		return nil, fmt.Errorf("start_date: %w", err)
 	}
-	if err := c.simulateExpiry(value.underlying, value.date); err != nil {
+	endDate, err := time.Parse(time.DateOnly, end)
+	if err != nil {
+		return nil, fmt.Errorf("end_date: %w", err)
+	}
+	if startDate.After(endDate) {
+		return nil, fmt.Errorf("start_date must not be after end_date")
+	}
+	if err := c.simulateRange(startDate, endDate); err != nil {
 		return nil, err
 	}
 	return starlark.None, nil

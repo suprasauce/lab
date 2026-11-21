@@ -19,7 +19,7 @@ export const starterStrategy = `def initialize(ctx):
     for expiry in expiries:
         ctx.state.clear()
         ctx.state["expiry"] = expiry
-        ctx.simulate(expiry)
+        ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)
 
 
 def on_candle(ctx):

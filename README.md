@@ -30,7 +30,7 @@ HTTP request ? Controller ? Service ? Repository ? PostgreSQL
 2. The API validates the request, inserts a `PENDING` backtest in PostgreSQL, and queues its ID.
 3. The API returns `202 Accepted` with the backtest ID without waiting for execution.
 4. The worker retrieves the saved script, compiles it, and calls `initialize(ctx)` once. The script calls `ctx.configure()`, retrieves expiries for explicit underlyings, and simulates the chosen dates.
-5. Each `ctx.simulate(expiry)` call runs synchronously in Go, invoking `on_candle(ctx)` on a separate Starlark callback thread. Results are aggregated in the order the script runs the expiries.
+5. Each `ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)` call runs synchronously in Go, invoking `on_candle(ctx)` on a separate Starlark callback thread. Results are aggregated in the order the script runs the expiries.
 6. After execution, the worker saves the summary and trades as JSON and sets the status to `COMPLETED`. Script or execution errors are saved with status `FAILED`.
 7. The client retrieves status and results using `GET /api/backtests/{id}`, or lists its backtests using `GET /api/backtests`.
 
@@ -43,7 +43,7 @@ def initialize(ctx):
     ctx.configure()
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-01-01", end="2026-06-30"):
         ctx.clear_state()
-        ctx.simulate(expiry)
+        ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)
 
 
 def on_candle(ctx):
@@ -53,7 +53,7 @@ def on_candle(ctx):
 
 `get_expiries` returns chronological expiry objects with `.date`, `.underlying`,
 and `.get_dte(ctx.date)`, with inclusive date boundaries.
-`simulate` uses that object's underlying. `configure()` takes no arguments.
+`simulate(start_date, end_date)` accepts inclusive YYYY-MM-DD boundaries; it does not require an expiry or underlying. `date.add(date, days)` shifts a date by calendar days. `configure()` takes no arguments.
 Each returned trade uses its contract's underlying symbol, allowing different
 underlyings across expiry simulations. The script chooses which dates to simulate and in what order.
 Discovery and simulation are allowed only during initialization, after configure.
@@ -66,7 +66,7 @@ string. No close-all API is added.
 
 ## How the simulation works
 
-For each expiry, the simulation starts 45 calendar days before expiry and continues through expiry day. The configured date range selects expiries, so simulation data may be needed before the configured start date.
+Each simulation runs from its supplied start date through its end date, inclusive. The script chooses the range; for an expiry-based strategy, it can start 45 calendar days before expiry using `date.add(expiry.date, -45)`.
 
 The clock advances in five-minute intervals from 09:15 through 15:30 in Asia/Kolkata. Available underlying data determines which days have trading sessions. At each advance, the engine loads completed candles and processes pending orders before calling the script's `on_candle(ctx)`. The final 15:30 advance processes orders without another script callback.
 
@@ -78,7 +78,7 @@ exists, it parses the Lab symbol and reuses full-45-DTE ingestion through the
 Python service before continuing. Other database errors are returned immediately. Missing candles leave orders pending
 for a later completed five-minute window.
 
-Order history and positions start fresh for every expiry. `ctx.state` persists
+Order history and positions start fresh for every simulation. `ctx.state` persists
 across expiry simulations until the script calls `ctx.clear_state()`. Each new
 backtest starts with an empty state dictionary. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a summary, positions, and individual fills.
 

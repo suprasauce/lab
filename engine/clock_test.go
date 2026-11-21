@@ -14,7 +14,7 @@ import (
 	"optionsbacktest/repository"
 )
 
-func TestExpirySimulationClock(t *testing.T) {
+func TestDateRangeSimulationClock(t *testing.T) {
 	for _, dates := range [][]string{
 		{"2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01"},
 		{"2026-09-29"},
@@ -45,7 +45,7 @@ func TestExpirySimulationClock(t *testing.T) {
 			start, _ := time.Parse(time.DateOnly, dates[0])
 			expiry, _ := time.Parse(time.DateOnly, dates[len(dates)-1])
 			var ticks []time.Time
-			err := NewEngine(repo).backtestExpiry(context.Background(), expiry, start, func(at time.Time) error {
+			err := NewEngine(repo).simulateRange(context.Background(), start, expiry, func(at time.Time) error {
 				ticks = append(ticks, at)
 				return nil
 			})
@@ -74,33 +74,22 @@ func TestExpirySimulationClock(t *testing.T) {
 	}
 }
 
-func TestExpirySimulationStopsOnQueryFailure(t *testing.T) {
+func TestDateRangeSimulationStopsOnQueryFailure(t *testing.T) {
 	failure := errors.New("database unavailable")
 	db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return nil, failure }})
 	defer db.Close()
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	start := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
-	err := NewEngine(repo).backtestExpiry(context.Background(), start.AddDate(0, 0, 2), start, func(time.Time) error { return nil })
-	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "2026-09-27") || !strings.Contains(err.Error(), "2026-09-29") {
+	err := NewEngine(repo).simulateRange(context.Background(), start, start.AddDate(0, 0, 2), func(time.Time) error { return nil })
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "2026-09-27") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestSimulateRejectsMissingExpiry(t *testing.T) {
-	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-		if !strings.Contains(query, "SELECT EXISTS") || args[0].Value != "NIFTY" || args[1].Value.(time.Time).Format(time.DateOnly) != "2026-09-29" {
-			t.Fatalf("unexpected expiry validation query: %s %+v", query, args)
-		}
-		return &testRows{columns: []string{"exists"}, values: []driver.Value{false}}, nil
-	}})
-	defer db.Close()
-	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	expiry := time.Date(2026, 9, 29, 0, 0, 0, 0, marketLocation)
-	_, err := NewEngine(repo).Simulate(context.Background(), "1", "NIFTY", expiry, func(*Execution) error {
-		t.Fatal("simulation must not start for a missing expiry")
-		return nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "expiry 2026-09-29 does not exist for NIFTY") {
+func TestSimulateRejectsReversedRange(t *testing.T) {
+	start := time.Date(2026, 9, 29, 0, 0, 0, 0, marketLocation)
+	_, err := NewEngine(nil).Simulate(context.Background(), "1", start, start.AddDate(0, 0, -1), func(*Execution) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "start_date") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

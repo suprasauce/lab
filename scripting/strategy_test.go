@@ -23,7 +23,7 @@ def initialize(ctx):
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
         ctx.clear_state()
         ctx.state["expiry"] = expiry
-        ctx.simulate(expiry)
+        ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)
 `
 
 func TestLoadStrategyFile(t *testing.T) {
@@ -201,15 +201,6 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		if args[0].Value == "NIFTY" {
 			r.values = [][]driver.Value{{int64(7), "NIFTY"}}
 		}
-	case strings.Contains(query, "SELECT EXISTS"):
-		r.columns = []string{"exists"}
-		exists := false
-		for _, expiry := range f.expiries {
-			if args[0].Value == "NIFTY" && expiry.Equal(args[1].Value.(time.Time)) {
-				exists = true
-			}
-		}
-		r.values = [][]driver.Value{{exists}}
 	case strings.Contains(query, "FROM lab.option_expiry"):
 		if args[0].Value != int64(7) {
 			f.t.Fatalf("unexpected expiry underlying: %+v", args)

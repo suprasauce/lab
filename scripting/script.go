@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
 
 	"optionsbacktest/engine"
@@ -49,7 +50,7 @@ func load(filename string, source any) (*Script, error) {
 	return &Script{thread: thread, initialize: initialize, onCandle: onCandle}, nil
 }
 
-// Run calls initialize once; the script synchronously chooses each expiry run.
+// Run calls initialize once; the script synchronously chooses each simulation range.
 func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestResult, error) {
 	result := &engine.BacktestResult{Executions: make([]*engine.Execution, 0)}
 	c := &strategyContext{ctx: ctx, repo: e.Repository(), initializing: true, state: starlark.NewDict(0)}
@@ -58,10 +59,10 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 	c.getExpiries = func(underlying string, start, end time.Time) ([]time.Time, error) {
 		return e.GetExpiries(ctx, underlying, start, end)
 	}
-	c.simulateExpiry = func(underlying string, expiry time.Time) error {
+	c.simulateRange = func(start, end time.Time) error {
 		c.initializing = false
 		defer func() { c.initializing = true; c.execution = nil }()
-		cycle, err := e.Simulate(ctx, strconv.Itoa(len(result.Executions)+1), underlying, expiry, func(execution *engine.Execution) error {
+		cycle, err := e.Simulate(ctx, strconv.Itoa(len(result.Executions)+1), start, end, func(execution *engine.Execution) error {
 			c.execution = execution
 			_, err := starlark.Call(callbackThread, s.onCandle, starlark.Tuple{c}, nil)
 			if err != nil {
@@ -87,5 +88,6 @@ func (s *Script) Run(ctx context.Context, e *engine.Engine) (*engine.BacktestRes
 func scriptBuiltins() starlark.StringDict {
 	return starlark.StringDict{
 		"filter": starlark.NewBuiltin("filter", newFilter),
+		"date":   starlarkstruct.FromStringDict(starlark.String("date"), starlark.StringDict{"add": starlark.NewBuiltin("date.add", addDate)}),
 	}
 }

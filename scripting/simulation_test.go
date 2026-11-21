@@ -22,7 +22,7 @@ def initialize(ctx):
         print("start " + expiry.date)
         ctx.clear_state()
         ctx.state["expiry"] = expiry
-        ctx.simulate(expiry)
+        ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)
         if "visited" not in ctx.state:
             fail("simulate returned before callbacks")
         print("done " + expiry.date)
@@ -58,10 +58,12 @@ func TestSimulationAPIErrors(t *testing.T) {
 		{"invalid start", `ctx.get_expiries(underlying="NIFTY", start="bad", end="2026-10-31")`, "pass", "start:"},
 		{"invalid end", `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="bad")`, "pass", "end:"},
 		{"reversed range", `ctx.get_expiries(underlying="NIFTY", start="2026-10-31", end="2026-09-01")`, "pass", "must not be after"},
-		{"invalid expiry", `ctx.simulate({"date":"bad", "underlying":"NIFTY"})`, "pass", "expiry object"},
-		{"callback failure", `ctx.simulate(ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0])`, `fail("callback failed")`, "callback failed"},
-		{"nested simulation", `ctx.simulate(ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0])`, `ctx.simulate(None)`, "simulate requires configure during initialize"},
-		{"late discovery", `ctx.simulate(ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0])`, `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
+		{"invalid simulation start", `ctx.simulate(start_date="bad", end_date="2026-09-29")`, "pass", "start_date:"},
+		{"invalid simulation end", `ctx.simulate(start_date="2026-08-15", end_date="bad")`, "pass", "end_date:"},
+		{"reversed simulation range", `ctx.simulate(start_date="2026-09-29", end_date="2026-08-15")`, "pass", "must not be after"},
+		{"callback failure", `ctx.simulate(start_date="2026-08-15", end_date="2026-09-29")`, `fail("callback failed")`, "callback failed"},
+		{"nested simulation", `ctx.simulate(start_date="2026-08-15", end_date="2026-09-29")`, `ctx.simulate(None)`, "simulate requires configure during initialize"},
+		{"late discovery", `ctx.simulate(start_date="2026-08-15", end_date="2026-09-29")`, `ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")`, "get_expiries requires configure during initialize"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -103,7 +105,7 @@ def initialize(ctx):
     ctx.state["expiry_count"] = 0
     for expiry in ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31"):
         ctx.state["expiry"] = expiry
-        ctx.simulate(expiry)
+        ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)
     if ctx.state["expiry_count"] != 2:
         fail("state did not persist across expiries")
 
@@ -144,8 +146,8 @@ func TestSimulationIDsRestartPerBacktest(t *testing.T) {
 def initialize(ctx):
     ctx.configure()
     expiry = ctx.get_expiries(underlying="NIFTY", start="2026-09-01", end="2026-10-31")[0]
-    ctx.simulate(expiry)
-    ctx.simulate(expiry)
+    ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)
+    ctx.simulate(start_date=date.add(expiry.date, -45), end_date=expiry.date)
 
 def on_candle(ctx):
     pass
@@ -162,5 +164,32 @@ def on_candle(ctx):
 		if len(result.Executions) != 2 || result.Executions[0].ID != "1" || result.Executions[1].ID != "2" || result.Executions[0] == result.Executions[1] {
 			t.Fatalf("simulation IDs or state leaked: %+v", result.Executions)
 		}
+	}
+}
+
+func TestSimulateDateRangeWithoutExpiryDiscovery(t *testing.T) {
+	f := newFixture(t)
+	script, err := LoadSource("range.star", `
+def initialize(ctx):
+    ctx.configure()
+    ctx.state["ticks"] = 0
+    ctx.simulate(start_date="2026-08-15", end_date="2026-08-15")
+    if ctx.state["ticks"] != 75:
+        fail("expected one full session")
+
+def on_candle(ctx):
+    if ctx.date != "2026-08-15":
+        fail("outside requested range")
+    ctx.state["ticks"] += 1
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := script.Run(context.Background(), engine.NewEngine(f.repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Executions) != 1 {
+		t.Fatalf("executions: %d", len(result.Executions))
 	}
 }

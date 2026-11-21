@@ -19,7 +19,6 @@ var marketLocation = func() *time.Location {
 	return location
 }()
 
-const SimulationDTE = 45
 const tradingCalendarUnderlyingID int64 = 1
 const candleInterval = 5 * time.Minute
 const timeLayout = "15:04"
@@ -49,21 +48,17 @@ func (e *Engine) GetExpiries(ctx context.Context, symbol string, start, end time
 	return e.marketDataRepository.GetExpiries(ctx, underlying.ID, start, end)
 }
 
-// Simulate executes one expiry with fresh runtime state and the existing clock.
-func (e *Engine) Simulate(ctx context.Context, simulationID, symbol string, expiry time.Time, onCandle func(*Execution) error) (*BacktestResult, error) {
+// Simulate executes an inclusive calendar-date range with fresh runtime state.
+func (e *Engine) Simulate(ctx context.Context, simulationID string, startDate, endDate time.Time, onCandle func(*Execution) error) (*BacktestResult, error) {
 	if onCandle == nil {
 		return nil, fmt.Errorf("on_candle callback is required")
 	}
-	expiry = calendarDate(expiry)
-	exists, err := e.marketDataRepository.OptionExpiryExists(ctx, symbol, expiry)
-	if err != nil {
-		return nil, fmt.Errorf("validate expiry: %w", err)
-	}
-	if !exists {
-		return nil, fmt.Errorf("expiry %s does not exist for %s", expiry.Format(time.DateOnly), symbol)
+	startDate, endDate = calendarDate(startDate), calendarDate(endDate)
+	if startDate.After(endDate) {
+		return nil, fmt.Errorf("start_date must not be after end_date")
 	}
 	execution := newExecution(ctx, e.marketDataRepository, simulationID)
-	err = e.backtestExpiry(ctx, expiry, calendarDate(expiry).AddDate(0, 0, -SimulationDTE), func(at time.Time) error {
+	err := e.simulateRange(ctx, startDate, endDate, func(at time.Time) error {
 		if err := execution.advance(at); err != nil {
 			return err
 		}
@@ -74,7 +69,7 @@ func (e *Engine) Simulate(ctx context.Context, simulationID, symbol string, expi
 	})
 	result := &BacktestResult{Executions: []*Execution{execution}}
 	if err != nil {
-		return result, fmt.Errorf("expiry %s: %w", expiry.Format(time.DateOnly), err)
+		return result, fmt.Errorf("simulation %s through %s: %w", startDate.Format(time.DateOnly), endDate.Format(time.DateOnly), err)
 	}
 	return result, nil
 }
@@ -83,9 +78,8 @@ func calendarDate(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, marketLocation)
 }
 
-func (e *Engine) backtestExpiry(ctx context.Context, expiry, startDate time.Time, onTime func(time.Time) error) error {
-	expiryDate := calendarDate(expiry)
-	for day := calendarDate(startDate); !day.After(expiryDate); day = day.AddDate(0, 0, 1) {
+func (e *Engine) simulateRange(ctx context.Context, startDate, endDate time.Time, onTime func(time.Time) error) error {
+	for day := calendarDate(startDate); !day.After(calendarDate(endDate)); day = day.AddDate(0, 0, 1) {
 		start := day.Add(9*time.Hour + 15*time.Minute)
 		end := day.Add(15*time.Hour + 30*time.Minute)
 		// Probe for session data without loading the day's candle slice. This
@@ -95,7 +89,7 @@ func (e *Engine) backtestExpiry(ctx context.Context, expiry, startDate time.Time
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("backtest expiry %s: underlying candles for %s: %w", expiry.Format(time.DateOnly), day.Format(time.DateOnly), err)
+			return fmt.Errorf("underlying candles for %s: %w", day.Format(time.DateOnly), err)
 		}
 		if !first.Timestamp.Before(end) {
 			continue
