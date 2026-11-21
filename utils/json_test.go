@@ -45,8 +45,8 @@ func TestMarshalBacktestResult(t *testing.T) {
 	if len(position) != 6 || position["simulation_id"] != "1" || position["quantity"] != json.Number("1") || position["average_price"] != json.Number("0.29") || position["realized_pnl"] != json.Number("3521.25") {
 		t.Fatalf("incorrect position: %v", position)
 	}
-	if mtm, ok := position["mtm"].([]any); !ok || len(mtm) != 0 {
-		t.Fatal("empty MTM history must be an empty JSON array")
+	if unrealizedPnL, ok := position["unrealized_pnl"].([]any); !ok || len(unrealizedPnL) != 0 {
+		t.Fatal("empty UnrealizedPnL history must be an empty JSON array")
 	}
 	first := output.Trades[0]
 	if len(first) != 6 || first["id"] != "1/1" || first["simulation_id"] != "1" || first["tradingsymbol"] != "NIFTY-20260127-25000-CE" || first["timestamp"] != "2026-01-01T09:15:00+05:30" || first["price"] != json.Number("127.05") || first["quantity"] != json.Number("-1") {
@@ -101,9 +101,9 @@ func TestResultsSumPositionPnLWithoutPairingTrades(t *testing.T) {
 	}
 }
 
-func TestMarshalPositionMTMHistory(t *testing.T) {
+func TestMarshalPositionUnrealizedPnLHistory(t *testing.T) {
 	result := backtestResult()
-	result.Executions[0].Positions[0].MTM = []models.MTMPoint{
+	result.Executions[0].Positions[0].UnrealizedPnL = []models.UnrealizedPnLPoint{
 		{Timestamp: time.Date(2026, 1, 1, 3, 50, 0, 0, time.UTC), PnL: -12345},
 		{Timestamp: time.Date(2026, 1, 1, 4, 0, 0, 0, time.UTC), PnL: 9876},
 	}
@@ -113,10 +113,10 @@ func TestMarshalPositionMTMHistory(t *testing.T) {
 	}
 	var output struct {
 		Positions []struct {
-			MTM []struct {
+			UnrealizedPnL []struct {
 				Timestamp string      `json:"timestamp"`
 				PnL       json.Number `json:"pnl"`
-			} `json:"mtm"`
+			} `json:"unrealized_pnl"`
 		} `json:"positions"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
@@ -124,8 +124,8 @@ func TestMarshalPositionMTMHistory(t *testing.T) {
 	if err := decoder.Decode(&output); err != nil {
 		t.Fatal(err)
 	}
-	history := output.Positions[0].MTM
+	history := output.Positions[0].UnrealizedPnL
 	if len(history) != 2 || history[0].Timestamp != "2026-01-01T09:20:00+05:30" || history[0].PnL != "-123.45" || history[1].Timestamp != "2026-01-01T09:30:00+05:30" || history[1].PnL != "98.76" {
-		t.Fatalf("incorrect serialized MTM: %s", payload)
+		t.Fatalf("incorrect serialized UnrealizedPnL: %s", payload)
 	}
 }

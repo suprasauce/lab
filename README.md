@@ -170,8 +170,8 @@ exposes `simulation_id`, derived `status`, signed lot `quantity`, `average_price
 Prices are in rupees. Closed positions have zero quantity; `curr_price` is the completed
 option candle's Close, or `None` when missing or closed. No matches returns an empty list.
 
-Each results position also includes `mtm`, a timestamped unrealized P&L history
+Each results position also includes `unrealized_pnl`, a timestamped unrealized P&L history
 in rupees. After fills, the engine marks open positions using completed option
 candle closes and the expiry lot size. Missing candles add no point; closed
 positions add no point. History is retained when a position is reopened.
-MTM is not exposed to Starlark. No additional database tables are used.
+Unrealized P&L is not exposed to Starlark. No additional database tables are used.

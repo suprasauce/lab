@@ -74,10 +74,10 @@ func (e *Execution) advance(at time.Time) error {
 		}
 		contract, err := e.resolveContract(position.TradingSymbol)
 		if err != nil {
-			return fmt.Errorf("position MTM contract: %w", err)
+			return fmt.Errorf("position UnrealizedPnL contract: %w", err)
 		}
 		pnl := (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * models.Price(contract.LotSize)
-		position.MTM = append(position.MTM, models.MTMPoint{Timestamp: e.Time, PnL: pnl})
+		position.UnrealizedPnL = append(position.UnrealizedPnL, models.UnrealizedPnLPoint{Timestamp: e.Time, PnL: pnl})
 	}
 	return nil
 }

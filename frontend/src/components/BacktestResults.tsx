@@ -3,8 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import type { BacktestPosition, BacktestSummary, BacktestTrade } from '../api/backtests'
 import { formatMoney, formatTimestamp } from '../format'
-import { positionMTM, simulationMTM, type MTMSeries } from '../mtm'
-import MTMChart from './MTMChart'
+import { positionUnrealizedPnL, simulationUnrealizedPnL, type UnrealizedPnLSeries } from '../unrealized_pnl'
+import UnrealizedPnLChart from './UnrealizedPnLChart'
 
 function pnlClass(value: number) {
   return value === 0 ? '' : value < 0 ? 'negative-value' : 'positive-value'
@@ -34,7 +34,7 @@ export default function BacktestResults({ summary, positions = [], trades = [] }
         id, positions: items, trades: fills,
         realizedPnL: items.reduce((total, position) => total + position.realized_pnl, 0),
         label: `Simulation ${id}`, color: `hsl(${(260 + index * 137.508) % 360} 65% 68%)`,
-        points: simulationMTM(items, fills),
+        points: simulationUnrealizedPnL(items, fills),
       }
     })
   }, [positions, trades])
@@ -42,9 +42,9 @@ export default function BacktestResults({ summary, positions = [], trades = [] }
   const position = selected?.positions.find((item) => item.tradingsymbol === symbol)
   const positionTrades = useMemo(() => trades.filter((trade) => trade.simulation_id === simulationId && trade.tradingsymbol === symbol)
     .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)), [trades, simulationId, symbol])
-  const positionSeries = useMemo<MTMSeries[]>(() => position && selected ? [{
-    id: `${selected.id}/${position.tradingsymbol}`, label: 'Position MTM', color: selected.color,
-    points: positionMTM(position, positionTrades),
+  const positionSeries = useMemo<UnrealizedPnLSeries[]>(() => position && selected ? [{
+    id: `${selected.id}/${position.tradingsymbol}`, label: 'Position Unrealized P&L', color: selected.color,
+    points: positionUnrealizedPnL(position, positionTrades),
   }] : [], [position, selected, positionTrades])
 
   return (
@@ -64,7 +64,7 @@ export default function BacktestResults({ summary, positions = [], trades = [] }
             <div><dt>Total P&amp;L</dt><dd className={pnlClass(summary.total_pnl)}>{formatMoney(summary.total_pnl)}</dd></div>
             <div><dt>Total trades</dt><dd>{summary.total_trades}</dd></div>
           </dl>
-          <MTMChart title="Backtest MTM" series={simulations} />
+          <UnrealizedPnLChart title="Backtest Unrealized P&L" series={simulations} />
           <h2 className="section-title">Simulations</h2>
           {simulations.length === 0 ? <p className="panel-message">No simulation positions or trades were recorded.</p> : (
             <div className="simulation-grid">
@@ -114,7 +114,7 @@ export default function BacktestResults({ summary, positions = [], trades = [] }
             <div><dt>Realized P&amp;L</dt><dd className={pnlClass(position.realized_pnl)}>{formatMoney(position.realized_pnl)}</dd></div>
             <div><dt>Status</dt><dd>{position.quantity === 0 ? 'CLOSED' : 'OPEN'}</dd></div>
           </dl>
-          <MTMChart key={`${position.simulation_id}/${position.tradingsymbol}`} title="Position MTM" series={positionSeries} />
+          <UnrealizedPnLChart key={`${position.simulation_id}/${position.tradingsymbol}`} title="Position Unrealized P&L" series={positionSeries} />
           <h2 className="section-title">Trades</h2>
           {positionTrades.length === 0 ? <p className="panel-message">No executed trades for this position.</p> : (
             <div className="table-panel" tabIndex={0} role="region" aria-label={`Trades for ${position.tradingsymbol}`}>

@@ -5,7 +5,7 @@ export interface ChartPoint {
   value: number | null
 }
 
-export interface MTMSeries {
+export interface UnrealizedPnLSeries {
   id: string
   label: string
   color: string
@@ -18,7 +18,7 @@ interface OpenInterval {
 }
 
 function observations(position: BacktestPosition): ChartPoint[] {
-  return (position.mtm ?? [])
+  return (position.unrealized_pnl ?? [])
     .map((point) => ({ time: Date.parse(point.timestamp), value: point.pnl }))
     .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
     .sort((a, b) => a.time - b.time)
@@ -43,7 +43,7 @@ function openIntervals(position: BacktestPosition, trades: BacktestTrade[]): Ope
 }
 
 // Plot only recorded values, breaking the line when a symbol closes/reopens.
-export function positionMTM(position: BacktestPosition, trades: BacktestTrade[]): ChartPoint[] {
+export function positionUnrealizedPnL(position: BacktestPosition, trades: BacktestTrade[]): ChartPoint[] {
   const intervals = openIntervals(position, trades)
   const points: ChartPoint[] = []
   let previousInterval = -1
@@ -70,7 +70,7 @@ function latestAt(points: ChartPoint[], time: number): ChartPoint | undefined {
 }
 
 // Inputs belong to one simulation. Never add realized P&L or treat missing data as zero.
-export function simulationMTM(positions: BacktestPosition[], trades: BacktestTrade[]): ChartPoint[] {
+export function simulationUnrealizedPnL(positions: BacktestPosition[], trades: BacktestTrade[]): ChartPoint[] {
   const histories = positions.map((position) => ({ points: observations(position), intervals: openIntervals(position, trades) }))
   if (histories.some((history) => history.intervals === null)) return []
   const times = new Set<number>()

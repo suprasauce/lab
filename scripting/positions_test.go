@@ -48,7 +48,7 @@ func TestGetPositionsErrors(t *testing.T) {
 	for _, expression := range []string{
 		`ctx.get_positions()`,
 		`ctx.get_positions(123)`,
-		`ctx.get_positions("CE")[0].mtm`,
+		`ctx.get_positions("CE")[0].unrealized_pnl`,
 		`ctx.get_positions("CE")[0].entry_price`,
 		`ctx.get_positions("CE")[0].exit_price`,
 		`ctx.get_positions("CE")[0].quantity = 10`,
