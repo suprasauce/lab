@@ -32,5 +32,8 @@ func ema(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwar
 	if err != nil {
 		return nil, err
 	}
-	return starlark.Float(value), nil
+	if value == nil {
+		return starlark.None, nil
+	}
+	return starlark.Float(*value), nil
 }
