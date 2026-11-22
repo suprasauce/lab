@@ -32,9 +32,7 @@ func (c *strategyContext) getExpiry(_ *starlark.Thread, b *starlark.Builtin, arg
 	if c.initializing || c.execution == nil {
 		return nil, fmt.Errorf("get_expiry is only available during on_candle")
 	}
-	at := c.execution.Time
-	month := time.Date(at.Year(), at.Month(), 1, 0, 0, 0, 0, at.Location()).AddDate(0, offset, 0)
-	expiry, err := c.repo.GetExpiry(c.ctx, underlying, expiryType, month)
+	expiry, err := c.repo.GetExpiry(c.ctx, underlying, expiryType, c.execution.Time, offset)
 	if errors.Is(err, sql.ErrNoRows) {
 		return starlark.None, nil
 	}

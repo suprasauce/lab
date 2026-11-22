@@ -1,13 +1,17 @@
 package repository
 
 const queryGetExpiry = `
-	SELECT e.expiry_date
-	FROM lab.option_expiry AS e
-	JOIN lab.underlyings AS u ON u.id = e.underlying_id
-	WHERE u.symbol = $1
-	  AND e.expiry_type = $2
-	  AND e.expiry_date >= $3::date
-	  AND e.expiry_date < $4::date;
+	WITH expiries AS (
+		SELECT e.expiry_date, ROW_NUMBER() OVER (ORDER BY e.expiry_date) AS ordinal
+		FROM lab.option_expiry AS e
+		JOIN lab.underlyings AS u ON u.id = e.underlying_id
+		WHERE u.symbol = $1 AND e.expiry_type = $2
+	)
+	SELECT expiry_date
+	FROM expiries
+	WHERE ordinal = (
+		SELECT MIN(ordinal) FROM expiries WHERE expiry_date >= $3::date
+	) + $4::bigint;
 `
 
 const queryGetIndicatorCandles = `

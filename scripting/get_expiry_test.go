@@ -17,14 +17,19 @@ import (
 
 func TestGetExpiry(t *testing.T) {
 	for _, tt := range []struct {
-		name, expression, month, expiry, wantError string
-		missing, databaseError, initializing       bool
+		name, expression, date, expiry, wantError string
+		offset                                    int
+		missing, databaseError, initializing      bool
 	}{
-		{name: "current month after expiry", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, month: "2026-01-01", expiry: "2026-01-27"},
-		{name: "next month from January 31", expression: `ctx.get_expiry(underlying="NIFTY", expiry_type="monthly", offset=1)`, month: "2026-02-01", expiry: "2026-02-24"},
-		{name: "previous year", expression: `ctx.get_expiry("NIFTY", "MONTHLY", -1)`, month: "2025-12-01", expiry: "2025-12-30"},
-		{name: "missing", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, month: "2026-01-01", missing: true},
-		{name: "database error", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, month: "2026-01-01", databaseError: true, wantError: "database unavailable"},
+		{name: "nearest expiry after current month expired", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, date: "2026-01-31", expiry: "2026-02-24"},
+		{name: "next month from January 31", expression: `ctx.get_expiry(underlying="NIFTY", expiry_type="monthly", offset=1)`, date: "2026-01-31", expiry: "2026-03-30", offset: 1},
+		{name: "previous expiry from February base", expression: `ctx.get_expiry("NIFTY", "MONTHLY", -1)`, date: "2026-01-31", expiry: "2026-01-27", offset: -1},
+		{name: "before expiry", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, date: "2026-01-05", expiry: "2026-01-27"},
+		{name: "on expiry", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, date: "2026-01-27", expiry: "2026-01-27"},
+		{name: "negative offset crosses year", expression: `ctx.get_expiry("NIFTY", "MONTHLY", -1)`, date: "2026-01-05", expiry: "2025-12-30", offset: -1},
+		{name: "unavailable offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 100)`, date: "2026-01-31", offset: 100, missing: true},
+		{name: "missing", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, date: "2026-01-31", missing: true},
+		{name: "database error", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, date: "2026-01-31", databaseError: true, wantError: "database unavailable"},
 		{name: "weekly", expression: `ctx.get_expiry("NIFTY", "WEEKLY", 0)`, wantError: "not supported"},
 		{name: "fractional offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0.5)`, wantError: "want int"},
 		{name: "missing offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY")`, wantError: "missing"},
@@ -38,9 +43,9 @@ func TestGetExpiry(t *testing.T) {
 			}
 			defer db.Close()
 			at := time.Date(2026, 1, 31, 9, 30, 0, 0, time.FixedZone("IST", 19800))
-			if tt.month != "" {
-				month, _ := time.ParseInLocation(time.DateOnly, tt.month, at.Location())
-				query := mock.ExpectQuery("SELECT e.expiry_date").WithArgs("NIFTY", "MONTHLY", month, month.AddDate(0, 1, 0))
+			if tt.date != "" {
+				at, _ = time.ParseInLocation(time.DateOnly, tt.date, at.Location())
+				query := mock.ExpectQuery("WITH expiries AS").WithArgs("NIFTY", "MONTHLY", tt.date, tt.offset)
 				if tt.databaseError {
 					query.WillReturnError(errors.New("database unavailable"))
 				} else {

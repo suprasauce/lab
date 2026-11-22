@@ -10,13 +10,13 @@ import (
 	"optionsbacktest/models"
 )
 
-// GetExpiry returns the stored expiry for the requested calendar month and type.
-func (r *Repository) GetExpiry(ctx context.Context, underlying, expiryType string, month time.Time) (time.Time, error) {
-	start := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, month.Location())
-	r.logger.DebugContext(ctx, "fetching expiry", "underlying", underlying, "expiry_type", expiryType, "month", start)
+// GetExpiry offsets from the nearest stored expiry on or after the supplied date.
+func (r *Repository) GetExpiry(ctx context.Context, underlying, expiryType string, at time.Time, offset int) (time.Time, error) {
+	date := at.Format(time.DateOnly)
+	r.logger.DebugContext(ctx, "fetching expiry", "underlying", underlying, "expiry_type", expiryType, "date", date, "offset", offset)
 	var expiry time.Time
-	if err := r.db.QueryRowContext(ctx, queryGetExpiry, underlying, expiryType, start, start.AddDate(0, 1, 0)).Scan(&expiry); err != nil {
-		return time.Time{}, fmt.Errorf("get expiry for %s in %s: %w", underlying, start.Format("2006-01"), err)
+	if err := r.db.QueryRowContext(ctx, queryGetExpiry, underlying, expiryType, date, offset).Scan(&expiry); err != nil {
+		return time.Time{}, fmt.Errorf("get expiry for %s from %s offset %d: %w", underlying, date, offset, err)
 	}
 	return expiry, nil
 }
