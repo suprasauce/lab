@@ -1,16 +1,47 @@
 package scripting
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.starlark.net/starlark"
 )
 
-// expiryValue is an immutable calendar expiry returned by get_expiries.
+// expiryValue is an immutable calendar expiry returned by expiry discovery.
 type expiryValue struct {
 	date       time.Time
 	underlying string
+}
+
+func (c *strategyContext) getExpiry(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var underlying, expiryType string
+	var offset int
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "underlying", &underlying, "expiry_type", &expiryType, "offset", &offset); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(underlying) == "" {
+		return nil, fmt.Errorf("underlying must be nonempty")
+	}
+	expiryType = strings.ToUpper(expiryType)
+	if expiryType != "MONTHLY" {
+		return nil, fmt.Errorf("expiry_type %q is not supported: expected MONTHLY", expiryType)
+	}
+	if c.initializing || c.execution == nil {
+		return nil, fmt.Errorf("get_expiry is only available during on_candle")
+	}
+	at := c.execution.Time
+	month := time.Date(at.Year(), at.Month(), 1, 0, 0, 0, 0, at.Location()).AddDate(0, offset, 0)
+	expiry, err := c.repo.GetExpiry(c.ctx, underlying, expiryType, month)
+	if errors.Is(err, sql.ErrNoRows) {
+		return starlark.None, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &expiryValue{date: expiry, underlying: underlying}, nil
 }
 
 func (e *expiryValue) String() string {

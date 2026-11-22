@@ -10,6 +10,17 @@ import (
 	"optionsbacktest/models"
 )
 
+// GetExpiry returns the stored expiry for the requested calendar month and type.
+func (r *Repository) GetExpiry(ctx context.Context, underlying, expiryType string, month time.Time) (time.Time, error) {
+	start := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, month.Location())
+	r.logger.DebugContext(ctx, "fetching expiry", "underlying", underlying, "expiry_type", expiryType, "month", start)
+	var expiry time.Time
+	if err := r.db.QueryRowContext(ctx, queryGetExpiry, underlying, expiryType, start, start.AddDate(0, 1, 0)).Scan(&expiry); err != nil {
+		return time.Time{}, fmt.Errorf("get expiry for %s in %s: %w", underlying, start.Format("2006-01"), err)
+	}
+	return expiry, nil
+}
+
 // GetUnderlying resolves a symbol. Missing symbols return a wrapped sql.ErrNoRows.
 func (r *Repository) GetUnderlying(ctx context.Context, symbol string) (models.Underlying, error) {
 	r.logger.DebugContext(ctx, "fetching underlying", "symbol", symbol)

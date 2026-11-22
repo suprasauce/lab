@@ -1,0 +1,78 @@
+package scripting
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"go.starlark.net/starlark"
+	"optionsbacktest/engine"
+	"optionsbacktest/repository"
+)
+
+func TestGetExpiry(t *testing.T) {
+	for _, tt := range []struct {
+		name, expression, month, expiry, wantError string
+		missing, databaseError, initializing       bool
+	}{
+		{name: "current month after expiry", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, month: "2026-01-01", expiry: "2026-01-27"},
+		{name: "next month from January 31", expression: `ctx.get_expiry(underlying="NIFTY", expiry_type="monthly", offset=1)`, month: "2026-02-01", expiry: "2026-02-24"},
+		{name: "previous year", expression: `ctx.get_expiry("NIFTY", "MONTHLY", -1)`, month: "2025-12-01", expiry: "2025-12-30"},
+		{name: "missing", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, month: "2026-01-01", missing: true},
+		{name: "database error", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, month: "2026-01-01", databaseError: true, wantError: "database unavailable"},
+		{name: "weekly", expression: `ctx.get_expiry("NIFTY", "WEEKLY", 0)`, wantError: "not supported"},
+		{name: "fractional offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0.5)`, wantError: "want int"},
+		{name: "missing offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY")`, wantError: "missing"},
+		{name: "empty underlying", expression: `ctx.get_expiry("", "MONTHLY", 0)`, wantError: "nonempty"},
+		{name: "initialization", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, initializing: true, wantError: "only available during on_candle"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			at := time.Date(2026, 1, 31, 9, 30, 0, 0, time.FixedZone("IST", 19800))
+			if tt.month != "" {
+				month, _ := time.ParseInLocation(time.DateOnly, tt.month, at.Location())
+				query := mock.ExpectQuery("SELECT e.expiry_date").WithArgs("NIFTY", "MONTHLY", month, month.AddDate(0, 1, 0))
+				if tt.databaseError {
+					query.WillReturnError(errors.New("database unavailable"))
+				} else {
+					rows := sqlmock.NewRows([]string{"expiry_date"})
+					if !tt.missing {
+						expiry, _ := time.ParseInLocation(time.DateOnly, tt.expiry, at.Location())
+						rows.AddRow(expiry)
+					}
+					query.WillReturnRows(rows)
+				}
+			}
+			c := &strategyContext{ctx: context.Background(), repo: repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil))), execution: &engine.Execution{Time: at}, initializing: tt.initializing}
+			value, err := starlark.Eval(&starlark.Thread{}, "expiry.star", tt.expression, starlark.StringDict{"ctx": c})
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("error=%v; want %s", err, tt.wantError)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			} else if tt.missing {
+				if value != starlark.None {
+					t.Fatalf("expected None, got %v", value)
+				}
+			} else {
+				expiry, ok := value.(*expiryValue)
+				if !ok || expiry.date.Format(time.DateOnly) != tt.expiry || expiry.underlying != "NIFTY" {
+					t.Fatalf("unexpected expiry: %v", value)
+				}
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

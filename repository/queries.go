@@ -1,5 +1,15 @@
 package repository
 
+const queryGetExpiry = `
+	SELECT e.expiry_date
+	FROM lab.option_expiry AS e
+	JOIN lab.underlyings AS u ON u.id = e.underlying_id
+	WHERE u.symbol = $1
+	  AND e.expiry_type = $2
+	  AND e.expiry_date >= $3::date
+	  AND e.expiry_date < $4::date;
+`
+
 const queryGetIndicatorCandles = `
 	SELECT c.start_time, c.timeframe, c.open, c.high, c.low, c.close, c.volume
 	FROM lab.underlying_candles AS c
