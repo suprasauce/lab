@@ -6,7 +6,6 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"optionsbacktest/chart"
 	"optionsbacktest/models"
 )
 
@@ -29,8 +28,7 @@ func ema(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwar
 	if !ok || c.initializing || c.execution == nil {
 		return nil, fmt.Errorf("chart.ema is only available during on_candle")
 	}
-	service := chart.NewChartService(c.repo)
-	value, err := service.EMA(c.ctx, symbol, period, models.Timeframe(timeframe), c.execution.Time)
+	value, err := c.execution.ChartService.EMA(c.ctx, symbol, period, models.Timeframe(timeframe), c.execution.Time)
 	if err != nil {
 		return nil, err
 	}

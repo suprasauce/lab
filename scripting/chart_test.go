@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.starlark.net/starlark"
+	"optionsbacktest/chart"
 	"optionsbacktest/engine"
 )
 
@@ -29,7 +30,7 @@ func TestChartEMA(t *testing.T) {
 			thread := &starlark.Thread{Name: "chart-test"}
 			thread.SetLocal("strategy_context", &strategyContext{
 				ctx:       context.Background(),
-				execution: &engine.Execution{Time: time.Date(2026, 1, 1, 9, 25, 0, 0, time.UTC)},
+				execution: &engine.Execution{Time: time.Date(2026, 1, 1, 9, 25, 0, 0, time.UTC), ChartService: chart.NewChartService(nil)},
 			})
 			_, err := starlark.Eval(thread, "chart.star", tt.expression, scriptBuiltins())
 			if err == nil || !strings.Contains(err.Error(), tt.want) {

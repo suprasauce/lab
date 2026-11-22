@@ -5,22 +5,24 @@ import (
 	"fmt"
 	"time"
 
+	"optionsbacktest/chart"
 	"optionsbacktest/models"
 	"optionsbacktest/repository"
 )
 
 // Execution contains fresh orders and position history for one expiry.
 type Execution struct {
-	ID        string
-	Time      time.Time
-	Orders    []*Order
-	Positions []*models.Position
-	ctx       context.Context
-	repo      *repository.Repository
+	ID           string
+	Time         time.Time
+	Orders       []*Order
+	Positions    []*models.Position
+	ChartService *chart.ChartService
+	ctx          context.Context
+	repo         *repository.Repository
 }
 
 func newExecution(ctx context.Context, repo *repository.Repository, simulationID string) *Execution {
-	return &Execution{ID: simulationID, ctx: ctx, repo: repo}
+	return &Execution{ID: simulationID, ctx: ctx, repo: repo, ChartService: chart.NewChartService(repo)}
 }
 
 // PlaceOrder queues an opaque trading symbol without resolving or executing it.
