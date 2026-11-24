@@ -31,18 +31,3 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(provider.fetch_underlying.call_count, 2)
         provider.fetch_underlying.assert_called_with(**underlying)
         provider.fetch_option_chain.assert_called_once_with(**chain)
-
-    def test_upstox_placeholders_do_not_fetch_or_write(self):
-        with patch.dict(app.config, {"DATA_PROVIDER": create_provider("upstox")}), \
-                patch("database.connect") as connect, \
-                patch("providers.breeze.client.get_client") as breeze:
-            http = app.test_client()
-            for route, body in [
-                ("/underlyings/fetch", {"underlying": "NIFTY", "start_date": "2026-01-01", "end_date": "2026-01-31"}),
-                ("/option-chain/fetch", {"underlying": "NIFTY", "expiry": "2026-01-27"}),
-            ]:
-                response = http.post(route, json=body)
-                self.assertEqual(response.status_code, 501)
-                self.assertIn("not implemented", response.json["error"])
-            connect.assert_not_called()
-            breeze.assert_not_called()

@@ -4,7 +4,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from candles import MARKET_ZONE
 
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,6 @@ class RetryableBreezeError(RuntimeError):
     """A transient historical-data error that may be retried safely."""
 
 
-MARKET_ZONE = ZoneInfo("Asia/Kolkata")
 MAX_CANDLES = 1000
 _client = None
 

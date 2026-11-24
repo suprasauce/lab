@@ -27,7 +27,7 @@ clients with sufficiently long timeouts. There are no workers or scheduled jobs.
 | Variable | Source | Purpose |
 | --- | --- | --- |
 | `MARKET_DATA_PROVIDER` | OS environment or `.env` | `breeze` (default) or `upstox`; selected once at startup |
-| `UPSTOX_ACCESS_TOKEN` | OS environment or `.env` | Reserved for the Upstox implementation |
+| `UPSTOX_ACCESS_TOKEN` | OS environment or `.env` | Upstox bearer token for instrument search and historical candles |
 | `DATABASE_URL` | OS environment only | PostgreSQL keyword/value DSN or URL |
 | `BREEZE_API_KEY` | OS environment or `.env` | Breeze application key |
 | `BREEZE_API_SECRET` | OS environment or `.env` | Breeze application secret |
@@ -35,8 +35,8 @@ clients with sufficiently long timeouts. There are no workers or scheduled jobs.
 
 Existing OS values take precedence. The selected provider's credentials are loaded
 from `.env`; `DATABASE_URL` remains OS-only. Credentials are never returned in responses.
-Set `MARKET_DATA_PROVIDER=breeze` for working ingestion. `upstox` selects placeholder
-workflows: both endpoints return HTTP 501 without API calls or database writes.
+Set `MARKET_DATA_PROVIDER=breeze` for Breeze ingestion, or `upstox` for Upstox
+underlying and expired option-chain ingestion. Both providers expose the same two routes.
 Unknown provider names fail startup. Restart the server to switch providers.
 Breeze authentication remains lazy and its session is reused across requests.
 Get a session token through the [Breeze portal](https://api.icicidirect.com/apiuser/home)
@@ -71,6 +71,24 @@ These APIs return JSON errors: 400 for invalid input or missing catalog records,
 502 for Breeze/runtime failures, and 500 for unexpected/database failures. A
 failure must not be treated by callers as completed option ingestion.
 
+### Upstox underlying ingestion
+
+With `MARKET_DATA_PROVIDER=upstox`, the same underlying request uses the
+[Instrument Search API](https://upstox.com/developer/api-documentation/instrument-search/)
+to resolve an exact NSE index trading symbol or name. Searches are paginated;
+missing or ambiguous exact matches return HTTP 400. Instrument keys are never
+hardcoded, and partial matches such as other NIFTY indices are not substituted.
+
+The [Historical V3 API](https://upstox.com/developer/api-documentation/v3/get-historical-candle-data/)
+is queried at `minutes/1` using windows of at most 30 calendar dates (inclusive). Candles are sorted and
+deduplicated, timestamps retain their actual IST starts, and Decimal conversion
+preserves paise. The full result is fetched before batched inserts in one database
+transaction. Reruns skip duplicates. Requests use the existing `requests` dependency,
+a 30-second timeout, and one-request-per-second pacing. HTTP failures (including
+expired tokens and rate limits) abort ingestion with HTTP 502; there are no
+automatic retries or token renewal. Historical current-day data availability is
+provider-defined; a separate intraday endpoint is not implemented.
+
 ## POST /option-chain/fetch
 
 Fetch the historical strike universe for one already-classified expiry:
@@ -82,7 +100,7 @@ curl -X POST http://localhost:8000/option-chain/fetch \
 ```
 
 Exactly `underlying` and `expiry` are required. Both catalog records must exist;
-expiry must be before today. NIFTY uses a fixed Rs50 strike interval and BANKNIFTY
+expiry must be before today. With Breeze, NIFTY uses a fixed Rs50 strike interval and BANKNIFTY
 uses Rs100, stored internally as paise. The range is the underlying's minimum Low
 rounded down and maximum High rounded up, extended by 40 intervals on each side.
 Only positive strikes are generated. Both CALL and PUT contracts are fetched for
@@ -90,7 +108,7 @@ every strike, from expiry minus 45 calendar days through expiry inclusive.
 
 Both underlying and option requests use `1minute`; stored candles use `1m`.
 Only stored 1-minute underlying candles participate in strike-range calculation.
-All requests use two-calendar-day windows.
+Breeze requests use two-calendar-day windows.
 Transient network, rate-limit, and server errors have at most three attempts total
 (initial attempt plus two retries), with existing pacing and 2/4-second backoff.
 Permanent errors fail immediately. A terminal option failure identifies the
@@ -134,6 +152,30 @@ many minutes and consume substantial portions of the existing daily API budget.
 No partial progress is committed, so a failure requires fetching again on retry.
 The initial completion check is sufficient for the service's single-process,
 single-threaded request handling; the final write phase uses no explicit row lock.
+
+### Upstox option-chain ingestion
+
+Upstox resolves the underlying instrument key through search, then calls
+[Expired Option Contracts](https://upstox.com/developer/api-documentation/get-expired-option-contracts/)
+for the requested expiry. It uses every returned CE/PE contract and its instrument
+key, rather than generating a strike range. The underlying and expiry must already
+exist in PostgreSQL. Lot sizes remain supplied by the existing expiry record.
+
+For each discovered contract, the
+[Expired Historical Candle API](https://upstox.com/developer/api-documentation/get-expired-historical-candle-data/)
+is requested at `1minute` from expiry minus 45 days through expiry inclusive,
+split into at most 30-calendar-day windows. Underlying candles for the same range
+are fetched through V3. Both paths reuse the same Upstox windowing, normalization,
+timeout, and pacing logic.
+
+All requests complete before one write transaction inserts the underlying candles,
+contracts with Lab trading symbols, option candles, and the completion flag.
+Duplicates are skipped. An empty contract list is an error and never marks the
+chain complete. Successful empty histories for individual contracts are allowed,
+as with Breeze. Missing historical coverage, authentication errors, or any candle
+request failure abort ingestion; insertion or commit failures roll back everything.
+The response fields are the same for both providers. No Upstox instrument keys
+or broker trading symbols are written into Lab's trading-symbol column.
 
 ## Lab trading symbols
 
@@ -194,7 +236,8 @@ individual-contract and day-only ingestion endpoints are not exposed.
 `main.py` contains provider-neutral routes and startup configuration. Each provider
 implements `fetch_underlying(underlying, start_date, end_date)` and
 `fetch_option_chain(underlying, expiry)`. Provider workflows own their request and
-contract-discovery rules; the database and trading-symbol helpers remain shared.
+contract-discovery rules; database, trading-symbol, and `candles.py` date/price
+conversion helpers remain shared.
 
 ```text
 providers/
@@ -202,9 +245,10 @@ providers/
   breeze/
     __init__.py          # BreezeProvider: the two operations
     client.py            # Existing SDK authentication and rate limits
-    ingestion.py         # Underlying ingestion and candle conversion
+    ingestion.py         # Underlying ingestion and Breeze request windows
     option_chain.py      # Atomic chain ingestion
-  upstox.py              # UpstoxProvider: TODO operations
+  upstox.py              # Underlying and atomic option-chain ingestion
+  upstox_client.py       # Search, expired contracts, and historical requests
 ```
 
 No provider API implementation is required by the routes themselves. No SDK or
