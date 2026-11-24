@@ -22,7 +22,7 @@ func TestIndicatorCandlesSharedCache(t *testing.T) {
 			repo := NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			rows := sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"})
 			if symbol != "EMPTY" {
-				rows.AddRow(time.Now(), "5m", 100, 110, 90, 105, 10)
+				rows.AddRow(time.Now(), "1m", 100, 110, 90, 105, 10)
 			}
 			mock.ExpectQuery(queryGetIndicatorCandles).WithArgs(symbol).WillReturnRows(rows).RowsWillBeClosed()
 			first, err := repo.GetIndicatorCandles(context.Background(), symbol)

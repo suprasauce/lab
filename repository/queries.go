@@ -18,12 +18,12 @@ const queryGetIndicatorCandles = `
 	SELECT c.start_time, c.timeframe, c.open, c.high, c.low, c.close, c.volume
 	FROM lab.underlying_candles AS c
 	JOIN lab.underlyings AS u ON u.id = c.underlying_id
-	WHERE u.symbol = $1 AND c.timeframe = '5m'
+	WHERE u.symbol = $1 AND c.timeframe = '1m'
 	UNION ALL
 	SELECT c.start_time, c.timeframe, c.open, c.high, c.low, c.close, c.volume
 	FROM lab.option_candles AS c
 	JOIN lab.option_contracts AS o ON o.id = c.option_contract_id
-	WHERE o.tradingsymbol = $1 AND c.timeframe = '5m'
+	WHERE o.tradingsymbol = $1 AND c.timeframe = '1m'
 	ORDER BY start_time ASC;
 `
 

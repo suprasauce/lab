@@ -7,7 +7,7 @@ import (
 	"optionsbacktest/models"
 )
 
-// GetIndicatorCandles loads all stored 5-minute candles once per symbol.
+// GetIndicatorCandles loads all stored 1-minute candles once per symbol.
 // The returned slice is shared and must be treated as read-only. Indicators must
 // exclude candles that have not completed by their simulation timestamp.
 func (r *Repository) GetIndicatorCandles(ctx context.Context, tradingSymbol string) ([]models.Candle, error) {

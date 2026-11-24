@@ -24,18 +24,23 @@ func TestEMAIncremental(t *testing.T) {
 	s := NewChartService(repo)
 	start := time.Date(2026, 1, 5, 9, 15, 0, 0, time.FixedZone("IST", 19800))
 	rows := sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"})
-	for i, close := range []int{10000, 10500, 11000} {
-		// The third bar follows a missing interval.
-		minutes := []int{0, 5, 15}[i]
-		rows.AddRow(start.Add(time.Duration(minutes)*time.Minute), "5m", close, close, close, close, 0)
+	for minute := 0; minute < 20; minute++ {
+		if minute == 12 { // Skip this entire 5-minute window, despite having its final close.
+			continue
+		}
+		close := []int{10000, 10500, 99900, 11000}[minute/5]
+		if minute%5 != 4 {
+			close = 999999 // Only the last minute's close belongs in the EMA.
+		}
+		rows.AddRow(start.Add(time.Duration(minute)*time.Minute), "1m", close, close, close, close, 0)
 	}
 	mock.ExpectQuery("SELECT c.start_time").WithArgs("NIFTY").WillReturnRows(rows)
 	for _, tt := range []struct {
 		minutes, index int
 		want           float64
 	}{
-		{0, 0, 0}, {5, 1, 100}, {5, 1, 100}, {9, 1, 100},
-		{10, 2, 101}, {15, 2, 101}, {20, 3, 102.8}, {25, 3, 102.8},
+		{0, 0, 0}, {5, 5, 100}, {5, 5, 100}, {6, 5, 100}, {9, 5, 100},
+		{10, 10, 101}, {15, 14, 101}, {20, 19, 102.8}, {25, 19, 102.8},
 	} {
 		value, err := s.EMA(context.Background(), "NIFTY", 9, models.Timeframe5m, start.Add(time.Duration(tt.minutes)*time.Minute))
 		if err != nil {
@@ -83,6 +88,58 @@ func TestEMAEmptyAndDatabaseError(t *testing.T) {
 	value, err := s.EMA(context.Background(), "NIFTY", 9, models.Timeframe5m, time.Now())
 	if err != nil || value != nil {
 		t.Fatalf("empty history: %v, %v", value, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEMAIncompleteSeedAndSessionBoundaries(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := NewChartService(repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	day := time.Date(2026, 1, 5, 0, 0, 0, 0, time.FixedZone("IST", 19800))
+	rows := sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"})
+	for _, window := range []struct {
+		start time.Time
+		count int
+		close int
+	}{
+		{day.Add(9*time.Hour + 16*time.Minute), 4, 99900}, // Missing 09:15: no seed.
+		{day.Add(15*time.Hour + 25*time.Minute), 5, 10000},
+		{day.Add(15*time.Hour + 30*time.Minute), 5, 99900}, // Outside the session.
+		{day.AddDate(0, 0, 1).Add(9*time.Hour + 15*time.Minute), 5, 11000},
+	} {
+		for minute := 0; minute < window.count; minute++ {
+			// Database timestamps may be returned in UTC.
+			rows.AddRow(window.start.Add(time.Duration(minute)*time.Minute).UTC(), "1m", window.close, window.close, window.close, window.close, 0)
+		}
+	}
+	mock.ExpectQuery("SELECT c.start_time").WithArgs("NIFTY").WillReturnRows(rows)
+	for _, tt := range []struct {
+		at   time.Time
+		want float64
+	}{
+		{day.Add(9*time.Hour + 20*time.Minute), 0},
+		{day.Add(15*time.Hour + 29*time.Minute), 0},
+		{day.Add(15*time.Hour + 30*time.Minute), 100},
+		{day.AddDate(0, 0, 1).Add(9*time.Hour + 19*time.Minute), 100},
+		{day.AddDate(0, 0, 1).Add(9*time.Hour + 20*time.Minute), 102},
+	} {
+		value, err := s.EMA(context.Background(), "NIFTY", 9, models.Timeframe5m, tt.at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tt.want == 0 {
+			if value != nil {
+				t.Fatalf("incomplete seed at %s: %v", tt.at, *value)
+			}
+		} else if value == nil || math.Abs(*value-tt.want) > 1e-9 {
+			t.Fatalf("at %s: %v; want %v", tt.at, value, tt.want)
+		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

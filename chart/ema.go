@@ -9,11 +9,14 @@ import (
 )
 
 type emaMetadata struct {
-	Value     float64
-	NextIndex int
+	Value       float64
+	NextIndex   int
+	Initialized bool
 }
 
-// EMA advances the indicator using only newly completed 5-minute candle closes.
+var marketLocation = time.FixedZone("Asia/Kolkata", 19800)
+
+// EMA aggregates cached 1-minute history into completed session-aligned 5-minute closes.
 // The first completed close seeds the EMA; values are returned in rupees.
 func (s *ChartService) EMA(ctx context.Context, tradingSymbol string, period int, timeframe models.Timeframe, at time.Time) (*float64, error) {
 	candles, err := s.repo.GetIndicatorCandles(ctx, tradingSymbol)
@@ -28,19 +31,37 @@ func (s *ChartService) EMA(ctx context.Context, tradingSymbol string, period int
 	}
 	alpha := 2.0 / (float64(period) + 1)
 	for metadata.NextIndex < len(candles) {
-		candle := &candles[metadata.NextIndex]
-		if candle.Timestamp.Add(5 * time.Minute).After(at) {
+		start := candles[metadata.NextIndex].Timestamp.In(marketLocation)
+		minute := start.Hour()*60 + start.Minute()
+		if minute < 9*60+15 || minute >= 15*60+30 {
+			metadata.NextIndex++
+			continue
+		}
+		start = time.Date(start.Year(), start.Month(), start.Day(), start.Hour(), start.Minute()-start.Minute()%5, 0, 0, marketLocation)
+		end := start.Add(5 * time.Minute)
+		if end.After(at) {
 			break
 		}
-		close := float64(candle.Close) / 100
-		if metadata.NextIndex == 0 {
-			metadata.Value = close
-		} else {
-			metadata.Value = close*alpha + metadata.Value*(1-alpha)
+		next := metadata.NextIndex
+		for next < len(candles) && candles[next].Timestamp.Before(end) {
+			next++
 		}
-		metadata.NextIndex++
+		complete := next-metadata.NextIndex == 5
+		for i := metadata.NextIndex; complete && i < next; i++ {
+			complete = candles[i].Timestamp.Equal(start.Add(time.Duration(i-metadata.NextIndex) * time.Minute))
+		}
+		if complete {
+			close := float64(candles[next-1].Close) / 100
+			if !metadata.Initialized {
+				metadata.Value = close
+				metadata.Initialized = true
+			} else {
+				metadata.Value = close*alpha + metadata.Value*(1-alpha)
+			}
+		}
+		metadata.NextIndex = next
 	}
-	if metadata.NextIndex == 0 {
+	if !metadata.Initialized {
 		return nil, nil
 	}
 	value := metadata.Value

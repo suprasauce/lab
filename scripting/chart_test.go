@@ -76,8 +76,12 @@ func TestChartEMAUsesCallbackContext(t *testing.T) {
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	at := time.Date(2026, 1, 5, 9, 15, 0, 0, time.FixedZone("IST", 19800))
 	columns := []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}
-	mock.ExpectQuery("FROM lab.underlying_candles").WillReturnRows(sqlmock.NewRows(columns).AddRow(at, "5m", 10000, 10000, 10000, 10000, 0))
-	mock.ExpectQuery("SELECT c.start_time").WithArgs("NIFTY").WillReturnRows(sqlmock.NewRows(columns).AddRow(at, "5m", 10000, 10000, 10000, 10000, 0))
+	mock.ExpectQuery("FROM lab.underlying_candles").WillReturnRows(sqlmock.NewRows(columns).AddRow(at, "1m", 10000, 10000, 10000, 10000, 0))
+	rows := sqlmock.NewRows(columns)
+	for minute := 0; minute < 5; minute++ {
+		rows.AddRow(at.Add(time.Duration(minute)*time.Minute), "1m", 10000, 10000, 10000, 10000, 0)
+	}
+	mock.ExpectQuery("SELECT c.start_time").WithArgs("NIFTY").WillReturnRows(rows)
 	script, err := LoadSource("chart.star", `
 def initialize(ctx):
     ctx.configure()
