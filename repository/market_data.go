@@ -2,8 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -79,7 +77,7 @@ func (r *Repository) GetExpiries(
 }
 
 // GetOptionContract resolves a unique contract. Strike prices are in paise.
-// Missing contracts have their full 45-DTE history ingested before returning.
+// Missing contracts return a wrapped sql.ErrNoRows.
 func (r *Repository) GetOptionContract(
 	ctx context.Context,
 	underlyingID int64,
@@ -93,36 +91,10 @@ func (r *Repository) GetOptionContract(
 		"strike_price", strikePrice,
 		"option_type", optionType,
 	)
-	contract, err := r.queryOptionContract(ctx, underlyingID, expiry, strikePrice, optionType)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return contract, err
-	}
-	if err == nil {
-		return contract, nil
-	}
-
-	var symbol string
-	if err := r.db.QueryRowContext(ctx, queryGetUnderlyingSymbol, underlyingID).Scan(&symbol); err != nil {
-		return models.Option{}, fmt.Errorf("resolve underlying symbol for %d: %w", underlyingID, err)
-	}
-	r.logger.DebugContext(ctx, "ingesting missing option contract", "symbol", symbol, "expiry", expiry,
-		"strike_price", strikePrice, "option_type", optionType)
-	if err := r.fetchOptionContract(ctx, symbol, expiry, strikePrice, optionType); err != nil {
-		return models.Option{}, fmt.Errorf("fetch missing option contract: %w", err)
-	}
-	contract, err = r.queryOptionContract(ctx, underlyingID, expiry, strikePrice, optionType)
-	if errors.Is(err, sql.ErrNoRows) {
-		return models.Option{}, fmt.Errorf("option contract still missing after successful ingestion: %w", err)
-	}
-	if err != nil {
-		return models.Option{}, fmt.Errorf("query option contract after ingestion: %w", err)
-	}
-
-	return contract, nil
+	return r.queryOptionContract(ctx, underlyingID, expiry, strikePrice, optionType)
 }
 
-// GetOptionContractByTradingSymbol looks up the stored symbol first. Missing
-// contracts reuse GetOptionContract's full-history ingestion flow.
+// GetOptionContractByTradingSymbol reads the stored symbol without ingestion.
 func (r *Repository) GetOptionContractByTradingSymbol(ctx context.Context, tradingSymbol string) (models.Option, error) {
 	r.logger.DebugContext(ctx, "fetching option contract by trading symbol", "tradingsymbol", tradingSymbol)
 	var contract models.Option
@@ -130,23 +102,8 @@ func (r *Repository) GetOptionContractByTradingSymbol(ctx context.Context, tradi
 		&contract.ID, &contract.UnderlyingID, &contract.ExpiryID, &contract.Expiry,
 		&contract.StrikePrice, &contract.OptionType, &contract.UnderlyingSymbol, &contract.LotSize,
 	)
-	if err == nil {
-		return contract, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return models.Option{}, fmt.Errorf("get option contract for trading symbol %q: %w", tradingSymbol, err)
-	}
-	parsed, err := models.ParseOptionTradingSymbol(tradingSymbol)
-	if err != nil {
-		return models.Option{}, err
-	}
-	underlying, err := r.GetUnderlying(ctx, parsed.Underlying)
-	if err != nil {
-		return models.Option{}, fmt.Errorf("resolve trading symbol underlying: %w", err)
-	}
-	contract, err = r.GetOptionContract(ctx, underlying.ID, parsed.Expiry, parsed.StrikePrice, parsed.OptionType)
-	if err != nil {
-		return models.Option{}, fmt.Errorf("resolve missing option contract for trading symbol %q: %w", tradingSymbol, err)
 	}
 	return contract, nil
 }

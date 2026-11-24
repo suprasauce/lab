@@ -73,10 +73,11 @@ The clock advances in five-minute intervals from 09:15 through 15:30 in Asia/Kol
 Scripts submit orders through `ctx.place_order(...)`. Orders are queued and processed on a subsequent advance. Fills use an eligible completed option candle's Open. For example, an order placed at 09:30 can be processed at 09:35 using the 09:30 candle's Open. The strategy never receives unfinished candle OHLC data.
 
 Orders accept an opaque `tradingsymbol` string. At fill time, the repository
-queries the stored `tradingsymbol` directly; the column is required. If no contract
-exists, it parses the Lab symbol and reuses full-45-DTE ingestion through the
-Python service before continuing. Other database errors are returned immediately. Missing candles leave orders pending
-for a later completed five-minute window.
+queries the stored `tradingsymbol` directly. Missing contracts or candles leave
+orders pending for a later advance; other database errors propagate.
+Go never calls the Python fetcher. Option-chain selection requires the expiry's
+`option_chain_fetched` flag to be true; otherwise it returns "option chain not available".
+Ingest market data separately before running a backtest.
 
 Order history and positions start fresh for every simulation. `ctx.state` persists
 across expiry simulations until the script calls `ctx.clear_state()`. Each new
@@ -117,28 +118,25 @@ Python generator in `data-fetcher/trading_symbol.py`. Both use integer paise.
 
 The resolver always queries `lab.option_contracts.tradingsymbol` directly.
 Migration `010_option_contract_tradingsymbol.sql` adds and backfills this column.
-There is no schema-detection query. Only a missing symbol triggers parsing and
-the existing full-history ingestion flow.
+There is no schema-detection query or missing-symbol parsing fallback.
+Lookups are database-only; Go does not trigger ingestion.
 
 
 ## Market data
 
 The database must already contain the underlying, its classified expiry dates, and historical five-minute underlying candles. Underlying ingestion is manual.
 
-Option ingestion fetches the full 45-DTE history. Missing contracts may be fetched
-through `POST /options/fetch`; existing contracts are reused. The synchronous
-`POST /option-chain/fetch` endpoint ingests the full strike universe atomically
-and records completion in `option_expiry.option_chain_fetched`. `OptionChainService.GetSymbol()`
-checks this flag before filter dispatch, synchronously requests full-chain
-ingestion when false, and verifies the committed flag before continuing.
-Delta, offset, and price selection themselves remain TODOs. Day-only ingestion
-and per-contract synchronization flags have been removed.
+The independent Python service can ingest full 45-DTE option history using
+`POST /options/fetch`, or a strike range atomically using `POST /option-chain/fetch`.
+The latter marks `option_expiry.option_chain_fetched` true after committing.
+Go only checks this flag: false or a missing expiry returns "option chain not available".
+Missing contracts and candles are not downloaded during backtesting.
 
 See the [data fetcher README](data-fetcher/README.md) for ingestion setup. Go and Python must use the same database.
 
 ## Running locally
 
-Set `DATABASE_URL` in the process environment. Set `DATA_FETCHER_URL` to the Python service's base URL when on-demand option ingestion is needed. Start the Go server with:
+Set `DATABASE_URL` in the process environment. Start the Go server with:
 
 ```sh
 go run .

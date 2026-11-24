@@ -99,12 +99,6 @@ const queryGetUnderlying = `
 	WHERE symbol = $1;
 `
 
-const queryGetUnderlyingSymbol = `
-	SELECT symbol
-	FROM lab.underlyings
-	WHERE id = $1;
-`
-
 const queryGetExpiries = `
 	SELECT expiry_date
 	FROM lab.option_expiry
