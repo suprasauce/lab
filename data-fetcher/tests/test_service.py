@@ -8,9 +8,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 import database
-import ingestion
-from breeze_client import MARKET_ZONE
+from providers.breeze import ingestion
+from providers.breeze.client import MARKET_ZONE
 from main import app
+from providers.breeze import BreezeProvider
 
 
 def candle(timestamp):
@@ -96,7 +97,7 @@ class Cursor:
         elif "SELECT start_time, timeframe, open, high, low, close, volume" in query:
             underlying_id, start, end = args
             self.rows = [row[1:] for row in s.underlyings.values()
-                         if row[0] == underlying_id and start <= row[1] < end]
+                         if row[0] == underlying_id and row[2] == "1m" and start <= row[1] < end]
         elif "SELECT id FROM lab.underlyings" in query:
             self.row = (7,) if s.has_underlying else None
         elif "SELECT id FROM lab.option_expiry" in query:
@@ -142,12 +143,15 @@ class Cursor:
 
 class ServiceTests(unittest.TestCase):
     def setUp(self):
+        provider_patch = patch.dict(app.config, {"DATA_PROVIDER": BreezeProvider()})
+        provider_patch.start()
+        self.addCleanup(provider_patch.stop)
         self.store = Store()
-        self.db_patch = patch("ingestion.database.connect", side_effect=self.store.connect)
+        self.db_patch = patch("providers.breeze.ingestion.database.connect", side_effect=self.store.connect)
         self.db = self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
         self.breeze = Mock()
-        self.client_patch = patch("ingestion.get_client", return_value=self.breeze)
+        self.client_patch = patch("providers.breeze.ingestion.get_client", return_value=self.breeze)
         self.get_client = self.client_patch.start()
         self.addCleanup(self.client_patch.stop)
         self.calls = []
@@ -157,7 +161,7 @@ class ServiceTests(unittest.TestCase):
     def check_fetch(self, start, end):
         self.assertEqual(self.store.connections, 0, "connection held while fetching")
         self.assertFalse(self.store.in_transaction, "transaction open while fetching")
-        self.assertLess(end - start, timedelta(days=16))
+        self.assertLess(end - start, timedelta(days=2))
         self.calls.append((start, end))
         return [candle(start + timedelta(minutes=15))]
 
@@ -188,6 +192,13 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.http.post("/options/fetch", json={}).status_code, 404)
         self.assertEqual(self.http.get("/underlyings/fetch").status_code, 405)
 
+    def test_underlying_timeframe_input_is_rejected(self):
+        response = self.http.post("/underlyings/fetch", json={
+            "underlying": "NIFTY", "start_date": "2025-01-01", "end_date": "2025-01-02", "timeframe": "1m",
+        })
+        self.assertEqual(response.status_code, 400)
+        self.get_client.assert_not_called()
+
 
     def test_overlapping_underlying_ranges_are_idempotent(self):
         first = self.http.post("/underlyings/fetch", json={"underlying": "NIFTY", "start_date": "2025-01-01", "end_date": "2025-01-02"})
@@ -197,7 +208,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(first.json["inserted"], 4)
         self.assertEqual(second.json["inserted"], 2)
         self.assertEqual(len(self.store.underlyings), 6)
-        self.assertTrue(all(row[2] == "5m" for row in self.store.underlyings.values()))
+        self.assertTrue(all(row[2] == "1m" for row in self.store.underlyings.values()))
 
 
     def test_request_validation(self):

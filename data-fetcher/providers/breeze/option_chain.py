@@ -5,8 +5,8 @@ from datetime import datetime, time, timedelta
 
 import database
 from trading_symbol import generate_option_trading_symbol
-from breeze_client import MARKET_ZONE, get_client
-from ingestion import BATCH_SIZE, MAX_DTE, calendar_date, fetch_candles, stock_code
+from .client import MARKET_ZONE, get_client
+from .ingestion import BATCH_SIZE, MAX_DTE, calendar_date, fetch_candles, stock_code
 
 logger = logging.getLogger(__name__)
 # Fixed exchange strike conventions in paise; no database metadata is available.

@@ -5,14 +5,18 @@ import unittest
 from unittest.mock import Mock, patch
 
 import database
-from breeze_client import BreezeClient, MARKET_ZONE
+from providers.breeze.client import BreezeClient, MARKET_ZONE
 from main import app
+from providers.breeze import BreezeProvider
 from test_service import Store, candle
 
 REQUEST = {"underlying": "NIFTY", "expiry": "2025-12-30"}
 
 class OptionChainTests(unittest.TestCase):
     def setUp(self):
+        provider_patch = patch.dict(app.config, {"DATA_PROVIDER": BreezeProvider()})
+        provider_patch.start()
+        self.addCleanup(provider_patch.stop)
         self.store = Store()
         p = patch("database.connect", side_effect=lambda: self.store.connect())
         p.start()
@@ -20,7 +24,7 @@ class OptionChainTests(unittest.TestCase):
         self.client = Mock()
         self.client.historical_underlying.side_effect = self.underlying
         self.client.historical_option.side_effect = self.option
-        p = patch("option_chain.get_client", return_value=self.client)
+        p = patch("providers.breeze.option_chain.get_client", return_value=self.client)
         self.get_client = p.start()
         self.addCleanup(p.stop)
         self.http = app.test_client()
@@ -40,7 +44,7 @@ class OptionChainTests(unittest.TestCase):
         self.fetch_phase()
         self.assertEqual((symbol, expiry), ("NIFTY", date(2025, 12, 30)))
         self.assertIn(kind, ("CALL", "PUT"))
-        self.assertLess(end - start, timedelta(days=16))
+        self.assertLess(end - start, timedelta(days=2))
         return [candle(start + timedelta(minutes=15))]
 
     def post(self):
@@ -54,31 +58,44 @@ class OptionChainTests(unittest.TestCase):
         self.get_client.assert_not_called()
         self.assertEqual(self.store.commits, 0)
 
+    def test_timeframe_input_is_rejected(self):
+        response = self.http.post("/option-chain/fetch", json={**REQUEST, "timeframe": "1m"})
+        self.assertEqual(response.status_code, 400)
+        self.get_client.assert_not_called()
+
+
+    def test_stored_underlying_candles_are_filtered_by_timeframe(self):
+        row = (7, datetime(2025, 11, 16, 9, 15, tzinfo=MARKET_ZONE), "5m", 1, 9999999, 1, 1, 0)
+        self.store.underlyings[row[:3]] = row
+        response = self.post()
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(max(key[2] for key in self.store.contracts), 2455000)
+
     def test_complete_chain_rounding_both_types_and_atomic_commit(self):
         response = self.post()
         self.assertEqual(response.status_code, 200, response.json)
         # Low 22490 rounds to 22450; high 22510.10 rounds to 22550; pad 2000.
         strikes = list(range(2045000, 2455001, 5000))
         self.assertEqual(set(self.store.contracts), {(7, 9, strike, kind) for strike in strikes for kind in ("CALL", "PUT")})
-        self.assertEqual(response.json["fetched"], len(strikes) * 2 * 3)
+        self.assertEqual(response.json["fetched"], len(strikes) * 2 * 23)
         self.assertEqual(response.json["inserted"], len(self.store.options))
-        self.assertEqual(response.json["underlying_inserted"], 3)
+        self.assertEqual(response.json["underlying_inserted"], 23)
         self.assertTrue(self.store.chain_fetched)
         self.assertEqual(self.store.commits, 1)
         calls = self.client.historical_option.call_count
         self.assertEqual(self.post().json["status"], "already_exists")
         self.assertEqual(self.client.historical_option.call_count, calls)
 
-    def test_45_dte_and_16_day_windows(self):
+    def test_45_dte_and_two_day_windows(self):
         self.assertEqual(self.post().status_code, 200)
-        calls = self.client.historical_option.call_args_list[:3]
+        calls = self.client.historical_option.call_args_list[:23]
         start = datetime(2025, 11, 15, tzinfo=MARKET_ZONE)
         self.assertEqual(calls[-1].args[-1], datetime(2025, 12, 30, 23, 59, 59, tzinfo=MARKET_ZONE))
         for i, call in enumerate(calls):
-            self.assertEqual(call.args[-2], start + timedelta(days=i * 16))
+            self.assertEqual(call.args[-2], start + timedelta(days=i * 2))
         for first, second in zip(calls, calls[1:]):
             self.assertEqual(first.args[-1] + timedelta(seconds=1), second.args[-2])
-        self.assertEqual(self.client.historical_underlying.call_count, 3)
+        self.assertEqual(self.client.historical_underlying.call_count, 23)
 
     def test_empty_options_are_successful(self):
         self.client.historical_option.side_effect = None
@@ -90,7 +107,7 @@ class OptionChainTests(unittest.TestCase):
         self.assertEqual(len(self.store.contracts), 166)
 
     def test_stored_underlying_prices_are_reused(self):
-        row = (7, datetime(2025, 11, 16, 9, 15, tzinfo=MARKET_ZONE), "5m", 2200000, 2250000, 2200000, 2200000, 0)
+        row = (7, datetime(2025, 11, 16, 9, 15, tzinfo=MARKET_ZONE), "1m", 2200000, 2250000, 2200000, 2200000, 0)
         self.store.underlyings[row[:3]] = row
         self.assertEqual(self.post().status_code, 200)
         self.assertEqual(min(key[2] for key in self.store.contracts), 2000000)
@@ -105,18 +122,18 @@ class OptionChainTests(unittest.TestCase):
 
     def test_failed_later_contract_commits_nothing(self):
         count = 0
-        def request(*args):
+        def request(*args, **kwargs):
             nonlocal count
             count += 1
-            if count == 4:
+            if count == 24:
                 raise RuntimeError("terminal Breeze failure")
-            return self.option(*args)
+            return self.option(*args, **kwargs)
         self.client.historical_option.side_effect = request
         response = self.post()
         self.assertEqual(response.status_code, 502)
         for text in ("strike_paise=2045000 option_type=PUT", "2025-11-15", "terminal Breeze failure"):
             self.assertIn(text, response.json["error"])
-        self.assertEqual(count, 4)
+        self.assertEqual(count, 24)
         self.assertFalse(self.store.contracts or self.store.options or self.store.underlyings or self.store.chain_fetched)
         self.assertEqual(self.store.commits, 0)
 
@@ -125,7 +142,7 @@ class OptionChainTests(unittest.TestCase):
             with self.subTest(failure=failure):
                 self.store = Store()
                 self.store.contracts[(7, 9, 2045000, "CALL")] = 90
-                row = (90, datetime(2025, 11, 15, 0, 15, tzinfo=MARKET_ZONE), "5m", 1, 2, 1, 2, 3)
+                row = (90, datetime(2025, 11, 15, 0, 15, tzinfo=MARKET_ZONE), "1m", 1, 2, 1, 2, 3)
                 self.store.options[row[:3]] = row
                 before = deepcopy((self.store.contracts, self.store.options, self.store.underlyings))
                 if failure == "candle": self.store.fail_batch = 3
@@ -167,13 +184,13 @@ class OptionChainTests(unittest.TestCase):
             setattr(self.store, flag, False)
             self.assertEqual(self.post().status_code, 400)
             setattr(self.store, flag, True)
-        for body in ({}, {"underlying": "NIFTY", "expiry": "bad"}, {**REQUEST, "timeframe": "1m"}):
+        for body in ({}, {"underlying": "NIFTY", "expiry": "bad"}, {**REQUEST, "timeframe": "15m"}):
             self.assertEqual(self.http.post("/option-chain/fetch", json=body).status_code, 400)
         self.get_client.assert_not_called()
 
     def test_real_client_retry_limits_and_abort(self):
         for failure, status, attempts in (("transient", 503, 3), ("permanent", 400, 1), ("recover", 429, 2)):
-            with self.subTest(failure=failure), patch("breeze_client.time.sleep"):
+            with self.subTest(failure=failure), patch("providers.breeze.client.time.sleep"):
                 self.store = Store()
                 client = BreezeClient.__new__(BreezeClient)
                 client._sdk = Mock()
@@ -196,7 +213,7 @@ class OptionChainTests(unittest.TestCase):
                 if failure == "recover":
                     self.assertEqual(response.status_code, 200, response.json)
                     self.assertTrue(self.store.chain_fetched)
-                    self.assertEqual(option_attempts, 83 * 2 * 3 + 1)
+                    self.assertEqual(option_attempts, 83 * 2 * 23 + 1)
                 else:
                     self.assertEqual(response.status_code, 502, response.json)
                     self.assertEqual(option_attempts, attempts)

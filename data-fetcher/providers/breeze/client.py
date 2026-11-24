@@ -90,18 +90,18 @@ class BreezeClient:
 
     def historical_underlying(self, symbol, start, end):
         return self._historical_with_retry(
-            interval="5minute",
+            interval="1minute",
             from_date=start.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             to_date=end.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             stock_code=symbol, exchange_code="NSE", product_type="cash",
         )
 
     def historical_option(self, symbol, expiry, strike, option_type, start, end):
-        """Read one 5-minute options window with at most three attempts total."""
+        """Read one options window with at most three attempts total."""
         from decimal import Decimal
 
         parameters = dict(
-            interval="5minute",
+            interval="1minute",
             from_date=start.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             to_date=end.astimezone(MARKET_ZONE).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             stock_code=symbol, exchange_code="NFO", product_type="options",

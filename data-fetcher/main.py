@@ -1,4 +1,4 @@
-"""Synchronous HTTP endpoints for historical 5-minute ingestion."""
+"""Synchronous HTTP endpoints for historical candle ingestion."""
 
 import json
 import logging
@@ -10,8 +10,7 @@ from dotenv import dotenv_values
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from ingestion import fetch_underlying
-from option_chain import fetch_option_chain
+from providers import create_provider
 
 app = Flask(__name__, static_folder=None)
 logger = logging.getLogger(__name__)
@@ -31,17 +30,17 @@ def request_fields(required):
 
 @app.post("/underlyings/fetch")
 def underlyings_fetch():
-    return jsonify(fetch_underlying(**request_fields(("underlying", "start_date", "end_date"))))
+    return jsonify(app.config["DATA_PROVIDER"].fetch_underlying(**request_fields(("underlying", "start_date", "end_date"))))
 
 
 @app.post("/option-chain/fetch")
 def option_chain_fetch():
-    return jsonify(fetch_option_chain(**request_fields(("underlying", "expiry"))))
+    return jsonify(app.config["DATA_PROVIDER"].fetch_option_chain(**request_fields(("underlying", "expiry"))))
 
 
 def safe_message(error):
     message = str(error)
-    for name in ("DATABASE_URL", "BREEZE_API_KEY", "BREEZE_API_SECRET", "BREEZE_SESSION_TOKEN"):
+    for name in ("DATABASE_URL", "BREEZE_API_KEY", "BREEZE_API_SECRET", "BREEZE_SESSION_TOKEN", "UPSTOX_ACCESS_TOKEN"):
         value = os.environ.get(name)
         if value:
             message = message.replace(value, "[redacted]")
@@ -51,6 +50,11 @@ def safe_message(error):
 @app.errorhandler(ValueError)
 def invalid_request(error):
     return jsonify(error=safe_message(error)), 400
+
+
+@app.errorhandler(NotImplementedError)
+def not_implemented(error):
+    return jsonify(error=safe_message(error)), 501
 
 
 @app.errorhandler(RuntimeError)
@@ -69,12 +73,20 @@ def unexpected_failure(error):
     return jsonify(error="Ingestion failed; check service logs and database configuration"), 500
 
 
+# Select one provider when the server loads. DATABASE_URL stays OS-only.
+values = dotenv_values(Path(__file__).with_name(".env"))
+provider_name = os.environ.get("MARKET_DATA_PROVIDER", values.get("MARKET_DATA_PROVIDER") or "breeze").strip().lower()
+credentials = {
+    "breeze": ("BREEZE_API_KEY", "BREEZE_API_SECRET", "BREEZE_SESSION_TOKEN"),
+    "upstox": ("UPSTOX_ACCESS_TOKEN",),
+}
+for name in credentials.get(provider_name, ()):
+    if values.get(name) is not None:
+        os.environ.setdefault(name, values[name])
+app.config["DATA_PROVIDER"] = create_provider(provider_name)
+
+
 if __name__ == "__main__":
-    # DATABASE_URL remains OS-only. Only Breeze credentials may come from .env.
-    values = dotenv_values(Path(__file__).with_name(".env"))
-    for name in ("BREEZE_API_KEY", "BREEZE_API_SECRET", "BREEZE_SESSION_TOKEN"):
-        if values.get(name) is not None:
-            os.environ.setdefault(name, values[name])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    # One process/thread preserves the existing SDK's per-process pacing/budget.
+    # One process/thread preserves the Breeze SDK's per-process pacing/budget.
     app.run(host="127.0.0.1", port=8000, threaded=False, use_reloader=False)

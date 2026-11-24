@@ -2,7 +2,8 @@
 
 Independent Python 3.11+ service sharing the Go application's existing PostgreSQL
 `lab` schema. Two synchronous application endpoints provide underlying history and a historical
-option chain. Apply migrations through
+option chain. Both endpoints always fetch 1-minute candles and store `1m`.
+There is no timeframe request parameter. Apply migrations through
 `scripts/migrations/009_drop_option_contract_synced.sql` before deploying this version.
 
 ## Install and start
@@ -19,19 +20,25 @@ $env:DATABASE_URL = "host=localhost port=5432 user=postgres password=replace_me 
 ```
 
 The service listens on `http://127.0.0.1:8000`. Keep one process and one request
-thread (`main.py` already does this), so the shared Breeze session and request
+thread (`main.py` already does this), so the Breeze session and request
 budget cover all calls. Requests block until ingestion finishes; configure calling
 clients with sufficiently long timeouts. There are no workers or scheduled jobs.
 
 | Variable | Source | Purpose |
 | --- | --- | --- |
+| `MARKET_DATA_PROVIDER` | OS environment or `.env` | `breeze` (default) or `upstox`; selected once at startup |
+| `UPSTOX_ACCESS_TOKEN` | OS environment or `.env` | Reserved for the Upstox implementation |
 | `DATABASE_URL` | OS environment only | PostgreSQL keyword/value DSN or URL |
 | `BREEZE_API_KEY` | OS environment or `.env` | Breeze application key |
 | `BREEZE_API_SECRET` | OS environment or `.env` | Breeze application secret |
 | `BREEZE_SESSION_TOKEN` | OS environment or `.env` | Current API session token |
 
-Existing OS values take precedence. `.env` is read by `python main.py` and only
-its three Breeze fields are loaded. Credentials are never returned in responses.
+Existing OS values take precedence. The selected provider's credentials are loaded
+from `.env`; `DATABASE_URL` remains OS-only. Credentials are never returned in responses.
+Set `MARKET_DATA_PROVIDER=breeze` for working ingestion. `upstox` selects placeholder
+workflows: both endpoints return HTTP 501 without API calls or database writes.
+Unknown provider names fail startup. Restart the server to switch providers.
+Breeze authentication remains lazy and its session is reused across requests.
 Get a session token through the [Breeze portal](https://api.icicidirect.com/apiuser/home)
 or the [SDK login flow](https://github.com/Idirect-Tech/Breeze-Python-SDK#api-usage).
 Restart the service after updating the token; automatic renewal is not implemented.
@@ -53,7 +60,9 @@ Restart the service after updating the token; automatic renewal is not implement
 ```
 
 Dates are inclusive. The underlying must exist. This manually invoked endpoint
-fetches only 5-minute cash/index data and inserts into `lab.underlying_candles`.
+fetches 1-minute cash/index candles and inserts them as `1m` into
+`lab.underlying_candles`. Requests are split into two-calendar-day windows to
+respect Breeze's candle limit. Supplying `timeframe` is rejected as an unknown field.
 Overlapping requests skip existing `(underlying_id, timeframe, start_time)` rows.
 It returns HTTP 200 with `status`, `fetched`, and newly `inserted` candle counts.
 An empty underlying response is successful with zero inserts and can be retried.
@@ -72,14 +81,16 @@ curl -X POST http://localhost:8000/option-chain/fetch \
   -d '{"underlying":"NIFTY","expiry":"2025-12-30"}'
 ```
 
-Only `underlying` and `expiry` are accepted. Both catalog records must exist;
+Exactly `underlying` and `expiry` are required. Both catalog records must exist;
 expiry must be before today. NIFTY uses a fixed Rs50 strike interval and BANKNIFTY
 uses Rs100, stored internally as paise. The range is the underlying's minimum Low
 rounded down and maximum High rounded up, extended by 40 intervals on each side.
 Only positive strikes are generated. Both CALL and PUT contracts are fetched for
 every strike, from expiry minus 45 calendar days through expiry inclusive.
 
-All historical requests use 5-minute candles and at most 16-calendar-day windows.
+Both underlying and option requests use `1minute`; stored candles use `1m`.
+Only stored 1-minute underlying candles participate in strike-range calculation.
+All requests use two-calendar-day windows.
 Transient network, rate-limit, and server errors have at most three attempts total
 (initial attempt plus two retries), with existing pacing and 2/4-second backoff.
 Permanent errors fail immediately. A terminal option failure identifies the
@@ -93,8 +104,12 @@ independently. No market calendar or synthetic candles are introduced.
 
 All fetched data is buffered in memory. Only after **every request succeeds** does
 one database transaction insert any new underlying candles, all required
-contracts and option candles, and set
-`option_expiry.option_chain_fetched = true`. Conflicting candles are preserved.
+contracts and option candles, then sets `option_expiry.option_chain_fetched = true`.
+The completion flag now represents the full 45-DTE **1-minute** chain. Existing `true` flags from
+older 5-minute ingestion are not converted automatically. Those flags must be
+reset explicitly before re-ingesting those expiries at 1 minute; otherwise they
+continue to return `already_exists`. Existing candles are retained.
+Conflicting candles are preserved.
 Any failure rolls back all new ingestion data and flag changes. Successful empty
 option windows are valid, including contracts with no available candles; these
 contracts are still inserted because their entire historical range was checked. Empty underlying data with no stored candles is an error.
@@ -108,7 +123,7 @@ Success is HTTP 200, after commit, for example:
 Counts are illustrative. `contracts` counts generated contracts; `fetched` counts
 option candles returned after per-contract deduplication; `inserted` counts new
 option candles. `underlying_inserted` counts new underlying candles.
-An expiry already flagged complete returns without Breeze calls:
+A request for an expiry already flagged complete returns without Breeze calls:
 
 ```json
 {"status":"already_exists","expiry_id":9,"contracts":0,"fetched":0,"inserted":0}
@@ -123,7 +138,7 @@ single-threaded request handling; the final write phase uses no explicit row loc
 ## Lab trading symbols
 
 Contract creation reuses `trading_symbol.generate_option_trading_symbol()` for
-both single-contract and full-chain ingestion. It produces
+full-chain ingestion. It produces
 `UNDERLYING-YYYYMMDD-STRIKE-CE/PE`, for example `NIFTY-20261124-26000-CE` or
 `NIFTY-20261124-26000-PE`. Monthly and weekly contracts use the same format;
 no expiry-day rules are inferred.
@@ -145,8 +160,8 @@ parameters, and candle windows and ingestion transactions are unchanged.
 
 - The existing official SDK authentication and request parameters are preserved:
   underlying data uses NSE/cash; options use NFO/options and explicit expiry,
-  right, and strike. Breeze requests use `5minute`; PostgreSQL stores `5m`.
-- Requests use shared 16-calendar-day windows and inclusive-second Breeze bounds.
+  right, and strike. Both ingestion endpoints are fixed at `1minute` / `1m`.
+- Requests use two-calendar-day windows and inclusive-second Breeze bounds.
   The SDK documents a [1000-interval limit](https://github.com/Idirect-Tech/Breeze-Python-SDK).
   Responses reaching 1000 rows are rejected as potentially truncated.
 - Existing pacing remains one request/second with a 5000-request daily process
@@ -176,9 +191,24 @@ individual-contract and day-only ingestion endpoints are not exposed.
 
 ## Files and tests
 
-`main.py` contains HTTP/configuration; `ingestion.py` contains underlying ingestion and
-shared candle conversion; `option_chain.py` contains chain ingestion; `database.py` contains SQL; `breeze_client.py` owns SDK access
-and pacing. There is no generic pipeline framework.
+`main.py` contains provider-neutral routes and startup configuration. Each provider
+implements `fetch_underlying(underlying, start_date, end_date)` and
+`fetch_option_chain(underlying, expiry)`. Provider workflows own their request and
+contract-discovery rules; the database and trading-symbol helpers remain shared.
+
+```text
+providers/
+  __init__.py            # Provider selection
+  breeze/
+    __init__.py          # BreezeProvider: the two operations
+    client.py            # Existing SDK authentication and rate limits
+    ingestion.py         # Underlying ingestion and candle conversion
+    option_chain.py      # Atomic chain ingestion
+  upstox.py              # UpstoxProvider: TODO operations
+```
+
+No provider API implementation is required by the routes themselves. No SDK or
+new dependencies have been added for Upstox yet.
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v

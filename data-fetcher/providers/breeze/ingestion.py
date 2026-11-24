@@ -1,15 +1,15 @@
-"""Shared candle helpers and synchronous ingestion, fixed at 5-minute candles."""
+"""Shared candle helpers and synchronous ingestion, fixed at 1-minute candles."""
 
 import logging
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 import database
-from breeze_client import MARKET_ZONE, get_client
+from .client import MARKET_ZONE, get_client
 
 logger = logging.getLogger(__name__)
 MAX_DTE = 45
-REQUEST_WINDOW = timedelta(days=16)
+REQUEST_WINDOW = timedelta(days=2)
 BATCH_SIZE = 500
 BREEZE_CODES = {"NIFTY": "NIFTY", "BANKNIFTY": "CNXBAN"}
 
@@ -53,7 +53,7 @@ def candle_row(candle):
     # Preserve the reported value for now rather than rejecting the candle.
     if not volume.is_finite() or volume != volume.to_integral_value() or not -(2**63) <= volume <= 2**63 - 1:
         raise ValueError("Candle volume must fit a BIGINT")
-    return (timestamp, "5m", *(to_paise(candle[field]) for field in ("open", "high", "low", "close")), int(volume))
+    return (timestamp, "1m", *(to_paise(candle[field]) for field in ("open", "high", "low", "close")), int(volume))
 
 
 def fetch_candles(start, end, request_window):

@@ -98,6 +98,7 @@ def insert_underlying_candles(connection, rows):
 
 
 def is_option_chain_fetched(connection, expiry_id):
+    """Whether the expiry's full 45-DTE, 1-minute chain was ingested."""
     with connection.cursor() as cursor:
         cursor.execute("SELECT option_chain_fetched FROM lab.option_expiry WHERE id = %s", (expiry_id,))
         row = cursor.fetchone()
@@ -107,6 +108,7 @@ def is_option_chain_fetched(connection, expiry_id):
 
 
 def mark_option_chain_fetched(connection, expiry_id):
+    """Called within the transaction after all 1-minute chain inserts succeed."""
     with connection.cursor() as cursor:
         cursor.execute("UPDATE lab.option_expiry SET option_chain_fetched = TRUE WHERE id = %s", (expiry_id,))
         if cursor.rowcount != 1:
@@ -118,7 +120,7 @@ def get_underlying_candles(connection, underlying_id, start, end):
         cursor.execute(
             """SELECT start_time, timeframe, open, high, low, close, volume
                FROM lab.underlying_candles
-               WHERE underlying_id = %s AND timeframe = '5m'
+               WHERE underlying_id = %s AND timeframe = '1m'
                  AND start_time >= %s AND start_time < %s
                ORDER BY start_time""", (underlying_id, start, end),
         )

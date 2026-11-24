@@ -5,10 +5,12 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from breeze_client import BreezeClient, MARKET_ZONE
+from providers.breeze.client import BreezeClient, MARKET_ZONE
 
 
 class BreezeTests(unittest.TestCase):
+
+
     def setUp(self):
         self.sdk = MagicMock()
         self.module_patch = patch.dict(sys.modules, {"breeze_connect": SimpleNamespace(BreezeConnect=MagicMock(return_value=self.sdk))})
@@ -23,19 +25,19 @@ class BreezeTests(unittest.TestCase):
         self.start = datetime(2026, 9, 1, 9, 15, tzinfo=MARKET_ZONE)
         self.end = datetime(2026, 9, 1, 11, 59, 59, tzinfo=MARKET_ZONE)
 
-    @patch("breeze_client.time.sleep")
+    @patch("providers.breeze.client.time.sleep")
     def test_nifty_cash_parameters_and_rate_spacing(self, sleep):
         self.sdk.get_historical_data_v2.return_value = {"Status": 200, "Error": None, "Success": []}
         self.assertEqual(self.client.historical_underlying("NIFTY", self.start, self.end), [])
         self.sdk.generate_session.assert_called_once_with(api_secret="test-secret", session_token="test-token")
         self.sdk.get_historical_data_v2.assert_called_once_with(
-            interval="5minute", from_date="2026-09-01T09:15:00.000Z", to_date="2026-09-01T11:59:59.000Z",
+            interval="1minute", from_date="2026-09-01T09:15:00.000Z", to_date="2026-09-01T11:59:59.000Z",
             stock_code="NIFTY", exchange_code="NSE", product_type="cash",
         )
         sleep.assert_called_once()
         self.assertGreater(sleep.call_args.args[0], 0)
 
-    @patch("breeze_client.time.sleep")
+    @patch("providers.breeze.client.time.sleep")
     def test_errors_and_truncation(self, sleep):
         for response in (None, {"Status": 500, "Error": "Historical Data Fail"},
                          {"Status": 200, "Success": None}, {"Status": 200, "Success": [{}] * 1000}):
@@ -50,7 +52,7 @@ class BreezeTests(unittest.TestCase):
             self.client.historical_underlying("NIFTY", self.start, self.end)
         self.sdk.get_historical_data_v2.assert_not_called()
 
-    @patch("breeze_client.time.sleep")
+    @patch("providers.breeze.client.time.sleep")
     def test_options_parameters_and_transient_retry(self, sleep):
         self.sdk.get_historical_data_v2.side_effect = [
             {"Status": 429, "Error": "Rate limit exceeded"},
@@ -62,13 +64,13 @@ class BreezeTests(unittest.TestCase):
         params = self.sdk.get_historical_data_v2.call_args.kwargs
         self.assertEqual(params["exchange_code"], "NFO")
         self.assertEqual(params["product_type"], "options")
-        self.assertEqual(params["interval"], "5minute")
+        self.assertEqual(params["interval"], "1minute")
         self.assertEqual(params["right"], "put")
         self.assertEqual(params["strike_price"], "22500.5")
         self.assertEqual(params["expiry_date"], "2026-09-01T00:00:00.000Z")
         self.assertTrue(any(call.args == (2,) for call in sleep.call_args_list))
 
-    @patch("breeze_client.time.sleep")
+    @patch("providers.breeze.client.time.sleep")
     def test_options_retry_exhaustion_and_permanent_error(self, sleep):
         for status, expected_calls in ((503, 3), (401, 1)):
             self.sdk.get_historical_data_v2.reset_mock()
@@ -77,7 +79,7 @@ class BreezeTests(unittest.TestCase):
                 self.client.historical_option("NIFTY", self.start.date(), 2250000, "CALL", self.start, self.end)
             self.assertEqual(self.sdk.get_historical_data_v2.call_count, expected_calls)
 
-    @patch("breeze_client.time.sleep")
+    @patch("providers.breeze.client.time.sleep")
     def test_underlying_retries_network_timeout_and_caps_attempts(self, sleep):
         from requests import Timeout
         self.sdk.get_historical_data_v2.side_effect = [
