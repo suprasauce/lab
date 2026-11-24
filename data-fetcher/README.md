@@ -80,7 +80,7 @@ missing or ambiguous exact matches return HTTP 400. Instrument keys are never
 hardcoded, and partial matches such as other NIFTY indices are not substituted.
 
 The [Historical V3 API](https://upstox.com/developer/api-documentation/v3/get-historical-candle-data/)
-is queried at `minutes/1` using windows of at most 30 calendar dates (inclusive). Candles are sorted and
+is queried at `minutes/1` using inclusive windows capped at each calendar month's end. Candles are sorted and
 deduplicated, timestamps retain their actual IST starts, and Decimal conversion
 preserves paise. The full result is fetched before batched inserts in one database
 transaction. Reruns skip duplicates. Requests use the existing `requests` dependency,
@@ -164,7 +164,7 @@ exist in PostgreSQL. Lot sizes remain supplied by the existing expiry record.
 For each discovered contract, the
 [Expired Historical Candle API](https://upstox.com/developer/api-documentation/get-expired-historical-candle-data/)
 is requested at `1minute` from expiry minus 45 days through expiry inclusive,
-split into at most 30-calendar-day windows. Underlying candles for the same range
+split into inclusive windows capped at each calendar month's end. Underlying candles for the same range
 are fetched through V3. Both paths reuse the same Upstox windowing, normalization,
 timeout, and pacing logic.
 

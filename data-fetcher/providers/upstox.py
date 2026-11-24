@@ -1,6 +1,7 @@
 """Upstox ingestion using shared persistence and candle conventions."""
 
 import logging
+from calendar import monthrange
 from datetime import datetime, time, timedelta
 from decimal import InvalidOperation
 
@@ -43,8 +44,8 @@ class UpstoxProvider:
         rows = {}
         current = start
         while current <= end:
-            # Both boundaries are inclusive: at most 30 calendar dates per request.
-            last = min(current + timedelta(days=29), end)
+            # Keep inclusive request windows within a single calendar month.
+            last = min(current.replace(day=monthrange(current.year, current.month)[1]), end)
             candles = request(current, last)
             for candle in candles:
                 try:

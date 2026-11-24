@@ -47,19 +47,38 @@ class UpstoxTests(unittest.TestCase):
             "underlying": "NIFTY", "start_date": "2026-01-31", "end_date": "2026-03-02",
         })
 
-    def test_thirty_day_windows_conversion_and_idempotency(self):
+    def test_calendar_month_windows_conversion_and_idempotency(self):
         response = self.post()
         self.assertEqual(response.status_code, 200, response.json)
-        self.assertEqual(response.json, {"status": "ingested", "fetched": 2, "inserted": 2})
+        self.assertEqual(response.json, {"status": "ingested", "fetched": 3, "inserted": 3})
         calls = self.client.historical_underlying.call_args_list
-        self.assertEqual(calls[0].args[1:], (date(2026, 1, 31), date(2026, 3, 1)))
-        self.assertEqual(calls[1].args[1:], (date(2026, 3, 2), date(2026, 3, 2)))
-        self.assertTrue(all((call.args[2] - call.args[1]).days + 1 <= 30 for call in calls))
+        self.assertEqual([call.args[1:] for call in calls], [
+            (date(2026, 1, 31), date(2026, 1, 31)),
+            (date(2026, 2, 1), date(2026, 2, 28)),
+            (date(2026, 3, 1), date(2026, 3, 2)),
+        ])
         row = next(iter(self.store.underlyings.values()))
         self.assertEqual(row[2:], ("1m", 10005, 11000, 9000, 10129, 12))
         self.assertEqual(row[1].utcoffset().total_seconds(), 19800)
         self.assertEqual(self.post().json["inserted"], 0)
         self.assertEqual(self.store.commits, 2)
+
+    def test_leap_year_and_year_boundary_windows(self):
+        provider = UpstoxProvider()
+        for start, end, expected in (
+            (date(2024, 2, 1), date(2024, 3, 1), [
+                (date(2024, 2, 1), date(2024, 2, 29)),
+                (date(2024, 3, 1), date(2024, 3, 1)),
+            ]),
+            (date(2025, 12, 31), date(2026, 1, 31), [
+                (date(2025, 12, 31), date(2025, 12, 31)),
+                (date(2026, 1, 1), date(2026, 1, 31)),
+            ]),
+        ):
+            with self.subTest(start=start):
+                request = Mock(return_value=[])
+                self.assertEqual(provider._fetch_candles(start, end, request), [])
+                self.assertEqual([call.args for call in request.call_args_list], expected)
 
     def test_failure_before_writes_and_rollback(self):
         self.client.historical_underlying.side_effect = [self.candles("NSE_INDEX|returned-by-search", date(2026, 1, 31), date(2026, 1, 31)), RuntimeError("upstream failed")]
@@ -99,8 +118,8 @@ class UpstoxTests(unittest.TestCase):
         self.assertEqual(self.store.commits, 1)
         self.client.expired_option_contracts.assert_called_once_with("NSE_INDEX|returned-by-search", date(2026, 1, 27))
         calls = self.client.historical_option.call_args_list
-        self.assertEqual(calls[0].args, ("NSE_FO|101|27-01-2026", date(2025, 12, 13), date(2026, 1, 11)))
-        self.assertEqual(calls[1].args[1:], (date(2026, 1, 12), date(2026, 1, 27)))
+        self.assertEqual(calls[0].args, ("NSE_FO|101|27-01-2026", date(2025, 12, 13), date(2025, 12, 31)))
+        self.assertEqual(calls[1].args[1:], (date(2026, 1, 1), date(2026, 1, 27)))
         self.assertEqual(calls[2].args[0], "NSE_FO|102|27-01-2026")
         self.assertEqual(self.chain().json["status"], "already_exists")
         self.assertEqual(self.client.historical_option.call_count, 4)
