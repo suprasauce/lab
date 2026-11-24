@@ -5,7 +5,6 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 import database
-from trading_symbol import generate_option_trading_symbol
 from breeze_client import MARKET_ZONE, get_client
 
 logger = logging.getLogger(__name__)
@@ -78,52 +77,6 @@ def fetch_candles(start, end, request_window):
             rows[row[0]] = row
         current = window_stop
     return [rows[timestamp] for timestamp in sorted(rows)]
-
-
-def fetch_option(underlying, expiry, strike, option_type):
-    symbol = stock_code(underlying)
-    expiry_date = calendar_date(expiry)
-    strike_paise = to_paise(strike)  # API strikes are rupees; PostgreSQL uses paise.
-    if strike_paise == 0 or option_type not in ("CALL", "PUT"):
-        raise ValueError("strike must be positive and option_type must be CALL or PUT")
-
-    with database.connect() as connection:
-        underlying_id = database.get_underlying_id(connection, underlying)
-        expiry_id = database.get_option_expiry_id(connection, underlying_id, expiry_date)
-        contract_id = database.get_option_contract_id(connection, underlying_id, expiry_id, strike_paise, option_type)
-    if contract_id is not None:
-        return {"status": "already_exists", "contract_id": contract_id, "fetched": 0, "inserted": 0}
-    if expiry_date >= datetime.now(MARKET_ZONE).date():
-        raise ValueError("New contracts must have an expiry before today so their historical data can be complete")
-
-    client = get_client()
-    rows = fetch_candles(
-        expiry_date - timedelta(days=MAX_DTE), expiry_date,
-        lambda start, end: client.historical_option(symbol, expiry_date, strike_paise, option_type, start, end),
-    )
-    if not rows:
-        raise RuntimeError("Breeze returned no option candles; no contract was inserted")
-
-    inserted = 0
-    with database.connect() as connection:
-        with connection.transaction():
-            trading_symbol = generate_option_trading_symbol(underlying, expiry_date, strike_paise, option_type)
-            stored_symbol = trading_symbol if database.has_option_trading_symbol(connection) else None
-            contract_id = database.insert_option_contract(connection, underlying_id, expiry_id, strike_paise, option_type, stored_symbol)
-            if contract_id is None:
-                contract_id = database.get_option_contract_id(connection, underlying_id, expiry_id, strike_paise, option_type)
-                if contract_id is None:
-                    raise RuntimeError("Conflicting contract has an inconsistent underlying relationship")
-                existing = True
-            else:
-                existing = False
-            if not existing:
-                for offset in range(0, len(rows), BATCH_SIZE):
-                    batch = [(contract_id, *row) for row in rows[offset:offset + BATCH_SIZE]]
-                    inserted += database.insert_option_candles(connection, batch)
-    # Both transaction and connection have exited successfully before returning.
-    logger.info("underlying=%s contract_id=%d fetched=%d inserted=%d", underlying, contract_id, len(rows), inserted)
-    return {"status": "already_exists" if existing else "ingested", "contract_id": contract_id, "fetched": len(rows), "inserted": inserted}
 
 
 def fetch_underlying(underlying, start_date, end_date):

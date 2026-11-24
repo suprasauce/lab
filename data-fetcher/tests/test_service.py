@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 import unittest
 from unittest.mock import Mock, patch
@@ -11,9 +11,6 @@ import database
 import ingestion
 from breeze_client import MARKET_ZONE
 from main import app
-
-
-OPTION = {"underlying": "NIFTY", "expiry": "2025-12-30", "strike": 25000, "option_type": "CALL"}
 
 
 def candle(timestamp):
@@ -154,8 +151,6 @@ class ServiceTests(unittest.TestCase):
         self.get_client = self.client_patch.start()
         self.addCleanup(self.client_patch.stop)
         self.calls = []
-        self.expected_strike = 2500000
-        self.breeze.historical_option.side_effect = self.option_window
         self.breeze.historical_underlying.side_effect = self.underlying_window
         self.http = app.test_client()
 
@@ -166,9 +161,6 @@ class ServiceTests(unittest.TestCase):
         self.calls.append((start, end))
         return [candle(start + timedelta(minutes=15))]
 
-    def option_window(self, symbol, expiry, strike, right, start, end):
-        self.assertEqual((symbol, expiry, strike, right), ("NIFTY", date(2025, 12, 30), self.expected_strike, "CALL"))
-        return self.check_fetch(start, end)
 
     def underlying_window(self, symbol, start, end):
         self.assertEqual(symbol, "NIFTY")
@@ -190,88 +182,12 @@ class ServiceTests(unittest.TestCase):
         finally:
             self.store.commits = commits
 
-    def post_option(self):
-        return self.http.post("/options/fetch", json=OPTION)
 
     def test_application_endpoints(self):
-        self.assertEqual({rule.rule for rule in app.url_map.iter_rules()}, {"/options/fetch", "/underlyings/fetch", "/option-chain/fetch"})
-        self.assertEqual(self.http.get("/options/fetch").status_code, 405)
+        self.assertEqual({rule.rule for rule in app.url_map.iter_rules()}, {"/underlyings/fetch", "/option-chain/fetch"})
+        self.assertEqual(self.http.post("/options/fetch", json={}).status_code, 404)
+        self.assertEqual(self.http.get("/underlyings/fetch").status_code, 405)
 
-    def test_existing_contract_skips_breeze(self):
-        self.store.contracts[(7, 9, 2500000, "CALL")] = 42
-        response = self.post_option()
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json, {"status": "already_exists", "contract_id": 42, "fetched": 0, "inserted": 0})
-        self.get_client.assert_not_called()
-        self.assertEqual(self.store.commits, 0)
-
-    def test_new_contract_fetches_all_before_atomic_insert(self):
-        response = self.post_option()
-        self.assertEqual(response.status_code, 200, response.json)
-        self.assertEqual(response.json, {"status": "ingested", "contract_id": 42, "fetched": 3, "inserted": 3})
-        self.assertEqual(self.store.commits, 1)
-        self.assertEqual(len(self.calls), 3)
-        self.assertEqual(self.calls[0][0], datetime(2025, 11, 15, tzinfo=MARKET_ZONE))
-        self.assertEqual(self.calls[-1][1], datetime(2025, 12, 30, 23, 59, 59, tzinfo=MARKET_ZONE))
-        for previous, following in zip(self.calls, self.calls[1:]):
-            self.assertEqual(previous[1] + timedelta(seconds=1), following[0])
-        row = next(iter(self.store.options.values()))
-        self.assertEqual(row[0], 42)
-        self.assertEqual(row[2:], ("5m", 2250005, 2251010, 2249000, 2250525, 0))
-        self.assertEqual(row[1].tzinfo, MARKET_ZONE)
-
-    def test_failed_later_fetch_never_inserts_contract(self):
-        self.breeze.historical_option.side_effect = [
-            [candle(datetime(2025, 11, 15, 0, 15, tzinfo=MARKET_ZONE))], RuntimeError("Breeze unavailable"),
-        ]
-        self.assertEqual(self.post_option().status_code, 502)
-        self.assertEqual((self.store.contracts, self.store.options), ({}, {}))
-        self.assertEqual((self.store.commits, self.store.rollbacks), (0, 0))
-
-    def test_json_decimal_strike_stays_exact(self):
-        self.expected_strike = 2500005
-        response = self.http.post(
-            "/options/fetch", content_type="application/json",
-            data='{"underlying":"NIFTY","expiry":"2025-12-30","strike":25000.05,"option_type":"CALL"}',
-        )
-        self.assertEqual(response.status_code, 200, response.json)
-        self.assertIn((7, 9, 2500005, "CALL"), self.store.contracts)
-
-    def test_later_candle_failure_rolls_back_contract_and_prior_batches(self):
-        self.store.fail_batch = 2
-        with patch("ingestion.BATCH_SIZE", 1):
-            self.assertEqual(self.post_option().status_code, 500)
-        self.assertEqual((self.store.contracts, self.store.options), ({}, {}))
-        self.assertEqual((self.store.commits, self.store.rollbacks), (0, 1))
-        self.store.fail_batch = 0
-        self.assertEqual(self.post_option().status_code, 200)
-        self.assertEqual(len(self.store.contracts), 1)
-
-    def test_commit_failure_never_returns_success(self):
-        self.store.fail_commit = True
-        self.assertEqual(self.post_option().status_code, 500)
-        self.assertEqual((self.store.contracts, self.store.options), ({}, {}))
-        self.assertEqual(self.store.commits, 0)
-
-    def test_repeated_requests_do_not_fetch_or_duplicate(self):
-        self.assertEqual(self.post_option().status_code, 200)
-        calls = self.breeze.historical_option.call_count
-        response = self.post_option()
-        self.assertEqual(response.json["status"], "already_exists")
-        self.assertEqual(self.breeze.historical_option.call_count, calls)
-        self.assertEqual((len(self.store.contracts), len(self.store.options)), (1, 3))
-
-    def test_concurrent_winner_is_reused(self):
-        def window(*args):
-            result = self.option_window(*args)
-            self.store.contracts[(7, 9, 2500000, "CALL")] = 88
-            return result
-        self.breeze.historical_option.side_effect = window
-        response = self.post_option()
-        self.assertEqual(response.status_code, 200, response.json)
-        self.assertEqual(response.json["status"], "already_exists")
-        self.assertEqual(response.json["contract_id"], 88)
-        self.assertEqual(self.store.writes, 0)
 
     def test_overlapping_underlying_ranges_are_idempotent(self):
         first = self.http.post("/underlyings/fetch", json={"underlying": "NIFTY", "start_date": "2025-01-01", "end_date": "2025-01-02"})
@@ -283,40 +199,19 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(self.store.underlyings), 6)
         self.assertTrue(all(row[2] == "5m" for row in self.store.underlyings.values()))
 
-    def test_missing_catalog_records_do_not_fetch(self):
-        for attribute in ("has_underlying", "has_expiry"):
-            with self.subTest(attribute=attribute):
-                setattr(self.store, attribute, False)
-                self.assertEqual(self.post_option().status_code, 400)
-                setattr(self.store, attribute, True)
-        self.get_client.assert_not_called()
-
-    def test_empty_options_do_not_create_a_completion_marker(self):
-        self.breeze.historical_option.return_value = []
-        self.breeze.historical_option.side_effect = None
-        self.assertEqual(self.post_option().status_code, 502)
-        self.assertEqual(self.store.contracts, {})
-
-    def test_invalid_breeze_candle_fails_before_writing(self):
-        self.breeze.historical_option.side_effect = None
-        self.breeze.historical_option.return_value = [{"datetime": "bad"}]
-        response = self.post_option()
-        self.assertEqual(response.status_code, 502)
-        self.assertEqual(self.store.contracts, {})
-        self.assertEqual(self.store.commits, 0)
-
-    def test_unexpired_contract_is_rejected_without_fetching(self):
-        future = (datetime.now(MARKET_ZONE).date() + timedelta(days=1)).isoformat()
-        response = self.http.post("/options/fetch", json={**OPTION, "expiry": future})
-        self.assertEqual(response.status_code, 400)
-        self.get_client.assert_not_called()
 
     def test_request_validation(self):
-        for change in ({"timeframe": "1minute"}, {"dte": 30}, {"strike": -1}, {"strike": True}, {"option_type": "FUTURE"}):
+        body = {"underlying": "NIFTY", "start_date": "2025-01-01", "end_date": "2025-01-02"}
+        for change in ({"timeframe": "1minute"}, {"dte": 30}, {"underlying": "UNKNOWN"}, {"start_date": "bad"}, {"start_date": "2025-02-01"}):
             with self.subTest(change=change):
-                self.assertEqual(self.http.post("/options/fetch", json={**OPTION, **change}).status_code, 400)
-        self.assertEqual(self.http.post("/options/fetch", data="{bad", content_type="application/json").status_code, 400)
-        self.assertEqual(self.http.post("/underlyings/fetch", json={"underlying": "NIFTY", "start_date": "2025-02-01", "end_date": "2025-01-01"}).status_code, 400)
+                self.assertEqual(self.http.post("/underlyings/fetch", json={**body, **change}).status_code, 400)
+        self.assertEqual(self.http.post("/underlyings/fetch", data="{bad", content_type="application/json").status_code, 400)
+        self.get_client.assert_not_called()
+
+    def test_missing_underlying_does_not_fetch(self):
+        self.store.has_underlying = False
+        response = self.http.post("/underlyings/fetch", json={"underlying": "NIFTY", "start_date": "2025-01-01", "end_date": "2025-01-02"})
+        self.assertEqual(response.status_code, 400)
         self.get_client.assert_not_called()
 
 

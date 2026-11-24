@@ -126,9 +126,8 @@ Lookups are database-only; Go does not trigger ingestion.
 
 The database must already contain the underlying, its classified expiry dates, and historical five-minute underlying candles. Underlying ingestion is manual.
 
-The independent Python service can ingest full 45-DTE option history using
-`POST /options/fetch`, or a strike range atomically using `POST /option-chain/fetch`.
-The latter marks `option_expiry.option_chain_fetched` true after committing.
+The independent Python service ingests a strike range and its full 45-DTE
+option history atomically using `POST /option-chain/fetch`. It marks `option_expiry.option_chain_fetched` true after committing.
 Go only checks this flag: false or a missing expiry returns "option chain not available".
 Missing contracts and candles are not downloaded during backtesting.
 

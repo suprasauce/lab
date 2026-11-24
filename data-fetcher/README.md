@@ -1,8 +1,8 @@
 # Historical data ingestion service
 
 Independent Python 3.11+ service sharing the Go application's existing PostgreSQL
-`lab` schema. Three synchronous application endpoints provide full option history,
-underlying history, and a historical option chain. Apply migrations through
+`lab` schema. Two synchronous application endpoints provide underlying history and a historical
+option chain. Apply migrations through
 `scripts/migrations/009_drop_option_contract_synced.sql` before deploying this version.
 
 ## Install and start
@@ -35,59 +35,6 @@ its three Breeze fields are loaded. Credentials are never returned in responses.
 Get a session token through the [Breeze portal](https://api.icicidirect.com/apiuser/home)
 or the [SDK login flow](https://github.com/Idirect-Tech/Breeze-Python-SDK#api-usage).
 Restart the service after updating the token; automatic renewal is not implemented.
-
-## POST /options/fetch
-
-```json
-{
-  "underlying": "NIFTY",
-  "expiry": "2025-12-30",
-  "strike": 25000,
-  "option_type": "CALL"
-}
-```
-
-`strike` is in **rupees** at the HTTP boundary (`25000` becomes `2500000` paise).
-`option_type` is `CALL` or `PUT`. Dates use `YYYY-MM-DD`. Supported symbol mappings
-are NIFTY -> NIFTY and BANKNIFTY -> CNXBAN; the underlying must already exist in
-`lab.underlyings`. The matching `lab.option_expiry` row must also already exist,
-with its explicit MONTHLY/WEEKLY classification. The service does not guess it.
-
-PowerShell curl example:
-
-```powershell
-@'
-{"underlying":"NIFTY","expiry":"2025-12-30","strike":25000,"option_type":"CALL"}
-'@ | curl.exe -X POST http://127.0.0.1:8000/options/fetch -H "Content-Type: application/json" --data-binary "@-"
-```
-
-An existing contract returns HTTP 200 immediately, without
-authenticating with Breeze or fetching candles:
-
-```json
-{"status":"already_exists","contract_id":123,"fetched":0,"inserted":0}
-```
-
-For a missing contract, `MAX_DTE = 45` and `5minute` are fixed. The example fetches
-November 15 through December 30, 2025, inclusive (46 calendar dates). There are no
-DTE, timeframe, strike-range, or padding request fields. Unknown fields are rejected.
-
-All Breeze windows are fetched and validated before the write transaction opens.
-Then one transaction resolves or inserts the contract, inserts all candles in
-batches. Any insertion or commit failure prevents success and rolls back all
-new data. Unique constraints prevent duplicate
-contracts/candles; a concurrent winner is reused after its transaction commits.
-A new successful ingestion returns HTTP 200 only after commit:
-
-```json
-{"status":"ingested","contract_id":123,"fetched":3400,"inserted":3400}
-```
-
-Full synchronization with an expiry today or later is rejected because historical
-data is incomplete. Empty full histories fail without inserting a contract.
-Contract existence indicates completed ingestion now that day-only fetching is
-removed. Legacy partial contracts are preserved; use `/option-chain/fetch` to
-complete their expiry histories before relying on them.
 
 ## POST /underlyings/fetch
 
@@ -223,18 +170,14 @@ parameters, and candle windows and ingestion transactions are unchanged.
   commit requires a fresh fetch on retry; SQLite checkpoints and bulk generation
   have been removed.
 
-Go queries PostgreSQL first and calls `/options/fetch` only for missing contracts.
-Trading-symbol order fills query PostgreSQL first; a missing contract is resolved
-from the parsed symbol through the same full-history ingestion flow. The
-per-contract completion flag and day-only endpoint have been removed; the chain
-completion flag remains. Existing contracts and candles are not deleted by
-migration 009. Re-fetch chains containing old partial contracts before trusting
-contract existence as a full-history marker.
+Go reads PostgreSQL independently and never calls this service. Ingest the
+required data before running backtests. The option-chain completion flag remains;
+individual-contract and day-only ingestion endpoints are not exposed.
 
 ## Files and tests
 
-`main.py` contains HTTP/configuration; `ingestion.py` contains the three flows and
-candle conversion; `database.py` contains SQL; `breeze_client.py` owns SDK access
+`main.py` contains HTTP/configuration; `ingestion.py` contains underlying ingestion and
+shared candle conversion; `option_chain.py` contains chain ingestion; `database.py` contains SQL; `breeze_client.py` owns SDK access
 and pacing. There is no generic pipeline framework.
 
 ```powershell
@@ -242,7 +185,5 @@ and pacing. There is no generic pipeline framework.
 ```
 
 Tests use mocked Breeze and a transactional SQL double, including the actual
-persistence helper functions. They cover existing contracts, fetching before a
-transaction, rollback after a later insert fails, commit failure, duplicate/racing
-requests, overlapping ranges, paise/IST conversion, and fixed 45-DTE/5m behavior.
-No live Breeze session or PostgreSQL credentials are required by these tests.
+persistence helper functions. They cover chain ingestion, rollback, idempotency,
+underlying overlap, request validation, and removal of the individual-contract route.

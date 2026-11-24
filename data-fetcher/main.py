@@ -10,7 +10,7 @@ from dotenv import dotenv_values
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from ingestion import fetch_option, fetch_underlying
+from ingestion import fetch_underlying
 from option_chain import fetch_option_chain
 
 app = Flask(__name__, static_folder=None)
@@ -27,11 +27,6 @@ def request_fields(required):
     if not isinstance(body, dict) or set(body) != set(required):
         raise ValueError("Expected exactly these fields: " + ", ".join(required))
     return body
-
-
-@app.post("/options/fetch")
-def options_fetch():
-    return jsonify(fetch_option(**request_fields(("underlying", "expiry", "strike", "option_type"))))
 
 
 @app.post("/underlyings/fetch")
