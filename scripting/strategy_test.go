@@ -192,7 +192,7 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 	case strings.Contains(query, "FROM lab.underlying_candles") && strings.Contains(query, "ORDER BY start_time DESC"):
 		r.columns = []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}
 		at := args[1].Value.(time.Time)
-		r.values = [][]driver.Value{candleRow(at.Add(-5*time.Minute), 2253000)}
+		r.values = [][]driver.Value{candleRow(at.Add(-time.Minute), 2253000)}
 	case strings.Contains(query, "FROM lab.underlyings"):
 		if !strings.Contains(query, "WHERE symbol = $1") || len(args) != 1 {
 			f.t.Fatal("underlying lookup must filter by symbol")
@@ -218,8 +218,8 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 		var first []driver.Value
 		for _, expiry := range f.expiries {
 			for _, dte := range []int{45, 21} {
-				for slot := 0; slot < 75; slot++ {
-					at := expiry.AddDate(0, 0, -dte).Add(9*time.Hour + 15*time.Minute + time.Duration(slot)*5*time.Minute)
+				for slot := 0; slot < 375; slot++ {
+					at := expiry.AddDate(0, 0, -dte).Add(9*time.Hour + 15*time.Minute + time.Duration(slot)*time.Minute)
 					if at.Before(start) {
 						continue
 					}
@@ -246,7 +246,7 @@ func candleColumns() []string {
 	return []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}
 }
 func candleRow(t time.Time, price int64) []driver.Value {
-	return []driver.Value{t, "5m", price, price + 100, price - 100, price + 50, int64(0)}
+	return []driver.Value{t, "1m", price, price + 100, price - 100, price + 50, int64(0)}
 }
 
 type connector struct {

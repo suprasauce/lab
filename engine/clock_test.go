@@ -28,7 +28,7 @@ func TestDateRangeSimulationClock(t *testing.T) {
 				}
 				day, _ := time.ParseInLocation(time.DateOnly, dates[queries], marketLocation)
 				start := day.Add(9*time.Hour + 15*time.Minute)
-				if args[0].Value != int64(1) || args[1].Value != "5m" || !args[2].Value.(time.Time).Equal(start) {
+				if args[0].Value != int64(1) || args[1].Value != "1m" || !args[2].Value.(time.Time).Equal(start) {
 					t.Fatalf("unexpected session parameters: %+v", args)
 				}
 				queries++
@@ -37,7 +37,7 @@ func TestDateRangeSimulationClock(t *testing.T) {
 					// No session today; even a future candle must not activate it.
 					start = start.AddDate(0, 0, 1)
 				}
-				rows.values = []driver.Value{start, "5m", int64(100), int64(110), int64(90), int64(105), int64(0)}
+				rows.values = []driver.Value{start, "1m", int64(100), int64(110), int64(90), int64(105), int64(0)}
 				return rows, nil
 			}})
 			defer db.Close()
@@ -56,17 +56,17 @@ func TestDateRangeSimulationClock(t *testing.T) {
 			if sessions > 1 {
 				sessions--
 			}
-			if queries != len(dates) || len(ticks) != sessions*76 {
-				t.Fatalf("queries=%d ticks=%d; want %d sessions of 76 ticks", queries, len(ticks), sessions)
+			if queries != len(dates) || len(ticks) != sessions*376 {
+				t.Fatalf("queries=%d ticks=%d; want %d sessions of 376 ticks", queries, len(ticks), sessions)
 			}
 			for i, at := range ticks {
-				if i%76 == 0 && (at.Hour() != 9 || at.Minute() != 15) {
+				if i%376 == 0 && (at.Hour() != 9 || at.Minute() != 15) {
 					t.Fatalf("bad session start: %s", at)
 				}
-				if i%76 == 75 && (at.Hour() != 15 || at.Minute() != 30) {
+				if i%376 == 375 && (at.Hour() != 15 || at.Minute() != 30) {
 					t.Fatalf("bad session end: %s", at)
 				}
-				if i%76 != 0 && at.Sub(ticks[i-1]) != 5*time.Minute {
+				if i%376 != 0 && at.Sub(ticks[i-1]) != time.Minute {
 					t.Fatalf("clock skipped missing bars: %s", at)
 				}
 			}

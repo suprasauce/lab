@@ -157,8 +157,8 @@ const queryGetLatestCompletedUnderlyingCandle = `
  SELECT start_time, timeframe, open, high, low, close, volume
  FROM lab.underlying_candles
  WHERE underlying_id = $1
-   AND timeframe = '5m'
-   AND start_time <= $2::timestamptz - INTERVAL '5 minutes'
+   AND timeframe = '1m'
+   AND start_time <= $2::timestamptz - INTERVAL '1 minute'
  ORDER BY start_time DESC
  LIMIT 1;
 `
@@ -199,6 +199,6 @@ const queryGetOptionDeltaCandidates = `
  JOIN lab.option_candles AS oc ON oc.option_contract_id = c.id
  WHERE c.underlying_id = $1 AND e.underlying_id = $1
    AND e.expiry_date = $2::date AND c.option_type = $3
-   AND oc.timeframe = '5m' AND oc.start_time = $4
+   AND oc.timeframe = '1m' AND oc.start_time = $4
  ORDER BY c.strike_price ASC, c.id ASC;
 `

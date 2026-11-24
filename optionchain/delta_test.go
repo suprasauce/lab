@@ -28,7 +28,7 @@ func TestDeltaSelectionClosestCompletedCandidate(t *testing.T) {
 				service := NewOptionChainService(repo)
 				expiry := time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation)
 				at := time.Date(2026, 1, 5, 9, 35, 0, 0, marketLocation)
-				bar := at.Add(-5 * time.Minute)
+				bar := at.Add(-time.Minute)
 				years, _ := TimeToExpiry(at, expiry.Add(15*time.Hour+30*time.Minute))
 				optionType := "CE"
 				if kind == models.Put {
@@ -38,8 +38,8 @@ func TestDeltaSelectionClosestCompletedCandidate(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows([]string{"id", "option_chain_fetched"}).AddRow(9, true))
 				mock.ExpectQuery("FROM lab.underlyings").WithArgs("NIFTY").
 					WillReturnRows(sqlmock.NewRows([]string{"id", "symbol"}).AddRow(1, "NIFTY"))
-				mock.ExpectQuery("start_time <= .*INTERVAL '5 minutes'").WithArgs(int64(1), at).
-					WillReturnRows(sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}).AddRow(bar, "5m", 2400000, 2600000, 2300000, 2500000, 0))
+				mock.ExpectQuery("start_time <= .*INTERVAL '1 minute'").WithArgs(int64(1), at).
+					WillReturnRows(sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}).AddRow(bar, "1m", 2400000, 2600000, 2300000, 2500000, 0))
 				rows := sqlmock.NewRows([]string{"tradingsymbol", "strike_price", "close"})
 				want, best := "", math.Inf(1)
 				if scenario == "closest" {

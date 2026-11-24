@@ -28,8 +28,8 @@ func (s *OptionChainService) getSymbolByDelta(ctx context.Context, underlying st
 	if err != nil {
 		return "", fmt.Errorf("delta selection: fetch underlying candle: %w", err)
 	}
-	// Both close prices are observed at the end of this completed five-minute bar.
-	observedAt := candle.Timestamp.Add(5 * time.Minute)
+	// Both close prices are observed at the end of this completed one-minute bar.
+	observedAt := candle.Timestamp.Add(time.Minute)
 	expiresAt := time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 15, 30, 0, 0, marketLocation)
 	if !observedAt.Before(expiresAt) {
 		return "", nil

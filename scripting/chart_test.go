@@ -85,7 +85,7 @@ def initialize(ctx):
 
 def on_candle(ctx):
     value = chart.ema("NIFTY", 9, "5m")
-    if ctx.time == "09:15":
+    if ctx.time < "09:20":
         if value != None:
             fail("unfinished candle exposed")
     elif value != 100.0:

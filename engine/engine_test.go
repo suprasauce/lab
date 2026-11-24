@@ -24,17 +24,17 @@ func TestUnderlyingCandleRangeResultsAndErrors(t *testing.T) {
 			switch name {
 			case "candles":
 				for _, minute := range []int{15, 20} {
-					rows.records = append(rows.records, []driver.Value{start.Add(9*time.Hour + time.Duration(minute)*time.Minute), "5m", int64(100), int64(110), int64(90), int64(105), int64(0)})
+					rows.records = append(rows.records, []driver.Value{start.Add(9*time.Hour + time.Duration(minute)*time.Minute), "1m", int64(100), int64(110), int64(90), int64(105), int64(0)})
 				}
 			case "scan error":
-				rows.values = []driver.Value{start, "5m", "invalid price", int64(110), int64(90), int64(105), int64(0)}
+				rows.values = []driver.Value{start, "1m", "invalid price", int64(110), int64(90), int64(105), int64(0)}
 			case "iteration error":
 				rows.iterationErr = failure
 			}
 			db := sql.OpenDB(testConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return rows, nil }})
 			defer db.Close()
 			repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			candles, err := repo.GetUnderlyingCandles(context.Background(), 7, start, start.AddDate(0, 0, 1), models.Timeframe5m)
+			candles, err := repo.GetUnderlyingCandles(context.Background(), 7, start, start.AddDate(0, 0, 1), models.Timeframe1m)
 			switch name {
 			case "empty":
 				if err != nil || candles == nil || len(candles) != 0 {

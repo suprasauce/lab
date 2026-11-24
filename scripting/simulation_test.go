@@ -174,7 +174,7 @@ def initialize(ctx):
     ctx.configure()
     ctx.state["ticks"] = 0
     ctx.simulate(start_date="2026-08-15", end_date="2026-08-15")
-    if ctx.state["ticks"] != 75:
+    if ctx.state["ticks"] != 375:
         fail("expected one full session")
 
 def on_candle(ctx):

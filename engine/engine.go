@@ -20,7 +20,7 @@ var marketLocation = func() *time.Location {
 }()
 
 const tradingCalendarUnderlyingID int64 = 1
-const candleInterval = 5 * time.Minute
+const candleInterval = time.Minute
 const timeLayout = "15:04"
 
 // The fixed HH:mm literal is valid and parsed once with the default date.
@@ -84,7 +84,7 @@ func (e *Engine) simulateRange(ctx context.Context, startDate, endDate time.Time
 		end := day.Add(15*time.Hour + 30*time.Minute)
 		// Probe for session data without loading the day's candle slice. This
 		// candle is used only to establish that a session exists, never exposed.
-		first, err := e.marketDataRepository.GetUnderlyingCandle(ctx, tradingCalendarUnderlyingID, start, models.Timeframe5m)
+		first, err := e.marketDataRepository.GetUnderlyingCandle(ctx, tradingCalendarUnderlyingID, start, models.Timeframe1m)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}

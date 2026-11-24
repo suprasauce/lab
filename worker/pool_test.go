@@ -27,7 +27,7 @@ def initialize(ctx):
 def on_candle(ctx):
     if ctx.time == "09:15":
         ctx.state["entry"] = ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=-1)
-    if ctx.time == "09:20":
+    if ctx.time == "09:16":
         entry = ctx.order(ctx.state["entry"])
         if entry.status == "FILLED":
             ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=1)
@@ -79,24 +79,24 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 	for day := workerExpiry().AddDate(0, 0, -45); !day.After(workerExpiry()); day = day.AddDate(0, 0, 1) {
 		first := workerCandleRows()
 		if !day.After(session) {
-			first = workerCandleRows().AddRow(session.Add(9*time.Hour+15*time.Minute), "5m", 2253000, 2253000, 2253000, 2253000, 0)
+			first = workerCandleRows().AddRow(session.Add(9*time.Hour+15*time.Minute), "1m", 2253000, 2253000, 2253000, 2253000, 0)
 		}
-		mock.ExpectQuery("FROM lab.underlying_candles").WithArgs(int64(1), "5m", day.Add(9*time.Hour+15*time.Minute)).
+		mock.ExpectQuery("FROM lab.underlying_candles").WithArgs(int64(1), "1m", day.Add(9*time.Hour+15*time.Minute)).
 			WillReturnRows(first)
 		if !day.Equal(session) {
 			continue
 		}
-		for tick := 1; tick <= 75; tick++ {
-			start := session.Add(9*time.Hour + 15*time.Minute + time.Duration(tick-1)*5*time.Minute)
+		for tick := 1; tick <= 375; tick++ {
+			start := session.Add(9*time.Hour + 15*time.Minute + time.Duration(tick-1)*time.Minute)
 			if tick == 1 {
 				mock.ExpectQuery("FROM lab.option_contracts").WithArgs("NIFTY-20260127-22650-CE").
 					WillReturnRows(workerContractRows())
-				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "5m", start, start.Add(5*time.Minute-time.Microsecond)).
-					WillReturnRows(workerCandleRows().AddRow(start, "5m", 10000, 10000, 10000, 10000, 0))
+				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "1m", start, start.Add(time.Minute-time.Microsecond)).
+					WillReturnRows(workerCandleRows().AddRow(start, "1m", 10000, 10000, 10000, 10000, 0))
 			}
 			if tick == 2 {
-				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "5m", start, start).
-					WillReturnRows(workerCandleRows().AddRow(start, "5m", 8000, 8000, 8000, 8000, 0))
+				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "1m", start, start).
+					WillReturnRows(workerCandleRows().AddRow(start, "1m", 8000, 8000, 8000, 8000, 0))
 			}
 		}
 	}
@@ -119,7 +119,7 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 		t.Fatalf("incorrect fill count: %d", len(trades))
 	}
 	entry, exit := trades[0].(map[string]any), trades[1].(map[string]any)
-	if entry["id"] != "1/1" || entry["quantity"] != json.Number("-1") || entry["price"] != json.Number("100.00") || exit["price"] != json.Number("80.00") || exit["timestamp"] != "2026-01-05T09:20:00+05:30" {
+	if entry["id"] != "1/1" || entry["quantity"] != json.Number("-1") || entry["price"] != json.Number("100.00") || exit["price"] != json.Number("80.00") || exit["timestamp"] != "2026-01-05T09:16:00+05:30" {
 		t.Fatalf("incorrect fills: %v", trades)
 	}
 	positions := payload["positions"].([]any)

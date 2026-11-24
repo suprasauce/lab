@@ -53,7 +53,7 @@ func executionFixtureWithLotSize(t *testing.T, missing map[time.Time]bool, lotSi
 		if !args[3].Value.(time.Time).Before(execution.Time) {
 			t.Fatal("option lookup requests an unfinished candle")
 		}
-		for _, minute := range []int{15, 20, 25, 30} {
+		for _, minute := range []int{15, 16, 17, 18} {
 			at := marketTime(9, minute)
 			if at.Before(start) {
 				continue
@@ -61,8 +61,8 @@ func executionFixtureWithLotSize(t *testing.T, missing map[time.Time]bool, lotSi
 			if at.After(args[3].Value.(time.Time)) || missing[at] {
 				continue
 			}
-			price := int64(10000 - (minute-15)*100)
-			rows.records = append(rows.records, []driver.Value{at, "5m", price, int64(9999999), int64(1), int64(7777777), int64(0)})
+			price := int64(10000 - (minute-15)*500)
+			rows.records = append(rows.records, []driver.Value{at, "1m", price, int64(9999999), int64(1), int64(7777777), int64(0)})
 		}
 		return rows, nil
 	}})
@@ -73,7 +73,7 @@ func executionFixtureWithLotSize(t *testing.T, missing map[time.Time]bool, lotSi
 }
 
 func TestMarketOrderUsesPlacedAt(t *testing.T) {
-	for _, minute := range []int{15, 20, 25} {
+	for _, minute := range []int{15, 16, 17} {
 		t.Run(marketTime(9, minute).Format("15:04"), func(t *testing.T) {
 			e := executionFixture(t, nil)
 			if err := e.advance(marketTime(9, minute)); err != nil {
@@ -87,11 +87,11 @@ func TestMarketOrderUsesPlacedAt(t *testing.T) {
 			if len(e.Positions) != 0 || order.Contract != nil || order.Status != models.OrderPending || !order.PlacedAt.Equal(e.Time) {
 				t.Fatal("placement performed execution")
 			}
-			if err := e.advance(marketTime(9, minute+5)); err != nil {
+			if err := e.advance(marketTime(9, minute+1)); err != nil {
 				t.Fatal(err)
 			}
 			position := e.Positions[0]
-			if !e.Positions[0].Trades[0].Timestamp.Equal(marketTime(9, minute)) || position.AveragePrice != models.Price(10000-(minute-15)*100) || order.Status != models.OrderFilled || !order.FilledAt.Equal(e.Positions[0].Trades[0].Timestamp) {
+			if !e.Positions[0].Trades[0].Timestamp.Equal(marketTime(9, minute)) || position.AveragePrice != models.Price(10000-(minute-15)*500) || order.Status != models.OrderFilled || !order.FilledAt.Equal(e.Positions[0].Trades[0].Timestamp) {
 				t.Fatalf("incorrect fill: %+v", order)
 			}
 			if err := e.fillOrders(); err != nil {
@@ -116,13 +116,13 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
+	if err := e.advance(marketTime(9, 16)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 25)); err != nil {
+	if err := e.advance(marketTime(9, 17)); err != nil {
 		t.Fatal(err)
 	}
-	if !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 20)) {
+	if !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 16)) {
 		t.Fatal("wrong completed candle")
 	}
 	exitID, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 1)
@@ -132,15 +132,15 @@ func TestPositionFullExitUsesLoadedCandle(t *testing.T) {
 	if e.Positions[0].Quantity == 0 {
 		t.Fatal("exit executed during placement")
 	}
-	if err := e.advance(marketTime(9, 30)); err != nil {
+	if err := e.advance(marketTime(9, 18)); err != nil {
 		t.Fatal(err)
 	}
 	position := e.Positions[0]
 	exit, _ := e.Order(exitID)
-	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 25)) || e.Positions[0].Trades[1].Price != 9000 || (e.Positions[0].Trades[1].Price-e.Positions[0].Trades[0].Price)*models.Price(e.Positions[0].Trades[0].Quantity)*75 != 75000 || exit.Status != models.OrderFilled {
+	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 17)) || e.Positions[0].Trades[1].Price != 9000 || (e.Positions[0].Trades[1].Price-e.Positions[0].Trades[0].Price)*models.Price(e.Positions[0].Trades[0].Quantity)*75 != 75000 || exit.Status != models.OrderFilled {
 		t.Fatalf("wrong exit: %+v", position)
 	}
-	if err := e.advance(marketTime(9, 35)); err != nil {
+	if err := e.advance(marketTime(9, 19)); err != nil {
 		t.Fatal(err)
 	}
 	if len(e.Positions) != 1 {
@@ -167,7 +167,7 @@ func TestEveryPlacementCreatesAnIndependentOrder(t *testing.T) {
 }
 
 func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
-	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true})
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 16): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
+	if err := e.advance(marketTime(9, 16)); err != nil {
 		t.Fatal(err)
 	}
 	order, _ := e.Order(id)
@@ -183,17 +183,17 @@ func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
 	if selected == nil || selected.StrikePrice != 2260000 || order.Status != models.OrderPending || len(e.Positions) != 0 {
 		t.Fatal("did not retain pending contract")
 	}
-	if err := e.advance(marketTime(9, 25)); err != nil {
+	if err := e.advance(marketTime(9, 17)); err != nil {
 		t.Fatal(err)
 	}
 	if order.Contract != selected || order.Status != models.OrderPending || len(e.Positions) != 0 {
-		t.Fatal("changed contract or filled using the unfinished 09:25 candle")
+		t.Fatal("changed contract or filled using the unfinished 09:17 candle")
 	}
-	if err := e.advance(marketTime(9, 30)); err != nil {
+	if err := e.advance(marketTime(9, 18)); err != nil {
 		t.Fatal(err)
 	}
-	if order.Contract != selected || order.Status != models.OrderFilled || !order.FilledAt.Equal(marketTime(9, 25)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
-		t.Fatal("order did not fill using the completed 09:25 candle at 09:30")
+	if order.Contract != selected || order.Status != models.OrderFilled || !order.FilledAt.Equal(marketTime(9, 17)) || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 17)) {
+		t.Fatal("order did not fill using the completed 09:17 candle at 09:18")
 	}
 	if err := e.fillOrders(); err != nil {
 		t.Fatal(err)
@@ -204,39 +204,39 @@ func TestMissingOptionBarRetainsResolvedContract(t *testing.T) {
 }
 
 func TestAdvanceClearsSnapshotsAndContinuesOnMissingCompletedCandles(t *testing.T) {
-	e := executionFixture(t, map[time.Time]bool{marketTime(9, 20): true})
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 16): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
+	if err := e.advance(marketTime(9, 16)); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 25)); err != nil {
+	if err := e.advance(marketTime(9, 17)); err != nil {
 		t.Fatal(err)
 	}
 	if e.Positions[0].Candle != nil || e.Positions[0].Quantity == 0 {
 		t.Fatal("stale snapshot or changed position")
 	}
-	if err := e.advance(marketTime(9, 30)); err != nil {
+	if err := e.advance(marketTime(9, 18)); err != nil {
 		t.Fatal(err)
 	}
-	if e.Positions[0].Candle == nil || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 25)) {
+	if e.Positions[0].Candle == nil || !e.Positions[0].Candle.Timestamp.Equal(marketTime(9, 17)) {
 		t.Fatal("subsequent completed candle was not loaded")
 	}
 }
 
 func TestMissingOptionCandleDefersExit(t *testing.T) {
-	e := executionFixture(t, map[time.Time]bool{marketTime(9, 20): true})
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 16): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
+	if err := e.advance(marketTime(9, 16)); err != nil {
 		t.Fatal(err)
 	}
 	position := e.Positions[0]
@@ -244,17 +244,17 @@ func TestMissingOptionCandleDefersExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 25)); err != nil {
+	if err := e.advance(marketTime(9, 17)); err != nil {
 		t.Fatal(err)
 	}
 	order, _ := e.Order(id)
 	if position.Candle != nil || position.Quantity == 0 || order.Status != models.OrderPending || len(e.Positions[0].Trades) != 1 {
 		t.Fatal("missing candle used a stale snapshot or filled the exit")
 	}
-	if err := e.advance(marketTime(9, 30)); err != nil {
+	if err := e.advance(marketTime(9, 18)); err != nil {
 		t.Fatal(err)
 	}
-	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 25)) || e.Positions[0].Trades[1].Price != 9000 || order.Status != models.OrderFilled {
+	if position.Quantity != 0 || !e.Positions[0].Trades[1].Timestamp.Equal(marketTime(9, 17)) || e.Positions[0].Trades[1].Price != 9000 || order.Status != models.OrderFilled {
 		t.Fatal("exit did not fill with the next available completed candle")
 	}
 	if err := e.fillOrders(); err != nil || len(e.Positions) != 1 {
@@ -269,7 +269,7 @@ func TestAdvancePropagatesCandleQueryFailure(t *testing.T) {
 	repo := repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e := newExecution(context.Background(), repo, "1")
 	e.Positions = []*models.Position{{TradingSymbol: "NIFTY-20260127-22600-CE", Quantity: -1}}
-	if err := e.advance(marketTime(9, 20)); !errors.Is(err, failure) {
+	if err := e.advance(marketTime(9, 16)); !errors.Is(err, failure) {
 		t.Fatalf("database failure was not propagated: %v", err)
 	}
 }
@@ -290,7 +290,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if _, err := e.PlaceOrder(tradingSymbol, entryQuantity); err != nil {
 					t.Fatal(err)
 				}
-				if err := e.advance(marketTime(9, 20)); err != nil {
+				if err := e.advance(marketTime(9, 16)); err != nil {
 					t.Fatal(err)
 				}
 				position := e.Positions[0]
@@ -303,7 +303,7 @@ func TestOptionTypesAndPositionSides(t *testing.T) {
 				if _, err := e.PlaceOrder(tradingSymbol, exitQuantity); err != nil {
 					t.Fatal(err)
 				}
-				if err := e.advance(marketTime(9, 25)); err != nil {
+				if err := e.advance(marketTime(9, 17)); err != nil {
 					t.Fatal(err)
 				}
 				want := models.Price(37500)
@@ -327,13 +327,13 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 			t.Fatal(err)
 		}
-		if err := e.advance(marketTime(9, 20)); err != nil {
+		if err := e.advance(marketTime(9, 16)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", quantity); err != nil {
 			t.Fatal("placement should only queue", err)
 		}
-		if err := e.advance(marketTime(9, 25)); err == nil {
+		if err := e.advance(marketTime(9, 17)); err == nil {
 			t.Fatal("unsupported position change executed")
 		}
 		if e.Positions[0].Quantity == 0 || e.Positions[0].Quantity != -1 {
@@ -343,7 +343,7 @@ func TestUnsupportedPositionChangesFailAtExecution(t *testing.T) {
 }
 
 func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
-	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 20): true})
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 16): true})
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.advance(marketTime(9, 20)); err != nil {
+	if err := e.advance(marketTime(9, 16)); err != nil {
 		t.Fatal(err)
 	}
 	entry, _ := e.Order(entryID)
@@ -366,16 +366,16 @@ func TestPendingOrdersForSameContractAreAttemptedIndependently(t *testing.T) {
 	if entry.Contract == nil || exit.Contract == nil {
 		t.Fatal("both orders must resolve their contracts independently even when the earlier order is pending")
 	}
-	if err := e.advance(marketTime(9, 25)); err != nil {
+	if err := e.advance(marketTime(9, 17)); err != nil {
 		t.Fatal(err)
 	}
 	if entry.Status != models.OrderPending || exit.Status != models.OrderPending || len(e.Positions) != 0 {
-		t.Fatal("orders must wait until the 09:25 candle completes")
+		t.Fatal("orders must wait until the 09:17 candle completes")
 	}
-	if err := e.advance(marketTime(9, 30)); err != nil {
+	if err := e.advance(marketTime(9, 18)); err != nil {
 		t.Fatal(err)
 	}
-	if exit.Status != models.OrderFilled || e.Positions[0].Quantity != 0 || !entry.FilledAt.Equal(marketTime(9, 25)) || !exit.FilledAt.Equal(marketTime(9, 25)) {
+	if exit.Status != models.OrderFilled || e.Positions[0].Quantity != 0 || !entry.FilledAt.Equal(marketTime(9, 17)) || !exit.FilledAt.Equal(marketTime(9, 17)) {
 		t.Fatal("incorrect full exit after delayed entry")
 	}
 }
@@ -385,7 +385,7 @@ func TestFillLedgerAndReopenedPosition(t *testing.T) {
 	symbol := "NIFTY-20260127-22600-CE"
 	quantities := []int64{-1, 1, 1, -1}
 	for i, quantity := range quantities {
-		at := marketTime(9, 15+i*5)
+		at := marketTime(9, 15+i)
 		if i == 0 {
 			if err := e.advance(at); err != nil {
 				t.Fatal(err)
@@ -397,7 +397,7 @@ func TestFillLedgerAndReopenedPosition(t *testing.T) {
 		if i > 0 && len(e.Positions[0].Trades) != i {
 			t.Fatal("queued order created a trade")
 		}
-		if err := e.advance(at.Add(5 * time.Minute)); err != nil {
+		if err := e.advance(at.Add(time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 		if len(e.Positions[0].Trades) != i+1 {
@@ -448,7 +448,7 @@ func TestTradeIdentityAcrossSimulations(t *testing.T) {
 		if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", -1); err != nil {
 			t.Fatal(err)
 		}
-		if err := e.advance(marketTime(9, 20)); err != nil {
+		if err := e.advance(marketTime(9, 16)); err != nil {
 			t.Fatal(err)
 		}
 		position := e.Positions[0]
@@ -472,7 +472,7 @@ func TestExpiryLotSizeMultiplier(t *testing.T) {
 				if _, err := e.PlaceOrder(symbol, lots); err != nil {
 					t.Fatal(err)
 				}
-				if err := e.advance(marketTime(9, 20)); err != nil {
+				if err := e.advance(marketTime(9, 16)); err != nil {
 					t.Fatal(err)
 				}
 				position := e.Positions[0]
@@ -482,7 +482,7 @@ func TestExpiryLotSizeMultiplier(t *testing.T) {
 				if _, err := e.PlaceOrder(symbol, -lots); err != nil {
 					t.Fatal(err)
 				}
-				if err := e.advance(marketTime(9, 25)); err != nil {
+				if err := e.advance(marketTime(9, 17)); err != nil {
 					t.Fatal(err)
 				}
 				want := models.Price(-500 * lots * lotSize)
@@ -497,7 +497,7 @@ func TestExpiryLotSizeMultiplier(t *testing.T) {
 func TestPositionTotalPnLHistorySkipsMissingCandles(t *testing.T) {
 	for _, lots := range []int64{-2, 2} {
 		t.Run(fmt.Sprint(lots), func(t *testing.T) {
-			e := executionFixtureWithLotSize(t, map[time.Time]bool{marketTime(9, 20): true}, 65)
+			e := executionFixtureWithLotSize(t, map[time.Time]bool{marketTime(9, 16): true}, 65)
 			symbol := "NIFTY-20260127-22600-CE"
 			if err := e.advance(marketTime(9, 15)); err != nil {
 				t.Fatal(err)
@@ -505,36 +505,36 @@ func TestPositionTotalPnLHistorySkipsMissingCandles(t *testing.T) {
 			if _, err := e.PlaceOrder(symbol, lots); err != nil {
 				t.Fatal(err)
 			}
-			if err := e.advance(marketTime(9, 20)); err != nil {
+			if err := e.advance(marketTime(9, 16)); err != nil {
 				t.Fatal(err)
 			}
 			position := e.Positions[0]
 			want := (models.Price(7777777) - 10000) * models.Price(lots) * 65
-			if len(position.TotalPnL) != 1 || position.TotalPnL[0].PnL != want || !position.TotalPnL[0].Timestamp.Equal(marketTime(9, 20)) {
+			if len(position.TotalPnL) != 1 || position.TotalPnL[0].PnL != want || !position.TotalPnL[0].Timestamp.Equal(marketTime(9, 16)) {
 				t.Fatalf("incorrect completed-candle UnrealizedPnL: %+v", position.TotalPnL)
 			}
-			if err := e.advance(marketTime(9, 25)); err != nil {
+			if err := e.advance(marketTime(9, 17)); err != nil {
 				t.Fatal(err)
 			}
 			if len(position.TotalPnL) != 1 || position.Candle != nil {
 				t.Fatal("missing candle appended UnrealizedPnL or reused stale data")
 			}
-			if err := e.advance(marketTime(9, 30)); err != nil {
+			if err := e.advance(marketTime(9, 18)); err != nil {
 				t.Fatal(err)
 			}
-			if len(position.TotalPnL) != 2 || !position.TotalPnL[1].Timestamp.Equal(marketTime(9, 30)) {
+			if len(position.TotalPnL) != 2 || !position.TotalPnL[1].Timestamp.Equal(marketTime(9, 18)) {
 				t.Fatal("UnrealizedPnL did not resume after missing candle")
 			}
 			if _, err := e.PlaceOrder(symbol, -lots); err != nil {
 				t.Fatal(err)
 			}
-			if err := e.advance(marketTime(9, 35)); err != nil {
+			if err := e.advance(marketTime(9, 19)); err != nil {
 				t.Fatal(err)
 			}
 			if position.Quantity != 0 || position.UnrealizedPnL != 0 || len(position.TotalPnL) != 3 || position.TotalPnL[2].PnL != position.RealizedPnL {
 				t.Fatal("closed position must record realized P&L and reset unrealized P&L")
 			}
-			if err := e.advance(marketTime(9, 40)); err != nil {
+			if err := e.advance(marketTime(9, 20)); err != nil {
 				t.Fatal(err)
 			}
 			if len(position.TotalPnL) != 4 || position.TotalPnL[3].PnL != position.RealizedPnL {
@@ -556,7 +556,7 @@ func TestMissingContractLeavesOrderPending(t *testing.T) {
 	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 1); err != nil {
 		t.Fatal(err)
 	}
-	for _, minute := range []int{20, 25} {
+	for _, minute := range []int{16, 17} {
 		if err := e.advance(marketTime(9, minute)); err != nil {
 			t.Fatal(err)
 		}

@@ -168,7 +168,7 @@ func (r *Repository) GetUnderlyingCandle(
 	return candle, nil
 }
 
-// GetLatestCompletedUnderlyingCandle returns the latest five-minute bar whose
+// GetLatestCompletedUnderlyingCandle returns the latest one-minute bar whose
 // close time is at or before at. It never returns an unfinished candle.
 func (r *Repository) GetLatestCompletedUnderlyingCandle(ctx context.Context, underlyingID int64, at time.Time) (models.Candle, error) {
 	r.logger.DebugContext(ctx, "fetching latest completed underlying candle", "underlying_id", underlyingID, "at", at)

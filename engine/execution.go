@@ -103,7 +103,7 @@ func (e *Execution) loadCompletedCandles() error {
 		if err != nil {
 			return fmt.Errorf("position contract: %w", err)
 		}
-		candles, err := e.repo.GetOptionCandles(e.ctx, contract.ID, start, start, models.Timeframe5m)
+		candles, err := e.repo.GetOptionCandles(e.ctx, contract.ID, start, start, models.Timeframe1m)
 		if err != nil {
 			return fmt.Errorf("completed option candle for contract %d: %w", contract.ID, err)
 		}
@@ -167,7 +167,7 @@ func (e *Execution) fillOrder(order *Order) error {
 		start := e.Time.Add(-candleInterval)
 		// Query only the current completed window [start, e.Time). The repository
 		// uses an inclusive end; PostgreSQL timestamps have microsecond precision.
-		candles, err := e.repo.GetOptionCandles(e.ctx, order.Contract.ID, start, e.Time.Add(-time.Microsecond), models.Timeframe5m)
+		candles, err := e.repo.GetOptionCandles(e.ctx, order.Contract.ID, start, e.Time.Add(-time.Microsecond), models.Timeframe1m)
 		if err != nil {
 			return fmt.Errorf("order fill candle: %w", err)
 		}
