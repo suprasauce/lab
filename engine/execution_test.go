@@ -545,7 +545,7 @@ func TestPositionTotalPnLHistorySkipsMissingCandles(t *testing.T) {
 	}
 }
 
-func TestMissingContractLeavesOrderPending(t *testing.T) {
+func TestMissingContractReturnsError(t *testing.T) {
 	e := executionFixture(t, nil)
 	if err := e.advance(marketTime(9, 15)); err != nil {
 		t.Fatal(err)
@@ -553,15 +553,11 @@ func TestMissingContractLeavesOrderPending(t *testing.T) {
 	if _, err := e.PlaceOrder("NIFTY-20260127-99999-CE", 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.PlaceOrder("NIFTY-20260127-22600-CE", 1); err != nil {
-		t.Fatal(err)
+	err := e.advance(marketTime(9, 16))
+	if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), "NIFTY-20260127-99999-CE") {
+		t.Fatalf("expected missing symbol error, got: %v", err)
 	}
-	for _, minute := range []int{16, 17} {
-		if err := e.advance(marketTime(9, minute)); err != nil {
-			t.Fatal(err)
-		}
-		if e.Orders[0].Status != models.OrderPending || e.Orders[1].Status != models.OrderFilled || len(e.Positions) != 1 || len(e.Positions[0].Trades) != 1 {
-			t.Fatal("missing contract blocked another order or created a duplicate fill")
-		}
+	if e.Orders[0].Status != models.OrderPending || len(e.Positions) != 0 {
+		t.Fatal("missing contract created a fill or position")
 	}
 }

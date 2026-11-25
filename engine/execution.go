@@ -2,8 +2,6 @@ package engine
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -131,11 +129,8 @@ func (e *Execution) fillOrders() error {
 func (e *Execution) fillOrder(order *Order) error {
 	if order.Contract == nil {
 		contract, err := e.resolveContract(order.TradingSymbol)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
 		if err != nil {
-			return fmt.Errorf("resolve option contract: %w", err)
+			return fmt.Errorf("resolve option contract for trading symbol %q: %w", order.TradingSymbol, err)
 		}
 		order.Contract = contract
 	}
