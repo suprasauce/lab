@@ -14,7 +14,7 @@ const (
 )
 
 // Order retains the trading symbol, signed quantity, and execution details.
-// Quantity is signed lots: positive buys; negative sells.
+// Quantity is signed lots for options and units for underlyings: positive buys; negative sells.
 type Order struct {
 	TradingSymbol string
 	ID            string
@@ -22,6 +22,7 @@ type Order struct {
 	PlacedAt      time.Time
 	Status        OrderStatus
 	Contract      *Option
+	Underlying    *Underlying
 	FilledAt      time.Time
 	FillPrice     Price
 }

@@ -29,6 +29,13 @@ func executionFixtureWithLotSize(t *testing.T, missing map[time.Time]bool, lotSi
 	t.Helper()
 	var execution *Execution
 	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+		if strings.Contains(query, "FROM lab.underlyings") {
+			rows := &testRows{columns: []string{"id", "symbol"}}
+			if args[0].Value == "NIFTY" {
+				rows.values = []driver.Value{int64(7), "NIFTY"}
+			}
+			return rows, nil
+		}
 		if strings.Contains(query, "FROM lab.option_contracts") {
 			if !strings.Contains(query, "c.tradingsymbol = $1") || len(args) != 1 {
 				t.Fatalf("unexpected contract lookup: %s", query)
@@ -47,10 +54,15 @@ func executionFixtureWithLotSize(t *testing.T, missing map[time.Time]bool, lotSi
 		}
 		rows := &testRows{columns: []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}}
 		start := args[2].Value.(time.Time)
-		if !strings.Contains(query, "FROM lab.option_candles") {
+		underlying := strings.Contains(query, "FROM lab.underlying_candles")
+		if !underlying && !strings.Contains(query, "FROM lab.option_candles") {
 			t.Fatalf("unexpected query: %s", query)
 		}
-		if !args[3].Value.(time.Time).Before(execution.Time) {
+		if args[1].Value != "1m" {
+			t.Fatal("expected one-minute candles")
+		}
+		end := args[3].Value.(time.Time)
+		if end.After(execution.Time) || !underlying && end.Equal(execution.Time) {
 			t.Fatal("option lookup requests an unfinished candle")
 		}
 		for _, minute := range []int{15, 16, 17, 18} {
@@ -58,7 +70,7 @@ func executionFixtureWithLotSize(t *testing.T, missing map[time.Time]bool, lotSi
 			if at.Before(start) {
 				continue
 			}
-			if at.After(args[3].Value.(time.Time)) || missing[at] {
+			if at.After(end) || underlying && at.Equal(end) || missing[at] {
 				continue
 			}
 			price := int64(10000 - (minute-15)*500)
@@ -559,5 +571,128 @@ func TestMissingContractReturnsError(t *testing.T) {
 	}
 	if e.Orders[0].Status != models.OrderPending || len(e.Positions) != 0 {
 		t.Fatal("missing contract created a fill or position")
+	}
+}
+
+func TestUnderlyingOrdersUseUnitsAndPreserveFillTiming(t *testing.T) {
+	for _, quantity := range []int64{-2, 2} {
+		t.Run(fmt.Sprint(quantity), func(t *testing.T) {
+			e := executionFixture(t, nil)
+			if err := e.advance(marketTime(9, 15)); err != nil {
+				t.Fatal(err)
+			}
+			id, err := e.PlaceOrder("NIFTY", quantity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			order, _ := e.Order(id)
+			if order.Status != models.OrderPending || order.Underlying != nil || len(e.Positions) != 0 {
+				t.Fatal("placement resolved or filled the underlying")
+			}
+			if err := e.advance(marketTime(9, 16)); err != nil {
+				t.Fatal(err)
+			}
+			position := e.Positions[0]
+			if order.Contract != nil || order.Underlying == nil || order.Underlying.ID != 7 || order.Status != models.OrderFilled || !order.FilledAt.Equal(marketTime(9, 15)) || position.AveragePrice != 10000 || position.Quantity != quantity {
+				t.Fatalf("incorrect underlying fill: %+v", order)
+			}
+			if position.UnrealizedPnL != (7777777-10000)*models.Price(quantity) {
+				t.Fatal("underlying P&L must use units, without a lot multiplier")
+			}
+			if _, err := e.PlaceOrder("NIFTY", -quantity); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.advance(marketTime(9, 17)); err != nil {
+				t.Fatal(err)
+			}
+			if position.Quantity != 0 || position.RealizedPnL != -500*models.Price(quantity) || position.UnrealizedPnL != 0 || position.Trades[1].Price != 9500 || !position.Trades[1].Timestamp.Equal(marketTime(9, 16)) {
+				t.Fatalf("incorrect underlying exit: %+v", position)
+			}
+			if err := e.fillOrders(); err != nil || len(position.Trades) != 2 {
+				t.Fatal("duplicate fill", err)
+			}
+		})
+	}
+}
+
+func TestMissingUnderlyingCandlesKeepOrdersPending(t *testing.T) {
+	e := executionFixture(t, map[time.Time]bool{marketTime(9, 15): true, marketTime(9, 17): true})
+	e.Time = marketTime(9, 15)
+	if _, err := e.PlaceOrder("NIFTY", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 16)); err != nil {
+		t.Fatal(err)
+	}
+	resolved := e.Orders[0].Underlying
+	if resolved == nil || e.Orders[0].Status != models.OrderPending || len(e.Positions) != 0 {
+		t.Fatal("missing underlying candle filled an order")
+	}
+	if err := e.advance(marketTime(9, 17)); err != nil {
+		t.Fatal(err)
+	}
+	if e.Orders[0].Underlying != resolved || !e.Orders[0].FilledAt.Equal(marketTime(9, 16)) {
+		t.Fatal("pending underlying was reselected or filled at the wrong time")
+	}
+	if _, err := e.PlaceOrder("NIFTY", -1); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 18)); err != nil {
+		t.Fatal(err)
+	}
+	if e.Orders[1].Status != models.OrderPending || e.Positions[0].Candle != nil {
+		t.Fatal("missing candle did not defer the exit")
+	}
+	if err := e.advance(marketTime(9, 19)); err != nil {
+		t.Fatal(err)
+	}
+	if e.Orders[1].Status != models.OrderFilled || !e.Orders[1].FilledAt.Equal(marketTime(9, 18)) || len(e.Positions[0].Trades) != 2 {
+		t.Fatal("delayed underlying exit did not fill correctly")
+	}
+}
+
+func TestUnderlyingAndOptionPositionsInSameSimulation(t *testing.T) {
+	e := executionFixture(t, nil)
+	e.Time = marketTime(9, 15)
+	for _, symbol := range []string{"NIFTY", "NIFTY-20260127-22600-CE"} {
+		if _, err := e.PlaceOrder(symbol, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.advance(marketTime(9, 16)); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Positions) != 2 || e.Positions[1].UnrealizedPnL != e.Positions[0].UnrealizedPnL*75 {
+		t.Fatal("underlying and option P&L multipliers were mixed")
+	}
+	for _, symbol := range []string{"NIFTY", "NIFTY-20260127-22600-CE"} {
+		if _, err := e.PlaceOrder(symbol, -1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.advance(marketTime(9, 17)); err != nil {
+		t.Fatal(err)
+	}
+	if e.Positions[0].RealizedPnL != -500 || e.Positions[1].RealizedPnL != -37500 {
+		t.Fatal("mixed-instrument exits used incorrect P&L multipliers")
+	}
+}
+
+func TestUnderlyingLookupFailureDoesNotFallBackToOptions(t *testing.T) {
+	failure := errors.New("underlying lookup failed")
+	db := sql.OpenDB(testConnector{query: func(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+		if !strings.Contains(query, "FROM lab.underlyings") {
+			t.Fatalf("unexpected fallback: %s", query)
+		}
+		return nil, failure
+	}})
+	defer db.Close()
+	e := newExecution(context.Background(), repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil))), "1")
+	e.Time = marketTime(9, 15)
+	if _, err := e.PlaceOrder("NIFTY", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.advance(marketTime(9, 16)); !errors.Is(err, failure) {
+		t.Fatalf("expected database error, got %v", err)
 	}
 }

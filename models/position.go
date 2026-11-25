@@ -31,7 +31,8 @@ func (point PnLPoint) MarshalJSON() ([]byte, error) {
 }
 
 // Position is reused when the same symbol is reopened within a simulation.
-// RealizedPnL accumulates across closes; quantity is signed lots, with zero closed.
+// RealizedPnL accumulates across closes; quantity is signed lots for options or units
+// for underlyings, with zero closed.
 type Position struct {
 	SimulationID  string
 	TradingSymbol string

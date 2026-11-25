@@ -6,3 +6,10 @@ import "optionsbacktest/models"
 type Order struct {
 	models.Order
 }
+
+func (o *Order) multiplier() models.Price {
+	if o.Contract != nil {
+		return models.Price(o.Contract.LotSize)
+	}
+	return 1
+}

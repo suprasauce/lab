@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -77,11 +79,11 @@ func (e *Execution) advance(at time.Time) error {
 			if position.Candle == nil {
 				continue
 			}
-			contract, err := e.resolveContract(position.TradingSymbol)
+			instrument, err := e.resolveInstrument(position.TradingSymbol)
 			if err != nil {
-				return fmt.Errorf("position P&L contract: %w", err)
+				return fmt.Errorf("position P&L instrument: %w", err)
 			}
-			position.UnrealizedPnL = (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * models.Price(contract.LotSize)
+			position.UnrealizedPnL = (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * instrument.multiplier()
 		}
 		position.TotalPnL = append(position.TotalPnL, models.PnLPoint{Timestamp: e.Time, PnL: position.RealizedPnL + position.UnrealizedPnL})
 	}
@@ -97,13 +99,13 @@ func (e *Execution) loadCompletedCandles() error {
 		if position.Quantity == 0 {
 			continue
 		}
-		contract, err := e.resolveContract(position.TradingSymbol)
+		instrument, err := e.resolveInstrument(position.TradingSymbol)
 		if err != nil {
-			return fmt.Errorf("position contract: %w", err)
+			return fmt.Errorf("position instrument: %w", err)
 		}
-		candles, err := e.repo.GetOptionCandles(e.ctx, contract.ID, start, start, models.Timeframe1m)
+		candles, err := e.instrumentCandles(instrument, start, start.Add(time.Microsecond))
 		if err != nil {
-			return fmt.Errorf("completed option candle for contract %d: %w", contract.ID, err)
+			return fmt.Errorf("completed candle for %q: %w", position.TradingSymbol, err)
 		}
 		if len(candles) == 0 {
 			continue
@@ -127,12 +129,12 @@ func (e *Execution) fillOrders() error {
 // fillOrder leaves orders pending when required candles are unavailable so a
 // subsequent advance can fill them. Selected contracts are retained while waiting.
 func (e *Execution) fillOrder(order *Order) error {
-	if order.Contract == nil {
-		contract, err := e.resolveContract(order.TradingSymbol)
+	if order.Contract == nil && order.Underlying == nil {
+		instrument, err := e.resolveInstrument(order.TradingSymbol)
 		if err != nil {
-			return fmt.Errorf("resolve option contract for trading symbol %q: %w", order.TradingSymbol, err)
+			return fmt.Errorf("resolve instrument for trading symbol %q: %w", order.TradingSymbol, err)
 		}
-		order.Contract = contract
+		order.Contract, order.Underlying = instrument.Contract, instrument.Underlying
 	}
 
 	var position *models.Position
@@ -155,14 +157,13 @@ func (e *Execution) fillOrder(order *Order) error {
 			return nil
 		}
 		fill = *position.Candle
-		position.RealizedPnL += (fill.Open - position.AveragePrice) * models.Price(position.Quantity) * models.Price(order.Contract.LotSize)
+		position.RealizedPnL += (fill.Open - position.AveragePrice) * models.Price(position.Quantity) * order.multiplier()
 		position.Quantity = 0
 		position.Candle = nil
 	} else {
 		start := e.Time.Add(-candleInterval)
-		// Query only the current completed window [start, e.Time). The repository
-		// uses an inclusive end; PostgreSQL timestamps have microsecond precision.
-		candles, err := e.repo.GetOptionCandles(e.ctx, order.Contract.ID, start, e.Time.Add(-time.Microsecond), models.Timeframe1m)
+		// Query only the current completed window [start, e.Time).
+		candles, err := e.instrumentCandles(order, start, e.Time)
 		if err != nil {
 			return fmt.Errorf("order fill candle: %w", err)
 		}
@@ -186,15 +187,33 @@ func (e *Execution) fillOrder(order *Order) error {
 }
 
 // Reuse metadata already resolved for an order; positions only retain the symbol.
-func (e *Execution) resolveContract(tradingSymbol string) (*models.Option, error) {
+func (e *Execution) resolveInstrument(tradingSymbol string) (*Order, error) {
 	for _, order := range e.Orders {
-		if order.TradingSymbol == tradingSymbol && order.Contract != nil {
-			return order.Contract, nil
+		if order.TradingSymbol == tradingSymbol && (order.Contract != nil || order.Underlying != nil) {
+			return order, nil
 		}
+	}
+	instrument := &Order{Order: models.Order{TradingSymbol: tradingSymbol}}
+	underlying, err := e.repo.GetUnderlying(e.ctx, tradingSymbol)
+	if err == nil {
+		instrument.Underlying = &underlying
+		return instrument, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
 	}
 	contract, err := e.repo.GetOptionContractByTradingSymbol(e.ctx, tradingSymbol)
 	if err != nil {
 		return nil, err
 	}
-	return &contract, nil
+	instrument.Contract = &contract
+	return instrument, nil
+}
+
+// instrumentCandles uses an exclusive end for both instrument kinds.
+func (e *Execution) instrumentCandles(instrument *Order, start, end time.Time) ([]models.Candle, error) {
+	if instrument.Underlying != nil {
+		return e.repo.GetUnderlyingCandles(e.ctx, instrument.Underlying.ID, start, end, models.Timeframe1m)
+	}
+	return e.repo.GetOptionCandles(e.ctx, instrument.Contract.ID, start, end.Add(-time.Microsecond), models.Timeframe1m)
 }
