@@ -16,9 +16,13 @@ type emaMetadata struct {
 
 var marketLocation = time.FixedZone("Asia/Kolkata", 19800)
 
-// EMA aggregates cached 1-minute history into completed session-aligned 5-minute closes.
+// EMA aggregates cached 1-minute history into completed session-aligned timeframe closes.
 // The first completed close seeds the EMA; values are returned in rupees.
 func (s *ChartService) EMA(ctx context.Context, tradingSymbol string, period int, timeframe models.Timeframe, at time.Time) (*float64, error) {
+	interval, err := time.ParseDuration(string(timeframe))
+	if err != nil || interval < time.Minute || interval%time.Minute != 0 {
+		return nil, fmt.Errorf("unsupported EMA timeframe %q: expected a positive whole-minute duration", timeframe)
+	}
 	candles, err := s.repo.GetIndicatorCandles(ctx, tradingSymbol)
 	if err != nil {
 		return nil, fmt.Errorf("EMA candles: %w", err)
@@ -37,8 +41,9 @@ func (s *ChartService) EMA(ctx context.Context, tradingSymbol string, period int
 			metadata.NextIndex++
 			continue
 		}
-		start = time.Date(start.Year(), start.Month(), start.Day(), start.Hour(), start.Minute()-start.Minute()%5, 0, 0, marketLocation)
-		end := start.Add(5 * time.Minute)
+		sessionStart := time.Date(start.Year(), start.Month(), start.Day(), 9, 15, 0, 0, marketLocation)
+		start = sessionStart.Add(start.Sub(sessionStart) / interval * interval)
+		end := start.Add(interval)
 		if end.After(at) {
 			break
 		}
@@ -46,7 +51,7 @@ func (s *ChartService) EMA(ctx context.Context, tradingSymbol string, period int
 		for next < len(candles) && candles[next].Timestamp.Before(end) {
 			next++
 		}
-		complete := next-metadata.NextIndex == 5
+		complete := next-metadata.NextIndex == int(interval/time.Minute)
 		for i := metadata.NextIndex; complete && i < next; i++ {
 			complete = candles[i].Timestamp.Equal(start.Add(time.Duration(i-metadata.NextIndex) * time.Minute))
 		}

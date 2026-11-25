@@ -94,6 +94,50 @@ func TestEMAEmptyAndDatabaseError(t *testing.T) {
 	}
 }
 
+func TestEMAUsesTimeframe(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := NewChartService(repository.NewRepository(db, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	start := time.Date(2026, 1, 5, 9, 15, 0, 0, marketLocation)
+	rows := sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"})
+	for minute := 0; minute < 30; minute++ {
+		close := 10000 + minute*100
+		rows.AddRow(start.Add(time.Duration(minute)*time.Minute), "1m", close, close, close, close, 0)
+	}
+	mock.ExpectQuery("SELECT c.start_time").WithArgs("NIFTY").WillReturnRows(rows)
+	for _, tt := range []struct {
+		timeframe models.Timeframe
+		minutes   int
+		want      float64
+	}{
+		{models.Timeframe15m, 14, 0},
+		{models.Timeframe15m, 15, 114},
+		{models.Timeframe15m, 16, 114},
+		{models.Timeframe15m, 30, 129},
+		{models.Timeframe5m, 15, 114},
+		{models.Timeframe5m, 20, 119},
+		{models.Timeframe1m, 16, 115},
+	} {
+		value, err := s.EMA(context.Background(), "NIFTY", 1, tt.timeframe, start.Add(time.Duration(tt.minutes)*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tt.want == 0 {
+			if value != nil {
+				t.Fatal("unfinished timeframe exposed")
+			}
+		} else if value == nil || *value != tt.want {
+			t.Fatalf("%s at minute %d: %v; want %v", tt.timeframe, tt.minutes, value, tt.want)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEMAIncompleteSeedAndSessionBoundaries(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
