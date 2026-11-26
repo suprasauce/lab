@@ -2,6 +2,7 @@ package scripting
 
 import (
 	"testing"
+	"time"
 
 	"go.starlark.net/starlark"
 	"optionsbacktest/engine"
@@ -9,10 +10,13 @@ import (
 )
 
 func positionContext() *strategyContext {
-	return &strategyContext{execution: &engine.Execution{Positions: []*models.Position{
+	at := time.Date(2026, 1, 5, 9, 16, 0, 0, time.FixedZone("IST", 19800))
+	return &strategyContext{execution: &engine.Execution{Time: at, Positions: []*models.Position{
 		{TradingSymbol: "CLOSED", SimulationID: "1", Quantity: 0, AveragePrice: 15050, RealizedPnL: 10000, Candle: &models.Candle{Close: 99999}},
 		{TradingSymbol: "PE", Quantity: -75},
-		{TradingSymbol: "CE", SimulationID: "1", Quantity: 75, AveragePrice: 12025, Candle: &models.Candle{Close: 13050}},
+		{TradingSymbol: "CE", SimulationID: "1", Quantity: 75, AveragePrice: 12025, Candle: &models.Candle{
+			Timestamp: at.Add(-time.Minute).UTC(), Open: 12525, High: 13275, Low: 12450, Close: 13050,
+		}},
 	}}}
 }
 
@@ -26,12 +30,16 @@ def check(ctx):
     closed = ctx.get_positions("CLOSED")[0]
     opened = positions[0]
     missing = ctx.get_positions("PE")[0]
-    if closed.simulation_id != "1" or closed.realized_pnl != 100 or closed.status != "CLOSED" or closed.quantity != 0 or closed.average_price != 150.50 or closed.curr_price != None:
+    if closed.simulation_id != "1" or closed.realized_pnl != 100 or closed.status != "CLOSED" or closed.quantity != 0 or closed.average_price != 150.50 or closed.candle != None:
         fail("incorrect closed position")
-    if opened.status != "OPEN" or opened.quantity != 75 or opened.average_price != 120.25 or opened.curr_price != 130.50:
+    if opened.status != "OPEN" or opened.quantity != 75 or opened.average_price != 120.25 or opened.candle.close != 130.50:
         fail("incorrect open position")
-    if missing.quantity != -75 or missing.curr_price != None:
+    if missing.quantity != -75 or missing.candle != None:
         fail("incorrect missing candle handling")
+    if opened.candle.open != 125.25 or opened.candle.high != 132.75 or opened.candle.low != 124.50:
+        fail("incorrect OHLC prices")
+    if opened.candle.timestamp != "2026-01-05T09:15:00+05:30":
+        fail("incorrect candle start timestamp")
     if ctx.get_positions("unknown") != []:
         fail("expected empty list")
     positions.clear()
@@ -52,6 +60,8 @@ func TestGetPositionsErrors(t *testing.T) {
 		`ctx.get_positions("CE")[0].entry_price`,
 		`ctx.get_positions("CE")[0].exit_price`,
 		`ctx.get_positions("CE")[0].quantity = 10`,
+		`ctx.get_positions("CE")[0].curr_price`,
+		`ctx.get_positions("CE")[0].candle.close = 10`,
 		`ctx.get_positions("CE")[0].entry_price`,
 		`ctx.get_positions("CE")[0].exit_price`,
 	} {

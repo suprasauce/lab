@@ -2,6 +2,7 @@ package scripting
 
 import (
 	"fmt"
+	"time"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -18,12 +19,19 @@ func (c *strategyContext) getPositions(_ *starlark.Thread, b *starlark.Builtin, 
 	positions := c.execution.GetPositions(tradingSymbol)
 	values := make([]starlark.Value, 0, len(positions))
 	for _, position := range positions {
-		var currentPrice starlark.Value = starlark.None
+		var candle starlark.Value = starlark.None
 		status := "CLOSED"
 		if position.Quantity != 0 {
 			status = "OPEN"
 			if position.Candle != nil {
-				currentPrice = starlark.Float(float64(position.Candle.Close) / 100)
+				bar := position.Candle
+				candle = starlarkstruct.FromStringDict(starlark.String("candle"), starlark.StringDict{
+					"timestamp": starlark.String(bar.Timestamp.In(c.execution.Time.Location()).Format(time.RFC3339)),
+					"open":      starlark.Float(float64(bar.Open) / 100),
+					"high":      starlark.Float(float64(bar.High) / 100),
+					"low":       starlark.Float(float64(bar.Low) / 100),
+					"close":     starlark.Float(float64(bar.Close) / 100),
+				})
 			}
 		}
 		value := starlarkstruct.FromStringDict(starlark.String("position"), starlark.StringDict{
@@ -32,7 +40,7 @@ func (c *strategyContext) getPositions(_ *starlark.Thread, b *starlark.Builtin, 
 			"realized_pnl":  starlark.Float(float64(position.RealizedPnL) / 100),
 			"quantity":      starlark.MakeInt64(position.Quantity),
 			"average_price": starlark.Float(float64(position.AveragePrice) / 100),
-			"curr_price":    currentPrice,
+			"candle":        candle,
 		})
 		value.Freeze()
 		values = append(values, value)

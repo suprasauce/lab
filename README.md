@@ -163,9 +163,11 @@ Results return position summaries and a flat list of fills linked by `simulation
 
 During `on_candle`, `ctx.get_positions(tradingsymbol)` returns open and closed positions
 for that symbol in the current expiry execution, in creation order. Each read-only snapshot
-exposes `simulation_id`, derived `status`, signed lot `quantity`, `average_price`, `realized_pnl`, and `curr_price`.
-Prices are in rupees. Closed positions have zero quantity; `curr_price` is the completed
-option candle's Close, or `None` when missing or closed. No matches returns an empty list.
+exposes `simulation_id`, derived `status`, signed `quantity`, `average_price`, `realized_pnl`, and `candle`.
+Quantity is lots for options and units for underlyings. Prices are in rupees.
+The read-only `candle` exposes `timestamp` (start time in IST), `open`, `high`, `low`, and `close`
+for the latest completed 1-minute bar. It is `None` when missing or closed; use
+`position.candle.close` when available. No matches returns an empty list.
 
 Each results position includes current `unrealized_pnl` and a timestamped `total_pnl`
 history in rupees. Total P&L is cumulative realized plus current unrealized P&L.
