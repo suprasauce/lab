@@ -18,6 +18,7 @@ import (
 func TestGetExpiry(t *testing.T) {
 	for _, tt := range []struct {
 		name, expression, date, expiry, wantError string
+		expiryType                                string
 		offset                                    int
 		missing, databaseError, initializing      bool
 	}{
@@ -30,7 +31,9 @@ func TestGetExpiry(t *testing.T) {
 		{name: "unavailable offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 100)`, date: "2026-01-31", offset: 100, missing: true},
 		{name: "missing", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, date: "2026-01-31", missing: true},
 		{name: "database error", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0)`, date: "2026-01-31", databaseError: true, wantError: "database unavailable"},
-		{name: "weekly", expression: `ctx.get_expiry("NIFTY", "WEEKLY", 0)`, wantError: "not supported"},
+		{name: "weekly", expression: `ctx.get_expiry("NIFTY", "WEEKLY", 0)`, expiryType: "WEEKLY", date: "2026-01-05", expiry: "2026-01-06"},
+		{name: "monthly counts as weekly", expression: `ctx.get_expiry("NIFTY", "WEEKLY", 0)`, expiryType: "WEEKLY", date: "2026-01-26", expiry: "2026-01-27"},
+		{name: "unsupported expiry type", expression: `ctx.get_expiry("NIFTY", "DAILY", 0)`, wantError: "not supported"},
 		{name: "fractional offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY", 0.5)`, wantError: "want int"},
 		{name: "missing offset", expression: `ctx.get_expiry("NIFTY", "MONTHLY")`, wantError: "missing"},
 		{name: "empty underlying", expression: `ctx.get_expiry("", "MONTHLY", 0)`, wantError: "nonempty"},
@@ -45,7 +48,11 @@ func TestGetExpiry(t *testing.T) {
 			at := time.Date(2026, 1, 31, 9, 30, 0, 0, time.FixedZone("IST", 19800))
 			if tt.date != "" {
 				at, _ = time.ParseInLocation(time.DateOnly, tt.date, at.Location())
-				query := mock.ExpectQuery("WITH expiries AS").WithArgs("NIFTY", "MONTHLY", tt.date, tt.offset)
+				kind := tt.expiryType
+				if kind == "" {
+					kind = "MONTHLY"
+				}
+				query := mock.ExpectQuery("WITH expiries AS").WithArgs("NIFTY", kind, tt.date, tt.offset)
 				if tt.databaseError {
 					query.WillReturnError(errors.New("database unavailable"))
 				} else {

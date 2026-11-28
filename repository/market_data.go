@@ -274,7 +274,7 @@ func (r *Repository) GetOptionCandles(
 	return candles, nil
 }
 
-// OptionDeltaCandidate pairs a contract with its premium at a single candle timestamp.
+// OptionDeltaCandidate pairs a contract with its Open premium at a single candle timestamp.
 type OptionDeltaCandidate struct {
 	TradingSymbol string
 	StrikePrice   models.Price

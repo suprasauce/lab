@@ -26,11 +26,10 @@ def initialize(ctx):
 
 def on_candle(ctx):
     if ctx.time == "09:15":
-        ctx.state["entry"] = ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=-1)
+        ctx.state["entry"] = ctx.place_trade(tradingsymbol="NIFTY-20260127-22650-CE", quantity=-1, price=100)
     if ctx.time == "09:16":
-        entry = ctx.order(ctx.state["entry"])
-        if entry.status == "FILLED":
-            ctx.place_order(tradingsymbol="NIFTY-20260127-22650-CE", quantity=1)
+        if "entry" in ctx.state:
+            ctx.place_trade(tradingsymbol="NIFTY-20260127-22650-CE", quantity=1, price=80)
 `
 
 func newPoolTest(t *testing.T) (*WorkerPool, sqlmock.Sqlmock, *bytes.Buffer) {
@@ -93,7 +92,7 @@ func TestProcessJobStoresCompletedResults(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows([]string{"id", "symbol"}))
 				mock.ExpectQuery("FROM lab.option_contracts").WithArgs("NIFTY-20260127-22650-CE").
 					WillReturnRows(workerContractRows())
-				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "1m", start, start.Add(time.Minute-time.Microsecond)).
+				mock.ExpectQuery("FROM lab.option_candles").WithArgs(int64(101), "1m", start, start).
 					WillReturnRows(workerCandleRows().AddRow(start, "1m", 10000, 10000, 10000, 10000, 0))
 			}
 			if tick == 2 {

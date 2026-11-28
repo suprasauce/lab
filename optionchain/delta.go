@@ -21,20 +21,23 @@ func (s *OptionChainService) getSymbolByDelta(ctx context.Context, underlying st
 	if err != nil {
 		return "", fmt.Errorf("delta selection: resolve underlying: %w", err)
 	}
-	candle, err := s.repo.GetLatestCompletedUnderlyingCandle(ctx, asset.ID, at)
+	minute := at.Truncate(time.Minute)
+	candle, err := s.repo.GetUnderlyingCandle(ctx, asset.ID, minute, models.Timeframe1m)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("delta selection: fetch underlying candle: %w", err)
 	}
-	// Both close prices are observed at the end of this completed one-minute bar.
-	observedAt := candle.Timestamp.Add(time.Minute)
-	expiresAt := time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 15, 30, 0, 0, marketLocation)
-	if !observedAt.Before(expiresAt) {
+	if !candle.Timestamp.Equal(minute) {
 		return "", nil
 	}
-	years, err := TimeToExpiry(observedAt, expiresAt)
+	// Spot and option premiums use Opens from the current simulation minute.
+	expiresAt := time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 15, 30, 0, 0, marketLocation)
+	if !at.Before(expiresAt) {
+		return "", nil
+	}
+	years, err := TimeToExpiry(at, expiresAt)
 	if err != nil {
 		return "", err
 	}
@@ -48,7 +51,7 @@ func (s *OptionChainService) getSymbolByDelta(ctx context.Context, underlying st
 	}
 	symbol, closest := "", math.Inf(1)
 	for _, candidate := range candidates {
-		delta, err := DeltaFromPremium(float64(candle.Close)/100, float64(candidate.StrikePrice)/100, float64(candidate.Premium)/100, years, kind)
+		delta, err := DeltaFromPremium(float64(candle.Open)/100, float64(candidate.StrikePrice)/100, float64(candidate.Premium)/100, years, kind)
 		if err != nil {
 			continue
 		}

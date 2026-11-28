@@ -28,7 +28,7 @@ def on_candle(ctx):
 
     # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
     if 21 < dte <= 45 and ctx.time > "09:30":
-        if "entry_order_id" not in ctx.state:
+        if "entry_trade_id" not in ctx.state:
             symbol = ctx.option_chain(
                 underlying=expiry.underlying,
                 expiry=expiry.date,
@@ -36,22 +36,24 @@ def on_candle(ctx):
                 filter=filter(type="offset", value=2),
             )
 
-            if symbol != None:
+            candle = ctx.get_candle(symbol) if symbol != None else None
+            if candle != None:
                 ctx.state["symbol"] = symbol
-                ctx.state["entry_order_id"] = ctx.place_order(
+                ctx.state["entry_trade_id"] = ctx.place_trade(
                     tradingsymbol=symbol,
                     quantity=-1,
+                    price=candle.open,
                 )
 
     # Close at or below 21 DTE, from 15:15 onward.
     if dte <= 21 and ctx.time >= "15:15":
-        if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
-            entry = ctx.order(ctx.state["entry_order_id"])
-
-            if entry.status == "FILLED":
-                ctx.state["exit_order_id"] = ctx.place_order(
+        if "entry_trade_id" in ctx.state and "exit_trade_id" not in ctx.state:
+            candle = ctx.get_candle(ctx.state["symbol"])
+            if candle != None:
+                ctx.state["exit_trade_id"] = ctx.place_trade(
                     tradingsymbol=ctx.state["symbol"],
                     quantity=1,
+                    price=candle.open,
                 )
 `
 

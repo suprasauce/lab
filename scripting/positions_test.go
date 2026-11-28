@@ -14,7 +14,7 @@ func positionContext() *strategyContext {
 	return &strategyContext{execution: &engine.Execution{Time: at, Positions: []*models.Position{
 		{TradingSymbol: "CLOSED", SimulationID: "1", Quantity: 0, AveragePrice: 15050, RealizedPnL: 10000, Candle: &models.Candle{Close: 99999}},
 		{TradingSymbol: "PE", Quantity: -75},
-		{TradingSymbol: "CE", SimulationID: "1", Quantity: 75, AveragePrice: 12025, Candle: &models.Candle{
+		{TradingSymbol: "CE", SimulationID: "1", Quantity: 75, AveragePrice: 12025, UnrealizedPnL: -12345, Candle: &models.Candle{
 			Timestamp: at.Add(-time.Minute).UTC(), Open: 12525, High: 13275, Low: 12450, Close: 13050,
 		}},
 	}}}

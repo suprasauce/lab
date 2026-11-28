@@ -165,7 +165,7 @@ paths:
 
                           # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
                           if 21 < dte <= 45 and ctx.time > "09:30":
-                              if "entry_order_id" not in ctx.state:
+                              if "entry_trade_id" not in ctx.state:
                                   symbol = ctx.option_chain(
                                       underlying=expiry.underlying,
                                       expiry=expiry.date,
@@ -173,22 +173,24 @@ paths:
                                       filter=filter(type="offset", value=2),
                                   )
 
-                                  if symbol != None:
+                                  candle = ctx.get_candle(symbol) if symbol != None else None
+                                  if candle != None:
                                       ctx.state["symbol"] = symbol
-                                      ctx.state["entry_order_id"] = ctx.place_order(
+                                      ctx.state["entry_trade_id"] = ctx.place_trade(
                                           tradingsymbol=symbol,
                                           quantity=-1,
+                                          price=candle.open,
                                       )
 
                           # Close at or below 21 DTE, from 15:15 onward.
                           if dte <= 21 and ctx.time >= "15:15":
-                              if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
-                                  entry = ctx.order(ctx.state["entry_order_id"])
-
-                                  if entry.status == "FILLED":
-                                      ctx.state["exit_order_id"] = ctx.place_order(
+                              if "entry_trade_id" in ctx.state and "exit_trade_id" not in ctx.state:
+                                  candle = ctx.get_candle(ctx.state["symbol"])
+                                  if candle != None:
+                                      ctx.state["exit_trade_id"] = ctx.place_trade(
                                           tradingsymbol=ctx.state["symbol"],
                                           quantity=1,
+                                          price=candle.open,
                                       )
                 completed:
                   summary: Completed backtest
@@ -217,7 +219,7 @@ paths:
 
                           # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
                           if 21 < dte <= 45 and ctx.time > "09:30":
-                              if "entry_order_id" not in ctx.state:
+                              if "entry_trade_id" not in ctx.state:
                                   symbol = ctx.option_chain(
                                       underlying=expiry.underlying,
                                       expiry=expiry.date,
@@ -225,22 +227,24 @@ paths:
                                       filter=filter(type="offset", value=2),
                                   )
 
-                                  if symbol != None:
+                                  candle = ctx.get_candle(symbol) if symbol != None else None
+                                  if candle != None:
                                       ctx.state["symbol"] = symbol
-                                      ctx.state["entry_order_id"] = ctx.place_order(
+                                      ctx.state["entry_trade_id"] = ctx.place_trade(
                                           tradingsymbol=symbol,
                                           quantity=-1,
+                                          price=candle.open,
                                       )
 
                           # Close at or below 21 DTE, from 15:15 onward.
                           if dte <= 21 and ctx.time >= "15:15":
-                              if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
-                                  entry = ctx.order(ctx.state["entry_order_id"])
-
-                                  if entry.status == "FILLED":
-                                      ctx.state["exit_order_id"] = ctx.place_order(
+                              if "entry_trade_id" in ctx.state and "exit_trade_id" not in ctx.state:
+                                  candle = ctx.get_candle(ctx.state["symbol"])
+                                  if candle != None:
+                                      ctx.state["exit_trade_id"] = ctx.place_trade(
                                           tradingsymbol=ctx.state["symbol"],
                                           quantity=1,
+                                          price=candle.open,
                                       )
                     summary:
                       total_trades: 2
@@ -295,7 +299,7 @@ paths:
 
                           # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
                           if 21 < dte <= 45 and ctx.time > "09:30":
-                              if "entry_order_id" not in ctx.state:
+                              if "entry_trade_id" not in ctx.state:
                                   symbol = ctx.option_chain(
                                       underlying=expiry.underlying,
                                       expiry=expiry.date,
@@ -303,22 +307,24 @@ paths:
                                       filter=filter(type="offset", value=2),
                                   )
 
-                                  if symbol != None:
+                                  candle = ctx.get_candle(symbol) if symbol != None else None
+                                  if candle != None:
                                       ctx.state["symbol"] = symbol
-                                      ctx.state["entry_order_id"] = ctx.place_order(
+                                      ctx.state["entry_trade_id"] = ctx.place_trade(
                                           tradingsymbol=symbol,
                                           quantity=-1,
+                                          price=candle.open,
                                       )
 
                           # Close at or below 21 DTE, from 15:15 onward.
                           if dte <= 21 and ctx.time >= "15:15":
-                              if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
-                                  entry = ctx.order(ctx.state["entry_order_id"])
-
-                                  if entry.status == "FILLED":
-                                      ctx.state["exit_order_id"] = ctx.place_order(
+                              if "entry_trade_id" in ctx.state and "exit_trade_id" not in ctx.state:
+                                  candle = ctx.get_candle(ctx.state["symbol"])
+                                  if candle != None:
+                                      ctx.state["exit_trade_id"] = ctx.place_trade(
                                           tradingsymbol=ctx.state["symbol"],
                                           quantity=1,
+                                          price=candle.open,
                                       )
                     error: Insufficient historical candle data
         '401':
@@ -667,7 +673,7 @@ components:
 
                 # Sell an ATM + 2 call between 45 and 22 DTE, after 09:30.
                 if 21 < dte <= 45 and ctx.time > "09:30":
-                    if "entry_order_id" not in ctx.state:
+                    if "entry_trade_id" not in ctx.state:
                         symbol = ctx.option_chain(
                             underlying=expiry.underlying,
                             expiry=expiry.date,
@@ -675,22 +681,24 @@ components:
                             filter=filter(type="offset", value=2),
                         )
 
-                        if symbol != None:
+                        candle = ctx.get_candle(symbol) if symbol != None else None
+                        if candle != None:
                             ctx.state["symbol"] = symbol
-                            ctx.state["entry_order_id"] = ctx.place_order(
+                            ctx.state["entry_trade_id"] = ctx.place_trade(
                                 tradingsymbol=symbol,
                                 quantity=-1,
+                                price=candle.open,
                             )
 
                 # Close at or below 21 DTE, from 15:15 onward.
                 if dte <= 21 and ctx.time >= "15:15":
-                    if "entry_order_id" in ctx.state and "exit_order_id" not in ctx.state:
-                        entry = ctx.order(ctx.state["entry_order_id"])
-
-                        if entry.status == "FILLED":
-                            ctx.state["exit_order_id"] = ctx.place_order(
+                    if "entry_trade_id" in ctx.state and "exit_trade_id" not in ctx.state:
+                        candle = ctx.get_candle(ctx.state["symbol"])
+                        if candle != None:
+                            ctx.state["exit_trade_id"] = ctx.place_trade(
                                 tradingsymbol=ctx.state["symbol"],
                                 quantity=1,
+                                price=candle.open,
                             )
     CreateBacktestResponse:
       type: object
@@ -825,10 +833,10 @@ components:
         unrealized_pnl:
           type: number
           multipleOf: 0.01
-          description: Latest observed unrealized P&L in rupees; zero when closed. Missing candles retain the last observed value.
+          description: Unrealized P&L in rupees marked when a candle finishes, using its Close. Zero on entry or reopening and when closed. Missing completed candles retain the last observed value.
         total_pnl:
           type: array
-          description: Cumulative realized plus current unrealized P&L history. Closed positions continue recording realized P&L. Open positions with missing candles add no point.
+          description: Cumulative realized plus completed-candle unrealized P&L history, timestamped when the candle finishes. Trades update the current timestamp immediately. Closed positions continue recording realized P&L. Missing completed candles add no periodic point.
           items:
             $ref: '#/components/schemas/PnLPoint'
     PnLPoint:

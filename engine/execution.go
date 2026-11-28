@@ -12,32 +12,66 @@ import (
 	"optionsbacktest/repository"
 )
 
-// Execution contains fresh orders and position history for one expiry.
+// Execution contains trades and position history for one simulation.
 type Execution struct {
-	ID           string
-	Time         time.Time
-	Orders       []*Order
-	Positions    []*models.Position
-	ChartService *chart.ChartService
-	ctx          context.Context
-	repo         *repository.Repository
+	ID            string
+	Time          time.Time
+	tradeSequence int
+	instruments   map[string]*instrument
+	Positions     []*models.Position
+	ChartService  *chart.ChartService
+	ctx           context.Context
+	repo          *repository.Repository
 }
 
 func newExecution(ctx context.Context, repo *repository.Repository, simulationID string) *Execution {
 	return &Execution{ID: simulationID, ctx: ctx, repo: repo, ChartService: chart.NewChartService(repo)}
 }
 
-// PlaceOrder queues an opaque trading symbol without resolving or executing it.
-func (e *Execution) PlaceOrder(tradingSymbol string, quantity int64) (string, error) {
-	order := &Order{Order: models.Order{TradingSymbol: tradingSymbol, Quantity: quantity}}
-	if err := order.Validate(); err != nil {
+// PlaceTrade executes immediately at the script-supplied price in paise.
+func (e *Execution) PlaceTrade(tradingSymbol string, quantity int64, price models.Price) (string, error) {
+	trade := models.Trade{SimulationID: e.ID, TradingSymbol: tradingSymbol, Quantity: quantity, Price: price, Timestamp: e.Time}
+	if err := trade.Validate(); err != nil {
 		return "", err
 	}
-	order.GenerateID(len(e.Orders) + 1)
-	order.PlacedAt = e.Time
-	order.Status = models.OrderPending
-	e.Orders = append(e.Orders, order)
-	return order.ID, nil
+	instrument, err := e.resolveInstrument(tradingSymbol)
+	if err != nil {
+		return "", fmt.Errorf("resolve instrument %q: %w", tradingSymbol, err)
+	}
+	var position *models.Position
+	for _, candidate := range e.Positions {
+		if candidate.TradingSymbol == tradingSymbol {
+			position = candidate
+			break
+		}
+	}
+	if position != nil && position.Quantity != 0 {
+		closing := position.Quantity < 0 && quantity > 0 || position.Quantity > 0 && quantity < 0
+		if !closing {
+			return "", fmt.Errorf("increasing an existing position is not supported")
+		}
+		if position.Quantity != -quantity {
+			return "", fmt.Errorf("only full exits are supported: quantity must be %d", -position.Quantity)
+		}
+		position.RealizedPnL += (price - position.AveragePrice) * models.Price(position.Quantity) * instrument.multiplier()
+		position.Quantity, position.UnrealizedPnL, position.Candle = 0, 0, nil
+	} else {
+		candle, err := e.currentCandle(instrument)
+		if err != nil {
+			return "", err
+		}
+		if position == nil {
+			position = &models.Position{SimulationID: e.ID, TradingSymbol: tradingSymbol}
+			e.Positions = append(e.Positions, position)
+		}
+		position.Quantity, position.AveragePrice, position.Candle = quantity, price, candle
+		position.UnrealizedPnL = 0
+	}
+	e.tradeSequence++
+	trade.ID = fmt.Sprintf("%s/%d", e.ID, e.tradeSequence)
+	position.Trades = append(position.Trades, trade)
+	e.recordPnL(position)
+	return trade.ID, nil
 }
 
 // GetPositions returns the matching position, if any, whether open or closed.
@@ -51,167 +85,93 @@ func (e *Execution) GetPositions(tradingSymbol string) []*models.Position {
 	return positions
 }
 
-func (e *Execution) Order(id string) (*Order, error) {
-	for _, order := range e.Orders {
-		if order.ID == id {
-			return order, nil
-		}
-	}
-	return nil, fmt.Errorf("unknown order %q", id)
-}
-
-// advance loads completed bars before filling previously submitted orders.
+// advance marks the candle that just finished, then exposes current-minute OHLC.
 func (e *Execution) advance(at time.Time) error {
-	for _, position := range e.Positions {
-		position.Candle = nil
-	}
 	e.Time = at
-	if err := e.loadCompletedCandles(); err != nil {
-		return err
-	}
-	if err := e.fillOrders(); err != nil {
-		return err
-	}
 	for _, position := range e.Positions {
+		completed := position.Candle
+		position.Candle = nil
 		if position.Quantity == 0 {
 			position.UnrealizedPnL = 0
 		} else {
-			if position.Candle == nil {
+			candle, err := e.GetCandle(position.TradingSymbol)
+			if err != nil {
+				return err
+			}
+			position.Candle = candle
+			if completed == nil || !completed.Timestamp.Add(candleInterval).Equal(at) {
 				continue
 			}
 			instrument, err := e.resolveInstrument(position.TradingSymbol)
 			if err != nil {
-				return fmt.Errorf("position P&L instrument: %w", err)
+				return err
 			}
-			position.UnrealizedPnL = (position.Candle.Close - position.AveragePrice) * models.Price(position.Quantity) * instrument.multiplier()
+			position.UnrealizedPnL = (completed.Close - position.AveragePrice) * models.Price(position.Quantity) * instrument.multiplier()
 		}
-		position.TotalPnL = append(position.TotalPnL, models.PnLPoint{Timestamp: e.Time, PnL: position.RealizedPnL + position.UnrealizedPnL})
+		e.recordPnL(position)
 	}
 	return nil
 }
 
-func (e *Execution) loadCompletedCandles() error {
-	start := e.Time.Add(-candleInterval)
-	if startTime, _ := time.Parse(timeLayout, start.Format(timeLayout)); startTime.Before(sessionStartTime) {
-		return nil
+// GetCandle exposes full OHLC for the current simulation minute, or nil if missing.
+// Scripts are responsible for the chronological use of these values.
+func (e *Execution) GetCandle(symbol string) (*models.Candle, error) {
+	instrument, err := e.resolveInstrument(symbol)
+	if err != nil {
+		return nil, fmt.Errorf("resolve instrument %q: %w", symbol, err)
 	}
-	for _, position := range e.Positions {
-		if position.Quantity == 0 {
-			continue
-		}
-		instrument, err := e.resolveInstrument(position.TradingSymbol)
-		if err != nil {
-			return fmt.Errorf("position instrument: %w", err)
-		}
-		candles, err := e.instrumentCandles(instrument, start, start.Add(time.Microsecond))
-		if err != nil {
-			return fmt.Errorf("completed candle for %q: %w", position.TradingSymbol, err)
-		}
-		if len(candles) == 0 {
-			continue
-		}
-		position.Candle = &candles[0]
-	}
-	return nil
+	return e.currentCandle(instrument)
 }
 
-func (e *Execution) fillOrders() error {
-	for _, order := range e.Orders {
-		if order.Status == models.OrderPending {
-			if err := e.fillOrder(order); err != nil {
-				return fmt.Errorf("order %s: %w", order.ID, err)
-			}
-		}
+func (e *Execution) currentCandle(instrument *instrument) (*models.Candle, error) {
+	start := e.Time.Truncate(time.Minute)
+	candles, err := e.instrumentCandles(instrument, start, start.Add(time.Microsecond))
+	if err != nil {
+		return nil, fmt.Errorf("current candle for %q: %w", instrument.TradingSymbol, err)
 	}
-	return nil
+	if len(candles) == 0 {
+		return nil, nil
+	}
+	return &candles[0], nil
 }
 
-// fillOrder leaves orders pending when required candles are unavailable so a
-// subsequent advance can fill them. Selected contracts are retained while waiting.
-func (e *Execution) fillOrder(order *Order) error {
-	if order.Contract == nil && order.Underlying == nil {
-		instrument, err := e.resolveInstrument(order.TradingSymbol)
-		if err != nil {
-			return fmt.Errorf("resolve instrument for trading symbol %q: %w", order.TradingSymbol, err)
-		}
-		order.Contract, order.Underlying = instrument.Contract, instrument.Underlying
-	}
-
-	var position *models.Position
-	for _, candidate := range e.Positions {
-		if candidate.TradingSymbol == order.TradingSymbol {
-			position = candidate
-			break
-		}
-	}
-	var fill models.Candle
-	if position != nil && position.Quantity != 0 {
-		closing := position.Quantity < 0 && order.Quantity > 0 || position.Quantity > 0 && order.Quantity < 0
-		if !closing {
-			return fmt.Errorf("increasing an existing position is not supported")
-		}
-		if position.Quantity != -order.Quantity {
-			return fmt.Errorf("only full exits are supported: quantity must be %d", -position.Quantity)
-		}
-		if position.Candle == nil {
-			return nil
-		}
-		fill = *position.Candle
-		position.RealizedPnL += (fill.Open - position.AveragePrice) * models.Price(position.Quantity) * order.multiplier()
-		position.Quantity = 0
-		position.Candle = nil
+func (e *Execution) recordPnL(position *models.Position) {
+	point := models.PnLPoint{Timestamp: e.Time, PnL: position.RealizedPnL + position.UnrealizedPnL}
+	if n := len(position.TotalPnL); n > 0 && position.TotalPnL[n-1].Timestamp.Equal(e.Time) {
+		position.TotalPnL[n-1] = point
 	} else {
-		start := e.Time.Add(-candleInterval)
-		// Query only the current completed window [start, e.Time).
-		candles, err := e.instrumentCandles(order, start, e.Time)
-		if err != nil {
-			return fmt.Errorf("order fill candle: %w", err)
-		}
-		if len(candles) == 0 {
-			return nil
-		}
-		fill = candles[0]
-		if position == nil {
-			position = &models.Position{SimulationID: e.ID, TradingSymbol: order.TradingSymbol}
-			e.Positions = append(e.Positions, position)
-		}
-		position.Quantity, position.AveragePrice = order.Quantity, fill.Open
-		position.Candle = &fill
+		position.TotalPnL = append(position.TotalPnL, point)
 	}
-	position.Trades = append(position.Trades, models.Trade{
-		ID: fmt.Sprintf("%s/%s", e.ID, order.ID), SimulationID: e.ID,
-		TradingSymbol: order.TradingSymbol, Timestamp: fill.Timestamp, Price: fill.Open, Quantity: order.Quantity,
-	})
-	order.FilledAt, order.FillPrice, order.Status = fill.Timestamp, fill.Open, models.OrderFilled
-	return nil
 }
 
-// Reuse metadata already resolved for an order; positions only retain the symbol.
-func (e *Execution) resolveInstrument(tradingSymbol string) (*Order, error) {
-	for _, order := range e.Orders {
-		if order.TradingSymbol == tradingSymbol && (order.Contract != nil || order.Underlying != nil) {
-			return order, nil
-		}
+// Resolve and reuse instrument metadata independently of trade history.
+func (e *Execution) resolveInstrument(tradingSymbol string) (*instrument, error) {
+	if cached := e.instruments[tradingSymbol]; cached != nil {
+		return cached, nil
 	}
-	instrument := &Order{Order: models.Order{TradingSymbol: tradingSymbol}}
+	asset := &instrument{TradingSymbol: tradingSymbol}
 	underlying, err := e.repo.GetUnderlying(e.ctx, tradingSymbol)
 	if err == nil {
-		instrument.Underlying = &underlying
-		return instrument, nil
+		asset.Underlying = &underlying
+	} else {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		contract, err := e.repo.GetOptionContractByTradingSymbol(e.ctx, tradingSymbol)
+		if err != nil {
+			return nil, err
+		}
+		asset.Contract = &contract
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+	if e.instruments == nil {
+		e.instruments = make(map[string]*instrument)
 	}
-	contract, err := e.repo.GetOptionContractByTradingSymbol(e.ctx, tradingSymbol)
-	if err != nil {
-		return nil, err
-	}
-	instrument.Contract = &contract
-	return instrument, nil
+	e.instruments[tradingSymbol] = asset
+	return asset, nil
 }
 
 // instrumentCandles uses an exclusive end for both instrument kinds.
-func (e *Execution) instrumentCandles(instrument *Order, start, end time.Time) ([]models.Candle, error) {
+func (e *Execution) instrumentCandles(instrument *instrument, start, end time.Time) ([]models.Candle, error) {
 	if instrument.Underlying != nil {
 		return e.repo.GetUnderlyingCandles(e.ctx, instrument.Underlying.ID, start, end, models.Timeframe1m)
 	}

@@ -15,7 +15,7 @@ import (
 	"optionsbacktest/repository"
 )
 
-func TestDeltaSelectionClosestCompletedCandidate(t *testing.T) {
+func TestDeltaSelectionClosestCurrentCandidate(t *testing.T) {
 	for _, kind := range []models.OptionType{models.Call, models.Put} {
 		for _, scenario := range []string{"closest", "missing", "invalid premium", "database error"} {
 			t.Run(string(kind)+"/"+scenario, func(t *testing.T) {
@@ -28,7 +28,7 @@ func TestDeltaSelectionClosestCompletedCandidate(t *testing.T) {
 				service := NewOptionChainService(repo)
 				expiry := time.Date(2026, 1, 27, 0, 0, 0, 0, marketLocation)
 				at := time.Date(2026, 1, 5, 9, 35, 0, 0, marketLocation)
-				bar := at.Add(-time.Minute)
+				bar := at
 				years, _ := TimeToExpiry(at, expiry.Add(15*time.Hour+30*time.Minute))
 				optionType := "CE"
 				if kind == models.Put {
@@ -38,9 +38,9 @@ func TestDeltaSelectionClosestCompletedCandidate(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows([]string{"id", "option_chain_fetched"}).AddRow(9, true))
 				mock.ExpectQuery("FROM lab.underlyings").WithArgs("NIFTY").
 					WillReturnRows(sqlmock.NewRows([]string{"id", "symbol"}).AddRow(1, "NIFTY"))
-				mock.ExpectQuery("start_time <= .*INTERVAL '1 minute'").WithArgs(int64(1), at).
-					WillReturnRows(sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}).AddRow(bar, "1m", 2400000, 2600000, 2300000, 2500000, 0))
-				rows := sqlmock.NewRows([]string{"tradingsymbol", "strike_price", "close"})
+				mock.ExpectQuery("FROM lab.underlying_candles").WithArgs(int64(1), "1m", at).
+					WillReturnRows(sqlmock.NewRows([]string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}).AddRow(bar, "1m", 2500000, 2600000, 2300000, 2400000, 0))
+				rows := sqlmock.NewRows([]string{"tradingsymbol", "strike_price", "open"})
 				want, best := "", math.Inf(1)
 				if scenario == "closest" {
 					for _, strike := range []float64{24000, 25000, 26000, 27000} {
@@ -65,7 +65,7 @@ func TestDeltaSelectionClosestCompletedCandidate(t *testing.T) {
 				if scenario == "invalid premium" {
 					rows.AddRow("invalid", 2500000, -100)
 				}
-				query := mock.ExpectQuery("SELECT c.tradingsymbol, c.strike_price, oc.close").WithArgs(int64(1), expiry, string(kind), bar)
+				query := mock.ExpectQuery("SELECT c.tradingsymbol, c.strike_price, oc.open").WithArgs(int64(1), expiry, string(kind), bar)
 				failure := errors.New("database unavailable")
 				if scenario == "database error" {
 					query.WillReturnError(failure)

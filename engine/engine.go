@@ -23,9 +23,6 @@ const tradingCalendarUnderlyingID int64 = 1
 const candleInterval = time.Minute
 const timeLayout = "15:04"
 
-// The fixed HH:mm literal is valid and parsed once with the default date.
-var sessionStartTime, _ = time.Parse(timeLayout, "09:15")
-
 type Engine struct {
 	marketDataRepository *repository.Repository
 }

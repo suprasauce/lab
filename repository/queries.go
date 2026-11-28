@@ -5,7 +5,8 @@ const queryGetExpiry = `
 		SELECT e.expiry_date, ROW_NUMBER() OVER (ORDER BY e.expiry_date) AS ordinal
 		FROM lab.option_expiry AS e
 		JOIN lab.underlyings AS u ON u.id = e.underlying_id
-		WHERE u.symbol = $1 AND e.expiry_type = $2
+		WHERE u.symbol = $1
+ AND (e.expiry_type = $2 OR ($2::text = 'WEEKLY' AND e.expiry_type = 'MONTHLY'))
 	)
 	SELECT expiry_date
 	FROM expiries
@@ -193,7 +194,7 @@ const queryOptionExpiryExists = `
 `
 
 const queryGetOptionDeltaCandidates = `
- SELECT c.tradingsymbol, c.strike_price, oc.close
+ SELECT c.tradingsymbol, c.strike_price, oc.open
  FROM lab.option_contracts AS c
  JOIN lab.option_expiry AS e ON e.id = c.expiry_id
  JOIN lab.option_candles AS oc ON oc.option_contract_id = c.id

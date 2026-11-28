@@ -26,8 +26,8 @@ func (c *strategyContext) getExpiry(_ *starlark.Thread, b *starlark.Builtin, arg
 		return nil, fmt.Errorf("underlying must be nonempty")
 	}
 	expiryType = strings.ToUpper(expiryType)
-	if expiryType != "MONTHLY" {
-		return nil, fmt.Errorf("expiry_type %q is not supported: expected MONTHLY", expiryType)
+	if expiryType != "MONTHLY" && expiryType != "WEEKLY" {
+		return nil, fmt.Errorf("expiry_type %q is not supported: expected MONTHLY or WEEKLY", expiryType)
 	}
 	if c.initializing || c.execution == nil {
 		return nil, fmt.Errorf("get_expiry is only available during on_candle")

@@ -25,12 +25,16 @@ func (s *OptionChainService) getSymbolByOffset(ctx context.Context, underlying s
 	if err != nil {
 		return "", fmt.Errorf("offset selection: resolve underlying: %w", err)
 	}
-	candle, err := s.repo.GetLatestCompletedUnderlyingCandle(ctx, asset.ID, at)
+	minute := at.Truncate(time.Minute)
+	candle, err := s.repo.GetUnderlyingCandle(ctx, asset.ID, minute, models.Timeframe1m)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("offset selection: fetch underlying candle: %w", err)
+	}
+	if !candle.Timestamp.Equal(minute) {
+		return "", nil
 	}
 	atm := ((candle.Open + strikeInterval/2) / strikeInterval) * strikeInterval
 	strike := atm + models.Price(offset)*strikeInterval

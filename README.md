@@ -47,7 +47,7 @@ def initialize(ctx):
 
 
 def on_candle(ctx):
-    # Existing place_order/order/state APIs remain available here.
+    # Existing place_trade/state APIs remain available here.
     pass
 ```
 
@@ -70,16 +70,23 @@ Each simulation runs from its supplied start date through its end date, inclusiv
 
 The clock advances in five-minute intervals from 09:15 through 15:30 in Asia/Kolkata. Available underlying data determines which days have trading sessions. At each advance, the engine loads completed candles and processes pending orders before calling the script's `on_candle(ctx)`. The final 15:30 advance processes orders without another script callback.
 
-Scripts submit orders through `ctx.place_order(...)`. Orders are queued and processed on a subsequent advance. Fills use an eligible completed option candle's Open. For example, an order placed at 09:30 can be processed at 09:35 using the 09:30 candle's Open. The strategy never receives unfinished candle OHLC data.
+Scripts access the current minute's full OHLC with `ctx.get_candle(tradingsymbol)`, returning `None` when that minute is missing. At 09:19 this exposes the 09:19?09:20 candle. Scripts are responsible for the chronological use of candle values; the engine does not enforce intrabar lookahead restrictions.
 
-Orders accept an opaque `tradingsymbol` string. At fill time, the repository
-queries the stored `tradingsymbol` directly. Missing contracts or candles leave
-orders pending for a later advance; other database errors propagate.
+`ctx.place_trade(tradingsymbol, quantity, price)` executes immediately at the supplied rupee price and records the current simulation timestamp. Use `candle.open`, `.high`, `.low`, `.close`, or a numeric expression. The call returns the recorded trade ID, and position updates are visible to subsequent statements in the same callback. There is no pending-order queue or fill policy. Unknown instruments and unsupported position changes return errors. The engine marks unrealized P&L only when a candle finishes: at 09:18 it uses the 09:17 candle Close while exposing the 09:18 candle to the script. New or reopened positions start with zero unrealized P&L. Missing completed candles retain the previous value and add no history point; missing current candles expose `None` without preventing a valid previous candle from being marked. The final 15:29 candle is marked at 15:30, without a script callback.
+
+```python
+candle = ctx.get_candle("NIFTY")
+if candle != None:
+    trade_id = ctx.place_trade(tradingsymbol="NIFTY", quantity=1, price=candle.open)
+```
+
+Trades accept an opaque `tradingsymbol` string. At execution time, the repository
+queries the stored `tradingsymbol` directly. Missing instruments return errors. Missing candles return `None`; scripts decide whether to execute at an explicitly supplied price. Database errors propagate.
 Go never calls the Python fetcher. Option-chain selection requires the expiry's
 `option_chain_fetched` flag to be true; otherwise it returns "option chain not available".
 Ingest market data separately before running a backtest.
 
-Order history and positions start fresh for every simulation. `ctx.state` persists
+Trade history and positions start fresh for every simulation. `ctx.state` persists
 across expiry simulations until the script calls `ctx.clear_state()`. Each new
 backtest starts with an empty state dictionary. Prices are stored internally as integer paise and returned in JSON as rupee amounts. Results contain a summary, positions, and individual fills.
 
@@ -104,10 +111,10 @@ Strikes use integer rupees: 2600000 paise becomes `26000`. Any remaining
 paise are discarded, so 2600050 also becomes `26000`.
 
 ```python
-ctx.place_order(
+ctx.place_trade(
     tradingsymbol="NIFTY-20261124-26000-CE",
-    side="SELL",
-    quantity=1,
+    quantity=-1,
+    price=100.50,
 )
 ```
 
@@ -152,13 +159,13 @@ Run tests with `go test ./...`.
 The simulation exposes `ctx.date` (`YYYY-MM-DD`) and `ctx.time` (`HH:mm`) in IST.
 Expiry objects expose `.date`, `.underlying`, and `.get_dte(ctx.date)` for calendar-day DTE; `ctx.dte` is no longer available.
 
-Orders use signed quantities: `ctx.place_order(tradingsymbol=symbol, quantity=-1)` sells,
-and `quantity=1` buys. There is no `side` argument. Quantities are signed lots throughout orders, positions, trades, and Starlark. Each fill records its timestamp, per-unit price, and signed lot quantity.
+Trades use signed quantities: `ctx.place_trade(tradingsymbol=symbol, quantity=-1, price=100)` sells,
+and `quantity=1` buys. There is no `side` argument. Quantities are signed lots throughout positions, trades, and Starlark. Each fill records its timestamp, per-unit price, and signed lot quantity.
 Lot size comes from `option_expiry.lot_size`; realized P&L is `(exit price - average price) * signed lots * lot_size`. Prices remain in rupees per unit.
 New expiry rows must specify a positive lot size.
 Each simulation has one position per trading symbol, containing its trade history. Positions store simulation ID, signed quantity, average price, cumulative realized P&L, and current candle.
 Closing sets quantity to zero and adds realized P&L; reopening reuses the position and resets its average price without clearing P&L or trades.
-Simulation IDs (`1`, `2`, ...) restart per backtest. Trade IDs (`1/1`, `1/2`, `2/1`, ...) combine simulation and order sequence.
+Simulation IDs (`1`, `2`, ...) restart per backtest. Trade IDs (`1/1`, `1/2`, `2/1`, ...) combine simulation ID and trade sequence.
 Results return position summaries and a flat list of fills linked by `simulation_id` and `tradingsymbol`. Summary P&L is the sum of position realized P&L, and total trades counts fills.
 
 During `on_candle`, `ctx.get_positions(tradingsymbol)` returns open and closed positions
@@ -176,3 +183,9 @@ expiry lot size. Missing candles skip history points; closed positions record
 realized P&L with zero unrealized P&L. Reopening retains realized P&L and history.
 The UI plots total P&L; simulation curves sum matching position snapshots.
 These P&L fields are not newly exposed to Starlark. No database tables are added.
+
+Scripts can query `ctx.get_lot_size(tradingsymbol)` during `on_candle`: it returns the option expiry's units per lot, or 1 for an underlying. Unknown symbols return an error. `position.unrealized_pnl` is not exposed to scripts; it remains internal and in saved results. To calculate P&L at a script-selected price:
+
+```python
+pnl = (price - position.average_price) * position.quantity * ctx.get_lot_size(symbol)
+```

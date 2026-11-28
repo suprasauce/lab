@@ -127,11 +127,12 @@ func TestMissingUnderlying(t *testing.T) {
 func TestRuntimeErrors(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
 		{"late configuration", "ctx.configure()", "allowed once during initialize"},
-		{"bad quantity type", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',quantity=-1.5)", "quantity"},
-		{"missing trading symbol", "ctx.place_order(quantity=-75)", "tradingsymbol"},
-		{"zero quantity", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',quantity=0)", "nonzero"},
-		{"removed side argument", "ctx.place_order(tradingsymbol='NIFTY26NOV26000CE',side='SELL',quantity=-75)", "side"},
-		{"unknown order", "ctx.order('unknown')", "unknown order"},
+		{"bad quantity type", "ctx.place_trade(tradingsymbol='NIFTY26NOV26000CE',quantity=-1.5)", "quantity"},
+		{"missing trading symbol", "ctx.place_trade(quantity=-75)", "tradingsymbol"},
+		{"zero quantity", "ctx.place_trade(tradingsymbol='NIFTY26NOV26000CE',quantity=0,price=100)", "nonzero"},
+		{"removed side argument", "ctx.place_trade(tradingsymbol='NIFTY26NOV26000CE',side='SELL',quantity=-75)", "side"},
+		{"removed order lookup", "ctx.order('unknown')", "no .order"},
+		{"removed placement API", "ctx.place_order()", "no .place_order"},
 		{"removed entry API", "ctx.open('L')", "no .open"},
 		{"removed exit API", "ctx.close('L')", "no .close"},
 	} {
@@ -189,6 +190,9 @@ func (f *fixture) query(_ context.Context, query string, args []driver.NamedValu
 	case strings.Contains(query, "e.option_chain_fetched"):
 		r.columns = []string{"id", "option_chain_fetched"}
 		r.values = [][]driver.Value{{int64(9), true}}
+	case strings.Contains(query, "FROM lab.underlying_candles") && len(args) == 3 && args[0].Value == int64(7):
+		r.columns = candleColumns()
+		r.values = [][]driver.Value{candleRow(args[2].Value.(time.Time), 2253000)}
 	case strings.Contains(query, "FROM lab.underlying_candles") && strings.Contains(query, "ORDER BY start_time DESC"):
 		r.columns = []string{"start_time", "timeframe", "open", "high", "low", "close", "volume"}
 		at := args[1].Value.(time.Time)
